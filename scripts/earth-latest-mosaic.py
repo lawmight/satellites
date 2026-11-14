@@ -100,6 +100,8 @@ class TilePick:
     row: int
     col: int
     age_days: int
+    oldest_age_days: int
+    mixed: bool
     layer_id: str
     date: str
     mean_brightness: float
@@ -163,7 +165,16 @@ def fetch_jpeg(url: str) -> bytes | None:
             if err.code not in (429, 500, 502, 503, 504):
                 print(f'{last} {url}', file=sys.stderr)
                 return None
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
+        except TimeoutError as err:
+            # Public archives: timed-out requests are not asked again (CLAUDE.md).
+            print(f'timeout {url} {err}', file=sys.stderr)
+            return None
+        except urllib.error.URLError as err:
+            if isinstance(err.reason, TimeoutError) or 'timed out' in str(err.reason).lower():
+                print(f'timeout {url} {err}', file=sys.stderr)
+                return None
+            last = str(err)
+        except (ConnectionError, OSError) as err:
             last = str(err)
         if attempt < 2:
             time.sleep(delay)
@@ -243,7 +254,8 @@ def empty_age(lookback: int) -> int:
 
 
 def blank_pick(row: int, col: int, lookback: int, mean: float = 0.0) -> TilePick:
-    return TilePick(row, col, empty_age(lookback), '', '', mean, None)
+    age = empty_age(lookback)
+    return TilePick(row, col, age, age, False, '', '', mean, None)
 
 
 def pick_latest(
@@ -255,11 +267,27 @@ def pick_latest(
     base_layer = ''
     base_date = ''
     base_age = 0
-    prior: list[Image.Image] = []
+    oldest_age = 0
+    mixed = False
+    # Donors that arrived before a usable base (partially empty early tiles).
+    prior: list[tuple[Image.Image, int, str]] = []
 
     def finish() -> TilePick:
         assert base is not None
-        return TilePick(row, col, base_age, base_layer, base_date, base_mean, base)
+        return TilePick(row, col, base_age, oldest_age, mixed, base_layer, base_date, base_mean, base)
+
+    def absorb(donor: Image.Image, donor_age: int, donor_layer: str) -> None:
+        nonlocal base, oldest_age, mixed
+        assert base is not None
+        if not has_holes(base):
+            return
+        before = base.convert('L').point(HOLE_LUT).getextrema()[1]
+        base = fill_holes(base, donor)
+        after = base.convert('L').point(HOLE_LUT).getextrema()[1]
+        if before > 0 and after < before:
+            oldest_age = max(oldest_age, donor_age)
+            if donor_age != base_age or donor_layer != base_layer:
+                mixed = True
 
     for age, day in days:
         for layer_id, _label in LAYERS:
@@ -270,7 +298,7 @@ def pick_latest(
             if base is None:
                 if mean <= EMPTY_MEAN:
                     if hi > EMPTY_MEAN:
-                        prior.append(im)
+                        prior.append((im, age, layer_id))
                     else:
                         im.close()
                     continue
@@ -279,20 +307,21 @@ def pick_latest(
                 base_layer = layer_id
                 base_date = day
                 base_age = age
-                for donor in prior:
-                    base = fill_holes(base, donor)
+                oldest_age = age
+                for donor, donor_age, donor_layer in prior:
+                    absorb(donor, donor_age, donor_layer)
                     donor.close()
                 prior.clear()
                 if not has_holes(base):
                     return finish()
                 continue
             if hi > EMPTY_MEAN:
-                base = fill_holes(base, im)
+                absorb(im, age, layer_id)
             im.close()
             if not has_holes(base):
                 return finish()
 
-    for donor in prior:
+    for donor, _donor_age, _donor_layer in prior:
         donor.close()
     if base is None:
         return blank_pick(row, col, lookback)
@@ -326,8 +355,9 @@ def read_cell(
         return blank_pick(row, col, lookback)
     _lo, mean, _hi = luma_stats(im)
     if mean <= EMPTY_MEAN:
-        return TilePick(row, col, empty_age(lookback), '', '', mean, im)
-    return TilePick(row, col, age, layer_id, day, mean, im)
+        empty = empty_age(lookback)
+        return TilePick(row, col, empty, empty, False, '', '', mean, im)
+    return TilePick(row, col, age, age, False, layer_id, day, mean, im)
 
 
 def fetch_day(
@@ -546,8 +576,22 @@ def main(argv: list[str] | None = None) -> int:
         picks = run_latest(args.cache, args.zoom, rows, cols, days, args.lookback, args.workers)
     age_counts, layer_counts = counts(picks)
     picked = sum(layer_counts.values())
+    mixed_cells = sum(1 for pick in picks if pick.mixed)
     mosaic = crop_to_world(render_mosaic(picks, rows, cols), args.zoom)
     coverage = render_coverage(picks, rows, cols, args.zoom, args.lookback)
+    cells = [
+        {
+            'row': pick.row,
+            'col': pick.col,
+            'age_days': pick.age_days,
+            'oldest_age_days': pick.oldest_age_days,
+            'mixed': pick.mixed,
+            'layer': LABELS.get(pick.layer_id, pick.layer_id),
+            'date': pick.date,
+            'mean': round(pick.mean_brightness, 2),
+        }
+        for pick in picks
+    ]
     manifest = {
         'generated_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
         'reference_date': args.reference.isoformat(),
@@ -575,8 +619,13 @@ def main(argv: list[str] | None = None) -> int:
         'layer_counts': layer_counts,
         'picked_tiles': picked,
         'empty_tiles': len(picks) - picked,
+        'mixed_cells': mixed_cells,
+        'coverage_age_basis': 'newest_tile_in_cell',
+        'cells': cells,
         'elapsed_s': round(time.perf_counter() - started, 1),
-        'caveats': CAVEATS,
+        'caveats': CAVEATS + [
+            'Coverage colour uses the newest tile that started the cell. cells[].oldest_age_days and mixed mark gap-fill.',
+        ],
     }
     manifest.update(extra)
     mosaic_path, coverage_path, manifest_path = write_outputs(args.out, mosaic, coverage, manifest)
