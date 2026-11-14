@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 746" width="360" height="746" role="img" aria-labelledby="t d">
 <title id="t">What runs where</title>
-<desc id="d">One lookup, top to bottom. In your browser: 01 place, 02 passes (SGP4 over 7 days in Web Workers), 03 photos (archive search matched to passes), 04 pixels (toning and the cloud at your spot), 05 share. Beside each step, the service it talks to: Photon for place names, CelesTrak element sets refreshed every 6 hours by GitHub Actions, Microsoft Planetary Computer, Element 84 and NASA GIBS for the archive search, Planetary Computer for each crop and its cloud mask, and Vercel and Supabase for the share card and link.</desc>
+<desc id="d">One lookup, top to bottom. In your browser: 01 place, 02 passes (SGP4 over 7 days in Web Workers), 03 photos (archive search matched to passes), 04 pixels (toning and the cloud at your spot), 05 share. Beside each step, the service it talks to: a built-in GeoNames town list for place names (Photon as a backup), CelesTrak element sets refreshed every 6 hours by GitHub Actions, Microsoft Planetary Computer, Element 84 and NASA GIBS for the archive search, Planetary Computer for each crop and its cloud mask, and Cloudflare and Supabase for the share card and link.</desc>
 <rect x="0.5" y="0.5" width="359" height="745" fill="#FFFFFF" stroke="rgba(7,8,10,0.16)"/>
 <path d="M8 18 V8 H18" fill="none" stroke="rgba(7,8,10,0.34)" stroke-width="1"/>
 <path d="M352 18 V8 H342" fill="none" stroke="rgba(7,8,10,0.34)" stroke-width="1"/>
@@ -27,9 +27,9 @@
 <path d="M36.5 205 L40 210 L43.5 205" fill="none" stroke="rgba(7,8,10,0.54)" stroke-width="1"/>
 <rect x="186.5" y="82.5" width="161" height="113" fill="none" stroke="rgba(7,8,10,0.34)" stroke-dasharray="3 3"/>
 <text x="198" y="104" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing="1" fill="rgba(7,8,10,0.54)">NAMES</text>
-<text x="198" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#07080A">Photon</text>
-<text x="198" y="148" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Place names from</text>
-<text x="198" y="165" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">OpenStreetMap</text>
+<text x="198" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#07080A">GeoNames</text>
+<text x="198" y="148" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Offline town list,</text>
+<text x="198" y="165" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Photon as backup</text>
 <path d="M166 122 H182" stroke="rgba(7,8,10,0.54)" stroke-width="1"/>
 <path d="M171 118.5 L166 122 L171 125.5" fill="none" stroke="rgba(7,8,10,0.54)"/>
 <rect x="12.5" y="214.5" width="149" height="113" fill="#F6F5F2" stroke="rgba(7,8,10,0.34)"/>
@@ -83,9 +83,9 @@
 <text x="26" y="693" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="rgba(7,8,10,0.70)">for the pass</text>
 <rect x="186.5" y="610.5" width="161" height="113" fill="none" stroke="rgba(7,8,10,0.34)" stroke-dasharray="3 3"/>
 <text x="198" y="632" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing="1" fill="rgba(7,8,10,0.54)">CARD</text>
-<text x="198" y="654" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#07080A">Vercel, Supabase</text>
-<text x="198" y="676" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Renders the card,</text>
-<text x="198" y="693" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">stores the link</text>
+<text x="198" y="654" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" font-weight="600" fill="#07080A">Cloudflare</text>
+<text x="198" y="676" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Renders the card;</text>
+<text x="198" y="693" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12" fill="rgba(7,8,10,0.70)">Supabase, the link</text>
 <path d="M166 650 H182" stroke="rgba(7,8,10,0.54)" stroke-width="1"/>
 <path d="M177 646.5 L182 650 L177 653.5" fill="none" stroke="rgba(7,8,10,0.54)"/>
 </svg>

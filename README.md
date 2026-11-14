@@ -10,105 +10,69 @@
 <h3 align="center">Something watched you this&nbsp;week.</h3>
 
 <p align="center">
-  <b>Watched</b> shows which satellites passed over any place on Earth in the last 7 days, and the real photos they took. It is free, with no sign-up, and the orbit maths runs in your browser.
+  Pick any place on Earth. Watched shows every satellite that passed over it in the last 7 days, and the real images they took.<br>
+  Free, no sign-up. The orbit maths runs in your browser.
 </p>
 
 <p align="center">
   <a href="https://www.watched.earth"><b>www.watched.earth</b></a>
   <br>
-  <a href="#how-it-works">How it works</a> &nbsp;·&nbsp; <a href="#run-it-locally">Run locally</a> &nbsp;·&nbsp; <a href="#self-hosting">Self&#8209;hosting</a>
+  <sub>Nearly 700,000 visits in its first week · 490 points on <a href="https://news.ycombinator.com/item?id=50428907">Hacker News</a> · MIT licensed</sub>
 </p>
 
 <p align="center">
   <a href="https://www.watched.earth/?q=25.1124,55.139&n=Palm%20Jumeirah">
-    <img src="docs/readme/hero.jpg" width="100%" alt="Watched results page on desktop. A 3D globe centred on the Persian Gulf shows daylight over the Arabian Peninsula and city lights on the night side to the east, with an orange reticle on Palm Jumeirah, Dubai, labelled 25.1124°N 55.1390°E. The right-hand panel reads 'In the last 7 days, 260 satellites watched Palm Jumeirah. 28 photos were made public.' Below it is a Sentinel-2B satellite photo of the palm-shaped island, tagged Closest look, and four counts: 28 images watched, 167 passes likely watched, 1,088 passes could have pointed here and 51 passed overhead. A timeline of the week's passes runs along the bottom.">
+    <img src="docs/readme/hero.jpg" width="100%" alt="Watched on a laptop. A night-side globe centred on the Gulf, city lights across Arabia and India, an orange reticle on Palm Jumeirah. The panel on the right reads 'In the last 7 days, 262 satellites watched Palm Jumeirah. 1,713 images were made public.' above a Sentinel-2B photo of the island tagged Closest look, a Time-lapse row and four pass counts. A timeline of the week runs along the bottom.">
   </a>
   <br>
-  <sub>Palm Jumeirah, Dubai, on 9 November 2026. <a href="https://www.watched.earth/?q=25.1124,55.139&n=Palm%20Jumeirah">Open the same place live</a>.</sub>
+  <sub>Palm Jumeirah, Dubai, 14 November 2026. <a href="https://www.watched.earth/?q=25.1124,55.139&n=Palm%20Jumeirah">Open it live</a>.</sub>
 </p>
 
 ## What it does
 
-1. **Pick a place.** Search a city, a landmark or coordinates, use your location, drop a pin on the globe, or start
-   from an example: Area 51, Central Park, Giza, or *Surprise me* for a famous place picked at random.
-2. **It finds the passes.** While the globe flies there, your browser replays the past week of orbits for nearly 400
-   imaging, weather, radar and crewed satellites, and notes every time one's field of view crossed your spot.
-3. **It finds the photos.** At the same time it searches the Sentinel-2 and Landsat archives, NASA's weather
-   imagery and Sentinel-1's radar images (which see through cloud and at night), matches each image to the pass that
-   took it, and checks whether your spot was under cloud. The results open with a summary (*In the last 7 days, 260
-   satellites watched Palm Jumeirah. 31 images were made public.*), then the images, a timeline of the week and every
-   pass.
-4. **Replay a pass.** The satellite flies its real track while the strip of ground its camera sees (its swath)
-   sweeps across the place. The photo then develops line by line in the direction of flight, the way the
-   satellite's camera recorded it.
-5. **Share it.** Post the link anywhere and it shows a preview card made from the real photo, or from the pass's
-   geometry when there is no photo.
+- **Finds the passes.** Your browser replays the week's orbits for about 400 imaging, weather, radar and crewed
+  satellites and notes every time one could see your spot.
+- **Finds the images.** It searches the Sentinel-2, Landsat and Sentinel-1 radar archives and NASA's and EUMETSAT's
+  weather imagery, matches each image to the pass that took it, and checks whether your spot was under cloud.
+- **Replays a pass.** The satellite flies its real track while its swath sweeps the place, then the photo develops
+  line by line in the direction of flight, the way the camera recorded it.
+- **Plays a time-lapse.** One clear Sentinel-2 look a year since 2015, the same 10 km square every time, as a loop
+  you can save as a video.
+- **Shares it.** Every link unfurls into a card made from the real photo.
 
 <p align="center">
-  <img src="docs/readme/reveal.webp" width="37.7%" alt="Animation of a pass replay. It opens on a finished Sentinel-2C photo of Palm Jumeirah with an orange reticle on the searched spot, fades to a dark raster, then a thin orange scan line moves diagonally along the satellite's track and uncovers the photo line by line while a counter runs from LINE 0000 to 1024 and the reticle locks on as the line passes it.">
-  <img src="docs/readme/landing.jpg" width="60.3%" alt="The desktop landing page: the headline 'Something watched you this week.', a search field and example places (Area 51, Central Park, Giza, Uluru, Palm Jumeirah) on the left, and a globe wrapped in a halo of about 17,000 active satellites on the right.">
+  <img src="docs/readme/reveal.webp" width="49%" alt="A pass replay: an orange scan line moves along the satellite's track and uncovers a Sentinel-2C photo of Palm Jumeirah line by line, while a counter runs from LINE 0000 to 1024.">
+  <img src="docs/readme/timelapse.webp" width="49%" alt="A time-lapse of Egypt's New Administrative Capital from 2015 to 2026: bare desert with one highway becomes a grid of districts, parks, towers and ring roads, one clear Sentinel-2 frame a year.">
   <br>
-  <sub>Left: a pass replay, the photo developing line by line as the satellite recorded it. Right: the landing page, with every active satellite in the catalog around the globe.</sub>
+  <sub>A pass replay, and eleven years of Egypt's new capital rising out of the desert.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/readme/phone.jpg" width="39.2%" alt="Two phone screens side by side, both cropped at the bottom. Left: the mobile landing page, with a small globe inside a halo of satellites above the headline 'Something watched you this week.', a search field and example-place buttons. Right: the mobile results for Palm Jumeirah, with the globe and an orange reticle over the Gulf at the top. Below is a sheet that reads 'In the last 7 days, 260 satellites watched Palm Jumeirah. 29 photos were made public.' and shows the Sentinel-2B closest-look photo of the island.">
-  <img src="docs/readme/card.jpg" width="58.8%" alt="The share card for a satellite pass. On the left is the Sentinel-2B photo of Palm Jumeirah with an orange reticle, a 1 km scale bar and the credit 'Contains modified Copernicus Sentinel data 2026'. On the right are the Watched wordmark, the date 'Sun 8 Nov 2026 · 11:02 UTC+4', the headline '260 satellites watched Palm Jumeirah.' and three readouts: altitude 792 km, off-nadir 5.4° and pixel 10 m.">
+  <img src="docs/readme/phone.jpg" width="39.6%" alt="Two phone screens. Left: results for Palm Jumeirah, the globe at night above a sheet that reads '262 satellites watched Palm Jumeirah. 1,713 images were made public.' with a Share button, gallery filters and the closest-look photo. Right: the time-lapse of Egypt's New Administrative Capital at 2024, with a year slider, Share and Video buttons.">
+  <img src="docs/readme/card.jpg" width="59.4%" alt="The share card for a pass: the Sentinel-2B photo of Palm Jumeirah with a reticle and a 1 km scale bar on the left; on the right the date, the headline '260 satellites watched Palm Jumeirah.' and altitude 792 km, off-nadir 5.4° and pixel 10 m.">
   <br>
-  <sub>The same lookup on a phone, and the preview card for a shared pass.</sub>
+  <sub>On a phone, and the card a shared pass unfurls into.</sub>
 </p>
 
 ## What *watched* means
 
-Every pass gets one of four labels, and only the first means an image exists. The line in italics is the rule behind
-each one.
+Every pass gets one of four labels. Only the first comes with an image.
 
-| Label | What it means |
-|:--|:--|
-| ◆&nbsp;**Watched** | A real image of this place exists in a public archive.<br>*A Sentinel-2, Landsat or weather photo, or a Sentinel-1 radar image, was matched to the pass. A VIIRS daily mosaic still unchecked after 2.5 s also counts, if the same satellite has a verified mosaic on a later day.* |
-| ◇&nbsp;**Likely watched** | A fixed camera's swath covered this place. No photo of it is published.<br>*Sentinel-2 or Landsat in daylight, or a polar weather satellite, with no photo found.* |
-| □&nbsp;**Could have pointed here** | A steerable or private camera was in range. Its operator doesn't say whether it looked.<br>*A commercial camera in daylight, or a radar satellite at any hour (for Sentinel-1, whose images are public: none of this pass shows the place).* |
-| +&nbsp;**Passed overhead** | Crossed your sky, with no camera known to be recording this place.<br>*The ISS or Tiangong at least 10° above the horizon, or a Sentinel-2 or Landsat pass over open ocean (outside Sentinel-2's acquisition plan).* |
+| | Label | Means |
+|:--|:--|:--|
+| ◆ | **Watched** | A real image of this place from this pass is in a public archive. |
+| ◇ | **Likely watched** | A camera that is always on (Sentinel-2, Landsat, polar weather) covered the place, but no image of it was published. |
+| □ | **Could have pointed here** | A steerable or commercial camera was in range. Its operator doesn't say whether it looked. |
+| + | **Passed overhead** | Crossed your sky with no camera known to be recording: the ISS, Tiangong, a pass over open ocean. |
 
-The results headline (*260 satellites watched Palm Jumeirah*) counts every satellite with at least one pass,
-whatever its label, so *watched* there is meant broadly; only ◆ passes come with an image. The second line counts the
-images that were made public (photos, weather mosaics and radar images alike), and starts with "At least" while
-archives are still answering. Geostationary weather
-satellites never pass; they sit over the equator all week, so they are listed separately and not counted among the
-satellites. Their images are counted, though: every full-disc image that GOES, Himawari or a Meteosat took of the
-place's side of the Earth that week (one every 10 or 15 minutes, about a thousand each) is in the second line's
-number, and the newest of each is shown. The app says *watched*, never *photographed*.
+Geostationary weather satellites never pass; they watch all week, so their images are counted but they are not. The
+app says *watched*, never *photographed*. The exact rules behind each label and number are in
+[`docs/ACCURACY.md`](docs/ACCURACY.md).
 
-## Accuracy and limits
-
-- Passes are searched for satellites whose cameras, radars or crews Watched knows about, and the geostationary
-  weather satellites that can see the place are listed as watching all week. The rest of the catalog is drawn on the
-  globe but not searched. Military and intelligence satellites mostly aren't in public catalogs.
-- In the photos Watched shows, a pixel is 10 m across at best, bigger than a car, so you can't be seen in them.
-  Commercial cameras in the *could have pointed here* group see down to about 30 cm, but their operators don't
-  publish where they pointed or what they saw.
-- The public orbit data (element sets) is accurate to about a kilometre when it is issued and drifts after that, so
-  pass times can be off by a few seconds.
-- Archives publish a few hours to a couple of days after capture, so the newest passes may not have a photo yet.
-- Sentinel-2 and Landsat photos are toned the same way across the whole frame: a black point, a white point and a
-  brightness curve, a little extra saturation, smoothed compression blocks and light sharpening. Nothing is added or
-  removed. Opened full size, a Landsat 8 or 9 photo is sharpened with the same capture's 15 m panchromatic band (real
-  detail the satellite recorded, from Landsat Level-1), and its labels then say 15 m.
-- Sentinel-1 radar images are shown at 20 m, the radar's own resolution, in grey with a faint ice tint: brightness is
-  how strongly the ground echoes the radar (rough ground and buildings bright, calm water dark), not light. Each
-  image gets its own contrast. They never lead the photos, and the radar search never delays the results: the
-  report takes them if they have answered by the time it is ready (they nearly always have).
-
-- The geostationary weather satellites that watch a place all week are listed with their newest image where a public
-  map service carries it: GOES and Himawari from NASA, the two Meteosats from EUMETSAT. That image closes the gallery
-  and can be opened, replayed and shared like a pass; the others of the week are counted from the satellite's
-  schedule, not fetched. Its replay shows the imager's scan line crossing the place: the time is good to about a
-  minute, and the app says "about". At night Himawari and Meteosat-9 are shown in infrared, labelled *IR*: cloud tops
-  by temperature, colder is lighter. NASA draws its coldest cloud tops in a colour code; Watched puts them back on
-  the grey scale, in the same order. At the rim of a satellite's view an image can be part empty; it is shown small
-  in its row, or not at all, and neither counted nor put in the gallery.
-
-Everything uncertain is labelled as such in the app.
+**What it can't see.** Photos are 10 m a pixel at best, so no one can be made out in them. Commercial satellites
+that see down to 30 cm don't publish where they pointed, and military ones mostly aren't in public catalogs. Public
+orbits drift by about a kilometre, so pass times can be off by a few seconds. Archives publish hours to days after
+capture, so the newest passes may not have an image yet.
 
 ## How it works
 
@@ -117,99 +81,72 @@ Everything uncertain is labelled as such in the app.
     <source media="(max-width: 544px) and (prefers-color-scheme: dark)" srcset="docs/readme/pipeline-dark-narrow.svg">
     <source media="(max-width: 544px)" srcset="docs/readme/pipeline-light-narrow.svg">
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/pipeline-dark.svg">
-    <img src="docs/readme/pipeline-light.svg" width="100%" alt="Diagram: what runs where, for one lookup. In your browser: 01 place (search, your location or an example), 02 passes (SGP4 over 7 days, in Web Workers), 03 photos (archive search, matched to passes), 04 pixels (photo toning and cloud at your spot), 05 share (a link and a card for the pass). The service beside each step: Photon sends place names from OpenStreetMap; CelesTrak element sets arrive every 6 hours via GitHub Actions; the archives (Planetary Computer, Element 84, NASA GIBS) return scenes; Planetary Computer renders each crop and its cloud mask; and the share goes out to Vercel, which renders the card, and Supabase, which stores the link.">
+    <img src="docs/readme/pipeline-light.svg" width="100%" alt="Diagram: what runs where, for one lookup. In your browser: 01 place, 02 passes (SGP4 over 7 days, in Web Workers), 03 photos (archive search, matched to passes), 04 pixels (photo toning and cloud at your spot), 05 share. The service beside each step: a built-in GeoNames town list for names, with Photon as a backup; CelesTrak element sets every 6 hours via GitHub Actions; the archives (Planetary Computer, Element 84, NASA GIBS); Planetary Computer rendering each crop and its cloud mask; and Cloudflare, which renders the card, with Supabase storing the link.">
   </picture>
 </p>
 
-Built with TypeScript, React 19, three.js through React Three Fiber, zustand and Vite. The pass search (SGP4, the
-standard model for public orbit data) and photo toning run in your browser, in Web Workers; the backend is three
-Vercel functions and an optional Supabase database.
+TypeScript, React 19, three.js through React Three Fiber, zustand and Vite. The pass search and the photo toning run
+in Web Workers in your browser. The server side is four small functions on a Cloudflare Worker (the same handlers
+also run on Vercel) and an optional Supabase database.
 
-Four parts are worth a closer look. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the rest, including photo
-toning, the cloud check at your spot and the share cards, and [`docs/DESIGN.md`](docs/DESIGN.md) covers the visual
-system.
+### A pass search that can't miss
 
-### A pass search with no gaps
+Let *θ* be the angle at Earth's centre between the satellite and the place, and *θ*<sub>field</sub> the widest *θ*
+at which the place is in view. *θ* can't change faster than the orbit's peak angular rate plus Earth's rotation, so
+the search steps by |*θ* − *θ*<sub>field</sub>| / *ω*<sub>max</sub> (5 s to 30 min) and flags every interval where
+*θ* could reach the field, so no pass falls between samples. Golden-section search then pins closest approach to
+±0.1 s.
 
-Call *θ* the angle, at Earth's centre, between the satellite and the place, and *θ*<sub>field</sub> the largest *θ*
-at which the place can be in the camera's view. That angle can change no faster than *ω*<sub>max</sub>, the orbit's
-peak angular rate with a 10% margin for perturbations, plus Earth's rotation. So the coarse search steps
-by |*θ* − *θ*<sub>field</sub>| / *ω*<sub>max</sub>, clamped between 5 s and 30 min. Between any two samples the
-same rate limit gives a lower bound on *θ*, so every interval where *θ* could reach *θ*<sub>field</sub> is flagged,
-and no pass falls between samples. Golden-section search then finds closest approach to ±0.1 s, and bisection
-finds entry and exit to ±0.5 s.
+Against a one-second brute force over 22 adversarial cases (both poles, the antimeridian, Null Island, 32 km swaths)
+it misses nothing, and the worst timing difference is 0.65 s. A week for every profiled satellite takes 1.3 s on
+one thread. [`src/engine/passes.ts`](src/engine/passes.ts)
 
-Against a one-second brute force, 22 adversarial cases (both poles, the antimeridian, Null Island, swaths down to
-32 km) show no missed passes; where timing is measured, the worst difference is 0.65 s. A week for all 394 satellites
-(1,860 passes in the test case) takes 1.3 s on one thread in Node; the browser splits it across up to four Web
-Workers, two on phones. See [`src/engine/passes.ts`](src/engine/passes.ts).
+### 17,000 satellites on the GPU
 
-### About 17,000 satellites on the GPU
+<p align="center">
+  <img src="docs/readme/landing.jpg" width="100%" alt="The landing page: the headline 'Something watched you this week.', a search field, Use my location, example places (Area 51, Central Park, Giza, Surprise me) and a hint to click the globe to drop a pin on the left; on the right, the globe over the Pacific wrapped in a halo of about 17,000 active satellites.">
+</p>
 
-The globe draws every active satellite in the catalog (16,894 on 9 November 2026). Their element sets become mean
-Keplerian elements with SGP4's own J2 and J4 secular rates, and a vertex shader solves Kepler's equation for every
-object, every frame. Against full SGP4 over ±24 h, the median error in low orbit is about 17 km, one or two pixels at
-globe scale, though one object in twenty is off by more than 100 km. The pass search always uses full SGP4. The globe
-itself is Earth-fixed and lit by the sun's true direction, computed to about 0.01°, so the terminator, the ocean
-glint and the city lights are where they really are. See [`src/engine/elements.ts`](src/engine/elements.ts).
+The globe draws every active object in the catalog. A vertex shader solves Kepler's equation for each one, every
+frame, from mean elements with SGP4's own J2 and J4 drift: about 17 km median error in low orbit, a pixel or two at
+globe scale. The pass search always uses full SGP4. The sun's direction is computed to about 0.01°, so the
+terminator, ocean glint and city lights are where they really are. [`src/engine/elements.ts`](src/engine/elements.ts)
 
 ### Archive time is not overpass time
 
-A Sentinel-2 scene's archive timestamp (the `datetime` in its STAC record, the catalog format these archives share)
-marks the start of the strip the satellite was recording, which can begin minutes before it reaches a given spot
-(6 min 53 s in one measured case). A photo matches the pass of the same satellite (same NORAD catalog number) whose
-closest approach falls between 10 minutes before and 60 minutes after that time, and the app always shows the
-predicted pass time. See [`src/engine/match.ts`](src/engine/match.ts).
+A Sentinel-2 scene's timestamp marks the start of the strip being recorded, up to 7 minutes before the satellite
+reached your spot. Images are matched to the pass of the same satellite whose closest approach falls 10 minutes
+before to 60 minutes after that time, and the app always shows the predicted pass time.
+[`src/engine/match.ts`](src/engine/match.ts)
 
-### A locked-down backend
+### Every frame on one grid
 
-Vercel serves the static app and three functions: share cards (`/api/og`), share pages (`/s/:id`) and the
-usage-event relay (`/api/e`). Supabase holds lookups, shares and usage counts. Row-level security is on, every table
-privilege is revoked, clients can only call a handful of Postgres functions, and an hourly pg_cron job rolls up and
-prunes the events.
+Every crop is cut on the place's own UTM grid, in the satellite's whole pixels (10 m for Sentinel, 30 m for
+Landsat), so the archive's pixels are copied, not warped, and images of one place line up exactly with no alignment
+step. That is what lets the time-lapse play eleven years from a single tile and orbit with no wobble. [`src/imagery/timelapse.ts`](src/imagery/timelapse.ts)
+
+### A backend that can only do four things
+
+Share cards, share pages, the event relay and Landsat's 15 m band. In Supabase, row-level security is on, every
+table privilege is revoked, the public key can call only a handful of Postgres functions with built-in rate limits,
+and pg_cron rolls up and prunes the usage events every hour.
+
+More in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and, for the visual system, [`docs/DESIGN.md`](docs/DESIGN.md).
 
 ## Privacy
 
-The orbit maths runs in your browser. The site counts how it is used; it does not track people.
+- **Coarse by design.** A lookup is stored as a 10 km cell; a share, as a point rounded to about 1 km. No exact
+  coordinates, IP addresses or full referrers, ever.
+- **Short-lived.** Raw events and visits are deleted after 48 hours, leaving only counts. Visits are tied to a random
+  ID that lives as long as the tab.
+- **Mostly offline.** Place names come from a list that ships with the site, so most searches never leave your
+  browser.
 
-| Record | What Watched keeps |
-|:--|:--|
-| Lookup | A cell about 10 km across (0.1°), and that place's country and town. |
-| Share | The town-level place name, a point rounded to about 1 km (0.01°), the pass and its photos, and a view count. |
-| Visit | What happened (searches, results, passes and photos opened, shares, errors, page speed), tied to a random ID that lives only as long as the browser tab, with the device class, your country (from the host's edge), the referring site, any UTM tags and the app version. |
-
-Raw events, visits and single lookups are deleted after 48 hours. What stays is counts: usage per hour and per day,
-and lookups per cell. Shares are kept.
-
-Watched's database never stores exact coordinates, IP addresses, cookies or full referrer URLs, and the event relay
-never reads the IP. The app never sends street-level place names. The site's host and Supabase see IP addresses in
-transit and in their own request logs, like any host. The host is Vercel until the site moves to Cloudflare in November
-2026.
-
-Other services see the place too, but less often than you might think: names come from a list of towns,
-countries and landmarks that ships with the site, so most searches, and any spot near a town, never leave your
-browser. A search the list can't answer goes to [Open-Meteo](https://open-meteo.com/en/docs/geocoding-api), and to
-[Photon](https://photon.komoot.io) if Open-Meteo has nothing; a spot far from any town goes to Photon, and to
-[Nominatim](https://nominatim.openstreetmap.org) if Photon is slow. Planetary Computer and NASA GIBS see the point and the area around it, to send the photos, and so
-does EUMETSAT where a Meteosat watches the place.
-Element 84 sees it only when Planetary Computer is down.
-
-The host, Cloudflare, also counts page views and page speed with Cloudflare Web Analytics, with no cookies or local
-storage (until November 2026 the site ran on Vercel, which counted them with Vercel Web Analytics). It receives the
-page address, which for a place link can include its coordinates and name.
-
-On Cloudflare, every page also gets a script Cloudflare adds to tell people from bots (JavaScript detections, which
-the free plan cannot turn off). It sets one security cookie, `cf_clearance`, on watched.earth for up to a year. Watched
-never reads it, and it is not used for analytics. It is the only cookie the site's visitors get.
-
-Usage events are sent only from watched.earth, and never from a development build, an automated browser or a tab
-opened with `?noanalytics=1` (for as long as that tab stays open). The flag doesn't stop lookups and shares being
-counted: any build with Supabase configured counts them, development included. The host's web analytics ignores the
-flag.
+The full account, including which services see a place you look up, is in [`docs/PRIVACY.md`](docs/PRIVACY.md).
 
 ## Run it locally
 
-You need Node 22.12+, 24 or 26+, the versions Vitest supports.
+Node 22.12+, 24 or 26+.
 
 ```bash
 git clone https://github.com/dev-Armaan/satellites.git
@@ -218,93 +155,51 @@ npm install
 npm run dev
 ```
 
-The app runs at `http://localhost:5173` with no configuration. Without a backend nothing is recorded, the
-places-checked counter on the landing page is hidden, and share links carry the pass in the URL instead of a short
-`/s/` link.
-
-To turn on lookups and shares:
-
-1. Create a Supabase project and apply the migrations, as [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md) shows.
-2. Copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Use the
-   publishable key, never a secret key: `VITE_` variables are bundled into the JavaScript that every visitor
-   downloads.
-3. Run `npm run dev` as before, or `npx vercel dev` to serve the share pages and cards in `api/` as well. Vercel asks
-   to link a project the first time.
-
-The places-checked counter appears once a project has 1,000 lookups, 50 of them in the last 24 hours.
-
-### Tests and scripts
+That's the whole app at `http://localhost:5173`, with no configuration. Lookups and short share links need a Supabase
+project: copy `.env.example` to `.env.local` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (the
+publishable key, never a secret one: `VITE_` variables ship to every browser).
 
 ```bash
-npm test                    # engine, imagery and UI tests (Vitest)
-npm run test:backend        # tests for the api/ functions
-npm run typecheck           # tsc -b
-npm run build               # the app and the /admin page, into dist/
+npm test                  # engine, imagery and UI (Vitest)
+npm run test:backend      # the server functions and the Worker
+npm run typecheck
+npm run build             # the app and /admin, into dist/
+npm run dev:worker        # after a build: the Cloudflare Worker, locally
 
-npm run data:celestrak      # refresh the orbit catalog (CelesTrak asks for 2 hours between downloads)
-npm run textures -- ./maps  # rebuild public/textures from the source maps in ./maps
-
-# render share cards for sample passes to image files (needs no server or database)
-npx tsx scripts/backend-render-og.ts
+npm run data:celestrak    # refresh the orbit catalog (CelesTrak asks for 2 h between downloads)
 ```
 
-The built textures are committed, so you rarely need `npm run textures`. It needs Python 3 and Pillow, and reads the
-source maps listed at the top of `scripts/build-textures.py`.
-
-### Useful URLs
-
-| URL | What it does |
+| URL | |
 |:--|:--|
-| `/?q=lat,lon&n=name` | Opens a place directly. Add `&p=<pass id>` to open a pass. |
+| `/?q=lat,lon&n=name` | Open a place. Add `&p=<pass id>` for a pass, or `&tl=1` for its time-lapse. |
 | `/?debug=gl` | WebGL diagnostics. |
-| `/?sandbox=<name>` | Development pages (dev server only): `engine`, `backend`, `globe`, `imagery`, `results`, `shell`. |
-| `/admin.html?mock=1` | The stats page with fixture data (dev server only). |
+| `/?sandbox=<name>` | Development pages: `engine`, `backend`, `globe`, `imagery`, `results`, `shell`. |
+| `/admin.html?mock=1` | The stats page with fixture data. |
 
 ## Self-hosting
 
-Watched is a static Vite build, three Vercel functions, an optional Supabase project and a GitHub Action that keeps
-the orbit catalog fresh. To run your own copy:
-
-1. Fork the repository and import it into Vercel. It works as is, with no backend.
-2. Enable GitHub Actions on your fork so the catalog refresh runs. Forks start with scheduled workflows off.
-3. For lookups, shares and stats, apply `supabase/migrations` to your own Supabase project (they need pg_cron), set
-   `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in Vercel, and make yourself admin with
-   `scripts/backend-set-admin.sh`. Every database script needs `SUPABASE_PROJECT_REF` and has no default, so none of
-   them can touch someone else's project by accident.
-4. For usage events, add your domain to `PRODUCTION_HOSTS` in `src/lib/telemetry.ts`. A fork sends none until you do.
-
-The full guide is [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md).
-
-## Project layout
+A fork runs as is, with no backend: deploy it to Cloudflare Workers or Vercel and turn on GitHub Actions so the
+orbit catalog refreshes. Supabase (lookups, shares, stats) is optional. Step by step:
+[`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md).
 
 <details>
-<summary>Show the directory tree</summary>
+<summary><b>Project layout</b></summary>
 
 ```
-index.html            app shell and static boot screen
-admin.html            /admin stats page (separate build: vite.admin.config.ts)
-vercel.json           functions, headers, /s/:id and bot-unfurl routes, SPA fallback
 src/
-  main.tsx            entry; analytics and in-app events after first paint (production only)
-  types.ts            shared contracts
-  app/                phase controller, boot curtain, error notice, telemetry wiring
-  engine/             catalog, satellite profiles, SGP4, pass search and worker pool, matching,
-                      weather and geostationary legs, GPU elements, the report
-  imagery/            STAC and GIBS, crop and mask URLs, pixels worker, cloud at your spot, place names, time zones
-  globe/              three.js / React Three Fiber scene: Earth, atmosphere, clouds, stars,
-                      GPU satellites, pass sequence, swath, camera
-  ui/                 system primitives, HUD, landing, results, share, About
-  lib/                geo maths, backend client, telemetry, layout
-  state/              zustand store and scene clock
-  styles/             tokens, fonts, base
-  admin/              /admin page (Supabase Auth)
-  sandbox/            development-only ?sandbox= pages
-api/                  og.tsx (share card), s.ts (share page), e.ts (events relay), _lib, _fonts, _assets
-public/               data/ (orbit catalog), textures/, brand/, og-default.png
-supabase/             migrations 0001 to 0007, SQL tests
-scripts/              catalog fetch, textures, fonts, card render, migrate, admin, verify, SQL test, purge
-docs/                 DESIGN.md, ARCHITECTURE.md, SELF-HOSTING.md
-.github/workflows/    catalog.yml (orbit catalog refresh)
+  engine/       catalog, satellite profiles, SGP4, pass search and worker pool, matching,
+                weather, radar and geostationary legs, GPU elements, the report
+  imagery/      STAC and GIBS search, crops, the pixels worker, cloud at your spot,
+                radar tone, time-lapse, place names
+  globe/        the three.js scene: Earth, atmosphere, clouds, satellites, swath, camera
+  ui/           design system, landing, results, share, time-lapse, About
+  app/          phase controller, boot screen, telemetry wiring
+  admin/        the /admin stats page
+api/            share card, share page, events relay, Landsat pan band
+worker/         the Cloudflare Worker: routes and headers that mirror vercel.json
+supabase/       migrations and SQL tests
+scripts/        catalog, places, textures, card renders, database helpers
+public/         orbit catalog, place list, textures, brand
 ```
 
 </details>
@@ -314,26 +209,25 @@ docs/                 DESIGN.md, ARCHITECTURE.md, SELF-HOSTING.md
 | Source | Credit |
 |:--|:--|
 | Orbits | Element sets from [CelesTrak](https://celestrak.org), based on US Space Force tracking data, refreshed every 6 hours. SGP4 by [satellite.js](https://github.com/shashwatak/satellite-js). |
-| Sentinel&#8209;2 | Contains modified Copernicus Sentinel data, followed by the year each photo was taken. |
+| Sentinel&#8209;1 and &#8209;2 | Contains modified Copernicus Sentinel data, followed by the year each image was taken. |
 | Landsat | Landsat imagery courtesy of the U.S. Geological Survey and NASA. |
 | NASA&nbsp;GIBS | Imagery from NASA's GIBS, part of EOSDIS. GOES via NOAA and CIRA, Himawari via JMA. |
 | Meteosat | Contains modified EUMETSAT Meteosat data, followed by the year, from [EUMETSAT's map service](https://view.eumetsat.int). |
 | Archives | [Microsoft Planetary Computer](https://planetarycomputer.microsoft.com) and [Element 84 Earth Search](https://element84.com/earth-search/); Landsat's 15 m band from the [Copernicus Data Space Ecosystem](https://dataspace.copernicus.eu). |
-| Places | The offline place list is built from [GeoNames](https://www.geonames.org) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). [Photon](https://photon.komoot.io) by komoot, and [Nominatim](https://nominatim.org) (OpenStreetMap Foundation) for naming a spot when Photon is slow; [Open-Meteo](https://open-meteo.com) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), from [GeoNames](https://www.geonames.org)) for searching when Photon is slow. Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL). |
-| Textures | [Solar System Scope](https://www.solarsystemscope.com/textures/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from NASA Blue Marble and Black Marble, partly by way of the three.js examples. Resized, re-encoded and repacked for this project. |
+| Places | The offline place list is built from [GeoNames](https://www.geonames.org) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)). [Open-Meteo](https://open-meteo.com) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), [Photon](https://photon.komoot.io) by komoot and [Nominatim](https://nominatim.org) answer what the list can't. Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) (ODbL). |
+| Textures | [Solar System Scope](https://www.solarsystemscope.com/textures/) ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), from NASA Blue Marble and Black Marble. Resized and repacked for this project. |
 | Fonts | Instrument Sans and Serif by Instrument, Martian Mono by Evil Martians (SIL OFL 1.1). |
 
-The screenshots in this README and the default share image contain modified Copernicus Sentinel data 2026. Licenses
-and attribution for every bundled asset are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The screenshots here and the default share image contain modified Copernicus Sentinel data 2015–2026. Every bundled
+asset's license is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Contributing, security and license
+## Contributing and license
 
-Issues and pull requests are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) lists the checks to run first. Please report
-security issues privately, as [SECURITY.md](SECURITY.md) describes, and not in a public issue.
+Issues and pull requests are welcome; [CONTRIBUTING.md](CONTRIBUTING.md) lists the checks to run first. Report
+security issues privately, as [SECURITY.md](SECURITY.md) describes.
 
-The code is released under the [MIT License](LICENSE), © 2026 Armaan Gupta. Imagery, orbital data, textures and
-fonts keep their own terms, listed above. The Watched name and wordmark identify the official site at
-www.watched.earth, so please don't present a fork as the official site.
+Code under the [MIT License](LICENSE), © 2026 Armaan Gupta. Imagery, orbital data, textures and fonts keep their own
+terms. The Watched name and wordmark identify the official site, so please don't present a fork as it.
 
 <br>
 

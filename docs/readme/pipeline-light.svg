@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 428" width="960" height="428" role="img" aria-labelledby="t d">
 <title id="t">What runs where</title>
-<desc id="d">One lookup, left to right. In your browser: 01 place, 02 passes (SGP4 over 7 days in Web Workers), 03 photos (archive search matched to passes), 04 pixels (toning and the cloud at your spot), 05 share. Services: Photon for place names, CelesTrak element sets refreshed every 6 hours by GitHub Actions, Microsoft Planetary Computer, Element 84 and NASA GIBS for the archive search, Planetary Computer for each crop and its cloud mask, and Vercel and Supabase for the share card and link.</desc>
+<desc id="d">One lookup, left to right. In your browser: 01 place, 02 passes (SGP4 over 7 days in Web Workers), 03 photos (archive search matched to passes), 04 pixels (toning and the cloud at your spot), 05 share. Services: a built-in GeoNames town list for place names (Photon as a backup), CelesTrak element sets refreshed every 6 hours by GitHub Actions, Microsoft Planetary Computer, Element 84 and NASA GIBS for the archive search, Planetary Computer for each crop and its cloud mask, and Cloudflare and Supabase for the share card and link.</desc>
 <rect x="0.5" y="0.5" width="959" height="427" fill="#FFFFFF" stroke="rgba(7,8,10,0.16)"/>
 <path d="M16 26 V16 H26" fill="none" stroke="rgba(7,8,10,0.34)" stroke-width="1"/>
 <path d="M944 26 V16 H934" fill="none" stroke="rgba(7,8,10,0.34)" stroke-width="1"/>
@@ -51,9 +51,9 @@
 <text x="781.0" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="rgba(7,8,10,0.70)">A link and a card</text>
 <text x="781.0" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" fill="rgba(7,8,10,0.70)">for the pass</text>
 <rect x="28.5" y="270.5" width="165" height="115" fill="none" stroke="rgba(7,8,10,0.34)" stroke-dasharray="3 3"/>
-<text x="43.0" y="300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#07080A">Photon</text>
-<text x="43.0" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Place names from</text>
-<text x="43.0" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">OpenStreetMap</text>
+<text x="43.0" y="300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#07080A">GeoNames</text>
+<text x="43.0" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Offline town list,</text>
+<text x="43.0" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Photon as backup</text>
 <path d="M56.0 200 V266" stroke="rgba(7,8,10,0.54)" stroke-width="1"/>
 <path d="M52.5 205 L56.0 200 L59.5 205" fill="none" stroke="rgba(7,8,10,0.54)"/>
 <text x="66.0" y="237.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing="1" fill="rgba(7,8,10,0.54)">NAMES</text>
@@ -81,9 +81,9 @@
 <path d="M606.0 205 L609.5 200 L613.0 205" fill="none" stroke="rgba(7,8,10,0.54)"/>
 <text x="619.5" y="237.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing="1" fill="rgba(7,8,10,0.54)">CROPS</text>
 <rect x="766.5" y="270.5" width="165" height="115" fill="none" stroke="rgba(7,8,10,0.34)" stroke-dasharray="3 3"/>
-<text x="781.0" y="300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#07080A">Vercel, Supabase</text>
-<text x="781.0" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Renders the card,</text>
-<text x="781.0" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">stores the link</text>
+<text x="781.0" y="300" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="13" font-weight="600" fill="#07080A">Cloudflare</text>
+<text x="781.0" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Renders the card;</text>
+<text x="781.0" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="12.5" fill="rgba(7,8,10,0.70)">Supabase, the link</text>
 <path d="M794.0 200 V266" stroke="rgba(7,8,10,0.54)" stroke-width="1"/>
 <path d="M790.5 261 L794.0 266 L797.5 261" fill="none" stroke="rgba(7,8,10,0.54)"/>
 <text x="804.0" y="237.0" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" font-size="10.5" letter-spacing="1" fill="rgba(7,8,10,0.54)">CARD</text>
