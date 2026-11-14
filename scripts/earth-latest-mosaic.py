@@ -72,7 +72,7 @@ HOLE_FRACTION = 0.01
 # A finished NOAA-20 day on this grid was 0.875 non-black at zoom 4 on 2026-11-13.
 # An unpublished day is 0. The cut sits between those two.
 SOLID_DAY_FRACTION = 0.70
-# Zoom 6 keeps ~4.7 GiB of RGB tiles in memory before temporary buffers.
+# Above this zoom the retained tile RGB alone is multi-GiB before temps.
 MOSAIC_MAX_ZOOM = 5
 USER_AGENT = 'watched-earth-mosaic/1.0'
 HOLE_LUT = [255 if i <= EMPTY_MEAN else 0 for i in range(256)]
@@ -121,6 +121,12 @@ def world_px(z: int) -> tuple[int, int]:
 
 def deg_per_px(z: int) -> float:
     return DEG_PER_PX_Z0 / (2 ** z)
+
+
+def tile_rgb_gib(z: int) -> float:
+    """GiB for one RGB image per matrix cell at this zoom, before temporary buffers."""
+    cols, rows = MATRIX[z]
+    return cols * rows * TILE_PX * TILE_PX * 3 / (1024 ** 3)
 
 
 def crop_to_world(im: Image.Image, z: int) -> Image.Image:
@@ -554,8 +560,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     width, height = world_px(args.zoom)
     if args.zoom > MOSAIC_MAX_ZOOM:
         parser.error(
-            f'zoom {args.zoom} holds about 4.7 GiB of RGB tiles before temporary buffers. '
-            f'Use zoom {MOSAIC_MAX_ZOOM} or lower.'
+            f'zoom {args.zoom} holds about {tile_rgb_gib(args.zoom):.1f} GiB of RGB tiles '
+            f'before temporary buffers. Use zoom {MOSAIC_MAX_ZOOM} or lower.'
         )
     if width > JPEG_MAX_PX or height > JPEG_MAX_PX:
         parser.error(
