@@ -15,7 +15,7 @@ This lever downloads GIBS's own daily Corrected Reflectance browse tiles
 WMS is deliberately unused here. On 2026-11-12, bulk WMS probes overloaded GIBS;
 pre-cut tiles stayed fast (see gibsTiles.ts header).
 
-Needs Python 3, NumPy, and Pillow: `python3 -m pip install numpy pillow`.
+Needs Python 3, NumPy, and Pillow: `python3 -m pip install -r scripts/requirements-earth-mosaic.txt`.
 
 Usage:
   python3 scripts/earth-latest-mosaic.py --help
@@ -36,8 +36,14 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
+try:
+  import numpy as np
+  from PIL import Image
+except ImportError as e:
+  raise SystemExit(
+    'earth-latest-mosaic needs NumPy and Pillow. Install with:\n'
+    '  python3 -m pip install -r scripts/requirements-earth-mosaic.txt'
+  ) from e
 
 Image.MAX_IMAGE_PIXELS = None
 
@@ -123,20 +129,43 @@ def merc_url(layer: str, day: str, z: int, row: int, col: int) -> str:
   )
 
 
-def fetch(url: str, retries: int = 3) -> bytes | None:
+def fetch(url: str, retries: int = 2) -> bytes | None:
+  """GET a JPEG. 404 is final. Timeouts are not retried (CLAUDE.md / public archives)."""
   for i in range(retries):
     try:
-      with urllib.request.urlopen(url, timeout=60) as r:
+      with urllib.request.urlopen(url, timeout=20) as r:
         data = r.read()
       return data if data[:2] == b'\xff\xd8' else None
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+    except urllib.error.HTTPError as e:
+      if e.code == 404:
+        return None
+      if i + 1 >= retries:
+        return None
+      time.sleep(0.35 * (i + 1))
+    except TimeoutError:
+      return None
+    except urllib.error.URLError as e:
+      if isinstance(e.reason, TimeoutError) or 'timed out' in str(e.reason).lower():
+        return None
+      if i + 1 >= retries:
+        return None
       time.sleep(0.35 * (i + 1))
   return None
 
 
+def decode_jpeg_rgb(data: bytes) -> np.ndarray | None:
+  try:
+    im = Image.open(io.BytesIO(data)).convert('RGB')
+  except OSError:
+    return None
+  if im.size != (TILE_PX, TILE_PX):
+    im = im.resize((TILE_PX, TILE_PX), Image.Resampling.BILINEAR)
+  return np.asarray(im)
+
+
 def tile_mean(data: bytes) -> float:
-  im = Image.open(io.BytesIO(data))
-  return float(np.asarray(im).mean())
+  arr = decode_jpeg_rgb(data)
+  return float(arr.mean()) if arr is not None else 0.0
 
 
 def load_geo_tile(
@@ -146,22 +175,33 @@ def load_geo_tile(
   path = cache / f'geo_{layer}_{day}_z{z}_{row}_{col}.jpg'
   cached = path.read_bytes() if path.exists() and path.stat().st_size > 800 else None
   recent = dt.date.fromisoformat(day) >= dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=RECENT_CACHE_DAYS)
+
+  def from_bytes(data: bytes | None) -> tuple[np.ndarray | None, float]:
+    if not data:
+      return None, 0.0
+    arr = decode_jpeg_rgb(data)
+    if arr is None:
+      if path.exists():
+        path.unlink(missing_ok=True)
+      return None, 0.0
+    return arr, float(arr.mean())
+
   if recent or cached is None:
     fetched = fetch(geo_url(layer, day, z, row, col))
     if fetched:
       path.write_bytes(fetched)
-      data = fetched
-    else:
-      data = cached
-  else:
-    data = cached
-  if not data:
-    return None, 0.0
-  im = Image.open(io.BytesIO(data)).convert('RGB')
-  if im.size != (TILE_PX, TILE_PX):
-    im = im.resize((TILE_PX, TILE_PX), Image.Resampling.BILINEAR)
-  arr = np.asarray(im)
-  return arr, float(arr.mean())
+      arr, mean = from_bytes(fetched)
+      if arr is not None:
+        return arr, mean
+      return from_bytes(cached)
+    return from_bytes(cached)
+  arr, mean = from_bytes(cached)
+  if arr is not None:
+    return arr, mean
+  fetched = fetch(geo_url(layer, day, z, row, col))
+  if fetched:
+    path.write_bytes(fetched)
+  return from_bytes(fetched)
 
 
 def find_latest_global_day(max_back: int = 7) -> tuple[str, str]:
@@ -348,7 +388,7 @@ def stitch_latest(out: Path, cache: Path, z: int, lookback: int, workers: int) -
   cov_rows = max(1, int(round(rows * (world_h / (rows * TILE_PX)))))
   age_rgb = age_rgb[:cov_rows, :cov_cols]
   cov = Image.fromarray(age_rgb, 'RGB').resize((cov_cols * 48, cov_rows * 48), Image.Resampling.NEAREST)
-  cov_path = out / f'earth-coverage-age-{ref.isoformat()}.png'
+  cov_path = out / f'earth-coverage-age-{ref.isoformat()}-z{z}.png'
   cov.save(cov_path)
 
   age_counts = {str(int(k)): int(v) for k, v in zip(*np.unique(age_grid, return_counts=True))}
@@ -357,6 +397,11 @@ def stitch_latest(out: Path, cache: Path, z: int, lookback: int, workers: int) -
     for i, c in zip(*np.unique(layer_grid[layer_grid >= 0], return_counts=True))
   }
   mixed_cells = sum(1 for p in picks if p['mixed'])
+  if filled == 0:
+    raise SystemExit('no tiles filled; GIBS may be unavailable or lookback empty')
+  if filled / len(jobs) < 0.25:
+    print(f'warning: only {filled}/{len(jobs)} tiles filled', file=sys.stderr)
+  picks_path = out / 'picks.json'
   return {
     'mode': 'latest',
     'reference_date': ref.isoformat(),
@@ -372,7 +417,12 @@ def stitch_latest(out: Path, cache: Path, z: int, lookback: int, workers: int) -
     'layer_counts': layer_counts,
     'layers_priority': LAYERS,
     'coverage_age_basis': 'majority_pixel_age',
-    'files': {'mosaic': str(path), 'preview': str(prev_path), 'coverage_age': str(cov_path)},
+    'files': {
+      'mosaic': str(path),
+      'preview': str(prev_path),
+      'coverage_age': str(cov_path),
+      'picks': str(picks_path),
+    },
     'picks': picks,
     'caveats': [
       'GIBS daily Corrected Reflectance browse, not a cloud-free monthly composite.',
@@ -390,11 +440,15 @@ def main(argv: list[str] | None = None) -> int:
     '--zoom', type=int, default=5, choices=JPEG_ZOOMS,
     help='GIBS geographic 250m zoom (0–6; higher exceeds JPEG width limits)',
   )
-  p.add_argument('--lookback', type=int, default=7)
+  p.add_argument('--lookback', type=int, default=7, help='days of history to search (must be >= 0)')
   p.add_argument('--out', type=Path, default=Path('scratch/earth-mosaic'))
   p.add_argument('--cache', type=Path, default=None)
   p.add_argument('--workers', type=int, default=16)
   args = p.parse_args(argv)
+  if args.lookback < 0:
+    p.error('--lookback must be >= 0')
+  if args.zoom >= 6:
+    print('warning: zoom 6 allocates ~2.4 GB RGB before encode', file=sys.stderr)
 
   out: Path = args.out
   out.mkdir(parents=True, exist_ok=True)
@@ -410,9 +464,10 @@ def main(argv: list[str] | None = None) -> int:
   result['projection'] = 'EPSG:4326 / CRS84 GIBS TileMatrixSet 250m'
   man = out / 'manifest.json'
   picks = result.pop('picks', None)
-  man.write_text(json.dumps(result, indent=2) + '\n')
   if picks is not None:
-    (out / 'picks.json').write_text(json.dumps(picks) + '\n')
+    picks_path = Path(result['files']['picks'])
+    picks_path.write_text(json.dumps(picks) + '\n')
+  man.write_text(json.dumps(result, indent=2) + '\n')
   print(json.dumps({k: result[k] for k in result if k != 'caveats'}, indent=2))
   print('manifest', man, file=sys.stderr)
   return 0

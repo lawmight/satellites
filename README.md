@@ -252,7 +252,8 @@ The built textures are committed, so you rarely need `npm run textures`. It need
 source maps listed at the top of `scripts/build-textures.py`.
 
 `npm run earth:mosaic` stitches NASA GIBS daily true-colour tiles into a latest-available Earth mosaic under
-`scratch/earth-mosaic`. It needs Python 3, NumPy, and Pillow: `python3 -m pip install numpy pillow`.
+`scratch/earth-mosaic`. It needs Python 3, NumPy, and Pillow:
+`python3 -m pip install -r scripts/requirements-earth-mosaic.txt`.
 
 ### Useful URLs
 
