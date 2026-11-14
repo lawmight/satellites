@@ -1,477 +1,597 @@
 #!/usr/bin/env python3
 """
-Build the latest true-colour Earth mosaic and a coverage-age map from NASA GIBS.
+Stitch the latest daily true-color Earth from NASA GIBS geographic tiles.
 
-Why this script exists: watched.earth asks GIBS for one square around a pin
-(src/imagery/gibs.ts, gibsTiles.ts). It never walks the globe or stitches tiles.
-Planetary Computer STAC is also pin-centred (one crop = one scene). The only
-full-Earth images in the product are static textures from build-textures.py.
-This lever downloads GIBS's own daily Corrected Reflectance browse tiles
-(geographic WMTS, TileMatrixSet 250m) and assembles:
+WMS renders every request on demand and does not cache it. On 2026-11-12 that
+path slowed from under a second to tens of seconds. A Sentinel-2 global search
+is a different scene, orbit, and cloud state in every 100 km square, and the
+archive pages out before it covers a desert. GIBS already publishes each day
+of VIIRS and MODIS corrected reflectance as pre-cut geographic WMTS tiles.
+This script downloads those tiles and stitches them.
 
-  1. a stitched equirectangular mosaic (single day, or latest-available gap-fill)
-  2. a coverage age choropleth + JSON manifest
+The matrix is EPSG:4326 TileMatrixSet 250m. It is not the power-of-two web
+mercator pyramid. Zoom 5 is 40 by 20 tiles of 512 px, and that grid is exactly
+360 by 180 degrees. Lower zooms pad past the antimeridian and the south pole.
+The saved image is cropped back to the world using the level's scale.
 
-WMS is deliberately unused here. On 2026-11-12, bulk WMS probes overloaded GIBS;
-pre-cut tiles stayed fast (see gibsTiles.ts header).
+A cell with no data is HTTP 404, or HTTP 200 with a black JPEG. Mean brightness
+at or below 5 is empty.
 
-Needs Python 3, NumPy, and Pillow: `python3 -m pip install -r scripts/requirements-earth-mosaic.txt`.
+TilePick is one cell. It records the newest non-black tile in the lookback,
+in layer priority order, and holds the pixels after same-day then older
+sensors fill the remaining black. The site still crops one place at a time.
+Nothing under src/ imports this script.
 
-Usage:
+Usage, from the repo root:
   python3 scripts/earth-latest-mosaic.py --help
-  python3 scripts/earth-latest-mosaic.py --zoom 2 --lookback 3 --out scratch/earth-mosaic
+  python3 scripts/earth-latest-mosaic.py
+  python3 scripts/earth-latest-mosaic.py --zoom 2 --mode latest --lookback 3 --out /tmp/earth-mosaic-smoke
   npm run earth:mosaic
 """
-from __future__ import annotations
-
 import argparse
-import concurrent.futures
 import datetime as dt
 import io
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 
-try:
-  import numpy as np
-  from PIL import Image
-except ImportError as e:
-  raise SystemExit(
-    'earth-latest-mosaic needs NumPy and Pillow. Install with:\n'
-    '  python3 -m pip install -r scripts/requirements-earth-mosaic.txt'
-  ) from e
+from PIL import Image, ImageDraw, ImageFont, ImageStat
 
 Image.MAX_IMAGE_PIXELS = None
 
-# Geographic 250m matrix from GIBS GetCapabilities (not power-of-2).
-# Zooms 7–8 exceed JPEG width limits (~65500 px); CLI stops at 6.
-GEO_EXTENT: dict[int, tuple[int, int]] = {
-  0: (2, 1),
-  1: (3, 2),
-  2: (5, 3),
-  3: (10, 5),
-  4: (20, 10),
-  5: (40, 20),
-  6: (80, 40),
+# EPSG:4326 TileMatrixSet 250m, from WMTSCapabilities.xml on 2026-11-14.
+# Columns then rows. TopLeftCorner is -180 90. Each tile is 512 px.
+# Level 0 scale denominator 223632905.6114871 is exactly 0.5625 deg/px.
+MATRIX: dict[int, tuple[int, int]] = {
+    0: (2, 1),
+    1: (3, 2),
+    2: (5, 3),
+    3: (10, 5),
+    4: (20, 10),
+    5: (40, 20),
+    6: (80, 40),
+    7: (160, 80),
+    8: (320, 160),
 }
 
-# Deg/pixel at zoom 0. Low zooms allocate tiles past ±180/±90; crop to this world.
-GEO_RES0 = 0.5625
 TILE_PX = 512
-EMPTY_MEAN = 5.0
-HOLE_MAX = 8
-RECENT_CACHE_DAYS = 2
-JPEG_ZOOMS = tuple(sorted(GEO_EXTENT))
+DEG_PER_PX_Z0 = 0.5625
+# A single JPEG cannot store zoom 7 (81920 px) or zoom 8.
+JPEG_MAX_PX = 65500
+# One threshold for a whole tile and for a pixel. GIBS answers "no data" with a black JPEG.
+EMPTY_MEAN = 5
+# A finished NOAA-20 day on this grid was 0.875 non-black at zoom 4 on 2026-11-13.
+# An unpublished day is 0. The cut sits between those two.
+SOLID_DAY_FRACTION = 0.70
+USER_AGENT = 'watched-earth-mosaic/1.0'
+HOLE_LUT = [255 if i <= EMPTY_MEAN else 0 for i in range(256)]
+EQUATOR_KM = 40075.017
 
-LAYERS = [
-  'VIIRS_NOAA20_CorrectedReflectance_TrueColor',
-  'VIIRS_NOAA21_CorrectedReflectance_TrueColor',
-  'MODIS_Aqua_CorrectedReflectance_TrueColor',
-  'MODIS_Terra_CorrectedReflectance_TrueColor',
-  'VIIRS_SNPP_CorrectedReflectance_TrueColor',
+# Priority is list order. Same day, the first layer with pixels wins the cell.
+LAYERS: tuple[tuple[str, str], ...] = (
+    ('VIIRS_NOAA20_CorrectedReflectance_TrueColor', 'NOAA-20'),
+    ('VIIRS_NOAA21_CorrectedReflectance_TrueColor', 'NOAA-21'),
+    ('MODIS_Aqua_CorrectedReflectance_TrueColor', 'Aqua'),
+    ('MODIS_Terra_CorrectedReflectance_TrueColor', 'Terra'),
+    ('VIIRS_SNPP_CorrectedReflectance_TrueColor', 'SNPP'),
+)
+LABELS = {layer_id: label for layer_id, label in LAYERS}
+
+CAVEATS = [
+    'This is the latest GIBS daily true-color browse product, not a cloud-free monthly composite.',
+    'Polar night and persistent swath gaps can remain black after the lookback.',
+    'Clouds in the mosaic are the clouds in the source tiles.',
+    'A missing day is HTTP 404. An empty swath is HTTP 200 with a black JPEG. Mean brightness at or below 5 counts as empty.',
+    'Tiles are the pre-cut EPSG:4326 250m set. The script does not call WMS, and it does not search Sentinel-2.',
+    'Some zooms pad past 180 degrees. The mosaic is cropped to the world using 0.5625 deg/px at level 0.',
 ]
 
-LABEL = {
-  'VIIRS_NOAA20_CorrectedReflectance_TrueColor': 'NOAA-20',
-  'VIIRS_NOAA21_CorrectedReflectance_TrueColor': 'NOAA-21',
-  'MODIS_Aqua_CorrectedReflectance_TrueColor': 'Aqua',
-  'MODIS_Terra_CorrectedReflectance_TrueColor': 'Terra',
-  'VIIRS_SNPP_CorrectedReflectance_TrueColor': 'SNPP',
-}
 
-
-@dataclass(frozen=True)
+@dataclass
 class TilePick:
-  """Provenance for one geographic WMTS cell after latest-available assembly."""
+    """Newest usable daily tile for one geographic cell, plus the filled pixels."""
 
-  row: int
-  col: int
-  age_days: int
-  majority_age_days: int
-  oldest_age_days: int
-  fill_fraction: float
-  mixed: bool
-  layer: str
-  date: str
-  mean: float
+    row: int
+    col: int
+    age_days: int
+    layer_id: str
+    date: str
+    mean_brightness: float
+    pixels: Image.Image | None
 
 
-def world_size_px(z: int) -> tuple[int, int]:
-  res = GEO_RES0 / (2 ** z)
-  return int(round(360 / res)), int(round(180 / res))
+def world_px(z: int) -> tuple[int, int]:
+    """Width and height of 360 by 180 degrees at this zoom, in pixels."""
+    deg = DEG_PER_PX_Z0 / (2 ** z)
+    return int(round(360 / deg)), int(round(180 / deg))
 
 
-def crop_world_image(im: Image.Image, z: int) -> Image.Image:
-  w, h = world_size_px(z)
-  return im.crop((0, 0, min(w, im.width), min(h, im.height)))
+def deg_per_px(z: int) -> float:
+    return DEG_PER_PX_Z0 / (2 ** z)
 
 
-def crop_world_array(arr: np.ndarray, z: int) -> np.ndarray:
-  w, h = world_size_px(z)
-  return arr[: min(h, arr.shape[0]), : min(w, arr.shape[1])]
+def crop_to_world(im: Image.Image, z: int) -> Image.Image:
+    """Drop the matrix padding east of 180 and south of -90."""
+    width, height = world_px(z)
+    width = min(width, im.size[0])
+    height = min(height, im.size[1])
+    if (width, height) == im.size:
+        return im
+    cropped = im.crop((0, 0, width, height))
+    im.close()
+    return cropped
 
 
-def geo_url(layer: str, day: str, z: int, row: int, col: int) -> str:
-  return (
-    f'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/{layer}/default/'
-    f'{day}/250m/{z}/{row}/{col}.jpg'
-  )
+def tile_url(layer_id: str, day: str, z: int, row: int, col: int) -> str:
+    # The capabilities template ends in .jpeg. .jpg returns the same bytes.
+    return (
+        'https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/'
+        f'{layer_id}/default/{day}/250m/{z}/{row}/{col}.jpeg'
+    )
 
 
-def merc_url(layer: str, day: str, z: int, row: int, col: int) -> str:
-  return (
-    f'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/{layer}/default/'
-    f'{day}/GoogleMapsCompatible_Level9/{z}/{row}/{col}.jpg'
-  )
+def cache_path(cache: Path, layer_id: str, day: str, z: int, row: int, col: int) -> Path:
+    return cache / layer_id / day / str(z) / f'{row}_{col}.jpeg'
 
 
-def fetch(url: str, retries: int = 2) -> bytes | None:
-  """GET a JPEG. 404 is final. Timeouts are not retried (CLAUDE.md / public archives)."""
-  for i in range(retries):
-    try:
-      with urllib.request.urlopen(url, timeout=20) as r:
-        data = r.read()
-      return data if data[:2] == b'\xff\xd8' else None
-    except urllib.error.HTTPError as e:
-      if e.code == 404:
-        return None
-      if i + 1 >= retries:
-        return None
-      time.sleep(0.35 * (i + 1))
-    except TimeoutError:
-      return None
-    except urllib.error.URLError as e:
-      if isinstance(e.reason, TimeoutError) or 'timed out' in str(e.reason).lower():
-        return None
-      if i + 1 >= retries:
-        return None
-      time.sleep(0.35 * (i + 1))
-  return None
+def day_list(reference: dt.date, lookback: int) -> list[tuple[int, str]]:
+    return [(age, (reference - dt.timedelta(days=age)).isoformat()) for age in range(lookback + 1)]
 
 
-def decode_jpeg_rgb(data: bytes) -> np.ndarray | None:
-  try:
-    im = Image.open(io.BytesIO(data)).convert('RGB')
-  except OSError:
+def fetch_jpeg(url: str) -> bytes | None:
+    """Return JPEG bytes, or None for 404 and for a body that is not a JPEG."""
+    delay = 0.4
+    last = 'error'
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'image/jpeg'})
+            with urllib.request.urlopen(req, timeout=45) as res:
+                data = res.read()
+            if data[:2] != b'\xff\xd8':
+                return None
+            return data
+        except urllib.error.HTTPError as err:
+            if err.code == 404:
+                return None
+            last = f'HTTP {err.code}'
+            if err.code not in (429, 500, 502, 503, 504):
+                print(f'{last} {url}', file=sys.stderr)
+                return None
+        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as err:
+            last = str(err)
+        if attempt < 2:
+            time.sleep(delay)
+            delay *= 2
+    print(f'fetch failed {url} {last}', file=sys.stderr)
     return None
-  if im.size != (TILE_PX, TILE_PX):
-    im = im.resize((TILE_PX, TILE_PX), Image.Resampling.BILINEAR)
-  return np.asarray(im)
 
 
-def tile_mean(data: bytes) -> float:
-  arr = decode_jpeg_rgb(data)
-  return float(arr.mean()) if arr is not None else 0.0
+def open_rgb(data: bytes) -> Image.Image | None:
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            rgb = im.convert('RGB')
+    except (OSError, ValueError):
+        return None
+    if rgb.size != (TILE_PX, TILE_PX):
+        rgb.close()
+        return None
+    return rgb
 
 
-def load_geo_tile(
-  cache: Path, layer: str, day: str, z: int, row: int, col: int
-) -> tuple[np.ndarray | None, float]:
-  """Load one geographic tile. Refetch the last two UTC days so same-day fills are not sticky."""
-  path = cache / f'geo_{layer}_{day}_z{z}_{row}_{col}.jpg'
-  cached = path.read_bytes() if path.exists() and path.stat().st_size > 800 else None
-  recent = dt.date.fromisoformat(day) >= dt.datetime.now(dt.timezone.utc).date() - dt.timedelta(days=RECENT_CACHE_DAYS)
+def luma_stats(im: Image.Image) -> tuple[int, float, int]:
+    gray = im.convert('L')
+    lo, hi = gray.getextrema()
+    mean = float(ImageStat.Stat(gray).mean[0])
+    return int(lo), mean, int(hi)
 
-  def from_bytes(data: bytes | None) -> tuple[np.ndarray | None, float]:
-    if not data:
-      return None, 0.0
-    arr = decode_jpeg_rgb(data)
-    if arr is None:
-      if path.exists():
+
+def has_holes(im: Image.Image) -> bool:
+    return im.convert('L').getextrema()[0] <= EMPTY_MEAN
+
+
+def fill_holes(base: Image.Image, donor: Image.Image) -> Image.Image:
+    """Paint donor pixels into base where base is at or below the empty threshold."""
+    mask = base.convert('L').point(HOLE_LUT)
+    if mask.getextrema()[1] == 0:
+        return base
+    filled = Image.composite(donor, base, mask)
+    base.close()
+    return filled
+
+
+def store_jpeg(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except OSError as err:
+        tmp.unlink(missing_ok=True)
+        print(f'cache write failed {path} {err}', file=sys.stderr)
+
+
+def load_image(
+    cache: Path, layer_id: str, day: str, z: int, row: int, col: int, use_cache: bool,
+) -> Image.Image | None:
+    # The reference day can still be publishing, so it is never read from cache.
+    # Older days stay as they were written.
+    path = cache_path(cache, layer_id, day, z, row, col)
+    if use_cache and path.exists():
+        im = open_rgb(path.read_bytes())
+        if im is not None:
+            return im
         path.unlink(missing_ok=True)
-      return None, 0.0
-    return arr, float(arr.mean())
-
-  if recent or cached is None:
-    fetched = fetch(geo_url(layer, day, z, row, col))
-    if fetched:
-      path.write_bytes(fetched)
-      arr, mean = from_bytes(fetched)
-      if arr is not None:
-        return arr, mean
-      return from_bytes(cached)
-    return from_bytes(cached)
-  arr, mean = from_bytes(cached)
-  if arr is not None:
-    return arr, mean
-  fetched = fetch(geo_url(layer, day, z, row, col))
-  if fetched:
-    path.write_bytes(fetched)
-  return from_bytes(fetched)
+    data = fetch_jpeg(tile_url(layer_id, day, z, row, col))
+    if data is None:
+        return None
+    im = open_rgb(data)
+    if im is None:
+        return None
+    if use_cache:
+        store_jpeg(path, data)
+    return im
 
 
-def find_latest_global_day(max_back: int = 7) -> tuple[str, str]:
-  """Newest UTC day whose mid-Atlantic mercator tile is non-black for a preferred layer."""
-  today = dt.datetime.now(dt.timezone.utc).date()
-  order = [LAYERS[0], LAYERS[2], LAYERS[3], LAYERS[1], LAYERS[4]]
-  for back in range(0, max_back + 1):
-    day = (today - dt.timedelta(days=back)).isoformat()
-    for layer in order:
-      data = fetch(merc_url(layer, day, 4, 6, 8), retries=2)
-      if data and tile_mean(data) > EMPTY_MEAN:
-        return day, layer
-  raise SystemExit('no non-empty daily mosaic found in lookback')
+def empty_age(lookback: int) -> int:
+    return lookback + 1
 
 
-def stitch_single(out: Path, cache: Path, z: int, workers: int) -> dict:
-  day, layer = find_latest_global_day()
-  cols, rows = GEO_EXTENT[z]
-  jobs = [(r, c) for r in range(rows) for c in range(cols)]
-  mosaic = Image.new('RGB', (cols * TILE_PX, rows * TILE_PX), (0, 0, 0))
-  filled = 0
-
-  def one(rc: tuple[int, int]):
-    r, c = rc
-    arr, mean = load_geo_tile(cache, layer, day, z, r, c)
-    return r, c, arr, mean
-
-  with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-    for r, c, arr, mean in ex.map(one, jobs):
-      if arr is None or mean <= EMPTY_MEAN:
-        continue
-      mosaic.paste(Image.fromarray(arr, 'RGB'), (c * TILE_PX, r * TILE_PX))
-      filled += 1
-
-  mosaic = crop_world_image(mosaic, z)
-  path = out / f'earth-single-{day}-z{z}.jpg'
-  mosaic.save(path, quality=92, optimize=True)
-  preview = mosaic.resize((max(1, mosaic.width // 4), max(1, mosaic.height // 4)), Image.Resampling.LANCZOS)
-  prev_path = out / f'earth-single-{day}-z{z}-preview.jpg'
-  preview.save(prev_path, quality=85, optimize=True)
-  return {
-    'mode': 'single',
-    'date': day,
-    'layer': layer,
-    'zoom': z,
-    'tiles_filled': filled,
-    'tiles_total': len(jobs),
-    'pixels': f'{mosaic.width}x{mosaic.height}',
-    'files': {'mosaic': str(path), 'preview': str(prev_path)},
-  }
+def blank_pick(row: int, col: int, lookback: int, mean: float = 0.0) -> TilePick:
+    return TilePick(row, col, empty_age(lookback), '', '', mean, None)
 
 
-def pick_latest_tile(
-  cache: Path, ref: dt.date, z: int, row: int, col: int, lookback: int
-) -> tuple[np.ndarray | None, TilePick | None]:
-  best_arr: np.ndarray | None = None
-  primary: TilePick | None = None
-  # Per-pixel age of the contributor currently painted (lookback+1 = empty).
-  age_px: np.ndarray | None = None
-  layer_px: np.ndarray | None = None
+def pick_latest(
+    cache: Path, z: int, row: int, col: int, days: list[tuple[int, str]], lookback: int,
+) -> TilePick:
+    """Newest non-black sample, then same-day and older samples fill black pixels."""
+    base: Image.Image | None = None
+    base_mean = 0.0
+    base_layer = ''
+    base_date = ''
+    base_age = 0
+    prior: list[Image.Image] = []
 
-  for back in range(0, lookback + 1):
-    day = (ref - dt.timedelta(days=back)).isoformat()
-    for li, layer in enumerate(LAYERS):
-      arr, mean = load_geo_tile(cache, layer, day, z, row, col)
-      if arr is None or mean <= EMPTY_MEAN:
-        continue
-      usable = arr.max(axis=2) > HOLE_MAX
-      if not usable.any():
-        continue
-      if best_arr is None:
-        best_arr = np.zeros_like(arr)
-        age_px = np.full(arr.shape[:2], lookback + 1, dtype=np.int16)
-        layer_px = np.full(arr.shape[:2], -1, dtype=np.int8)
-      assert age_px is not None and layer_px is not None
-      hole = best_arr.max(axis=2) <= HOLE_MAX
-      take = usable & hole
-      if not take.any() and primary is not None and back > primary.age_days:
-        continue
-      if primary is None:
-        best_arr[usable] = arr[usable]
-        age_px[usable] = back
-        layer_px[usable] = li
-        primary = TilePick(
-          row=row, col=col, age_days=back, majority_age_days=back, oldest_age_days=back,
-          fill_fraction=0.0, mixed=False, layer=layer, date=day, mean=mean,
+    def finish() -> TilePick:
+        assert base is not None
+        return TilePick(row, col, base_age, base_layer, base_date, base_mean, base)
+
+    for age, day in days:
+        for layer_id, _label in LAYERS:
+            im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 0)
+            if im is None:
+                continue
+            _lo, mean, hi = luma_stats(im)
+            if base is None:
+                if mean <= EMPTY_MEAN:
+                    if hi > EMPTY_MEAN:
+                        prior.append(im)
+                    else:
+                        im.close()
+                    continue
+                base = im
+                base_mean = mean
+                base_layer = layer_id
+                base_date = day
+                base_age = age
+                for donor in prior:
+                    base = fill_holes(base, donor)
+                    donor.close()
+                prior.clear()
+                if not has_holes(base):
+                    return finish()
+                continue
+            if hi > EMPTY_MEAN:
+                base = fill_holes(base, im)
+            im.close()
+            if not has_holes(base):
+                return finish()
+
+    for donor in prior:
+        donor.close()
+    if base is None:
+        return blank_pick(row, col, lookback)
+    return finish()
+
+
+def run_latest(
+    cache: Path, z: int, rows: int, cols: int, days: list[tuple[int, str]], lookback: int, workers: int,
+) -> list[TilePick]:
+    cells = [(r, c) for r in range(rows) for c in range(cols)]
+    total = len(cells)
+    picks: list[TilePick] = []
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(pick_latest, cache, z, r, c, days, lookback) for r, c in cells]
+        for fut in as_completed(futures):
+            pick = fut.result()
+            picks.append(pick)
+            done += 1
+            if done == 1 or done == total or done % 25 == 0:
+                who = LABELS.get(pick.layer_id, 'empty')
+                print(f'{done}/{total} row {pick.row} col {pick.col} {who} {pick.date or "-"} age {pick.age_days}')
+    return picks
+
+
+def read_cell(
+    cache: Path, layer_id: str, day: str, age: int, z: int, row: int, col: int, lookback: int,
+) -> TilePick:
+    im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 0)
+    if im is None:
+        return blank_pick(row, col, lookback)
+    _lo, mean, _hi = luma_stats(im)
+    if mean <= EMPTY_MEAN:
+        return TilePick(row, col, empty_age(lookback), '', '', mean, im)
+    return TilePick(row, col, age, layer_id, day, mean, im)
+
+
+def fetch_day(
+    cache: Path, layer_id: str, day: str, age: int, z: int, rows: int, cols: int, lookback: int, workers: int,
+) -> list[TilePick]:
+    cells = [(r, c) for r in range(rows) for c in range(cols)]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(read_cell, cache, layer_id, day, age, z, r, c, lookback) for r, c in cells]
+        return [fut.result() for fut in futures]
+
+
+def close_pixels(picks: list[TilePick]) -> None:
+    for pick in picks:
+        if pick.pixels is not None:
+            pick.pixels.close()
+            pick.pixels = None
+
+
+def non_black_fraction(picks: list[TilePick]) -> float:
+    if not picks:
+        return 0.0
+    return sum(1 for pick in picks if pick.layer_id) / len(picks)
+
+
+def run_single(
+    cache: Path, z: int, rows: int, cols: int, days: list[tuple[int, str]], lookback: int, workers: int,
+) -> tuple[list[TilePick], dict]:
+    """NOAA-20 on the newest day in the lookback that covers the grid."""
+    layer_id, label = LAYERS[0]
+    best: list[TilePick] | None = None
+    best_frac = -1.0
+    best_meta: dict = {}
+    for age, day in days:
+        picks = fetch_day(cache, layer_id, day, age, z, rows, cols, lookback, workers)
+        frac = non_black_fraction(picks)
+        print(f'{label} {day} non-black {round(frac, 3)}')
+        if frac > best_frac:
+            if best is not None:
+                close_pixels(best)
+            best = picks
+            best_frac = frac
+            best_meta = {
+                'single_layer': layer_id,
+                'single_label': label,
+                'single_date': day,
+                'single_age_days': age,
+                'single_non_black_fraction': round(frac, 4),
+                'single_day_solid': frac >= SOLID_DAY_FRACTION,
+            }
+        else:
+            close_pixels(picks)
+        if frac >= SOLID_DAY_FRACTION:
+            break
+    assert best is not None
+    return best, best_meta
+
+
+def render_mosaic(picks: list[TilePick], rows: int, cols: int) -> Image.Image:
+    canvas = Image.new('RGB', (cols * TILE_PX, rows * TILE_PX), (0, 0, 0))
+    for pick in picks:
+        if pick.pixels is None:
+            continue
+        canvas.paste(pick.pixels, (pick.col * TILE_PX, pick.row * TILE_PX))
+        pick.pixels.close()
+        pick.pixels = None
+    return canvas
+
+
+def age_color(age: int, lookback: int) -> tuple[int, int, int]:
+    if age > lookback:
+        return (22, 24, 28)
+    if lookback <= 0:
+        return (42, 168, 74)
+
+    def mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+        return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
+
+    t = age / lookback
+    if t <= 0.5:
+        return mix((42, 168, 74), (232, 196, 48), t / 0.5)
+    return mix((232, 196, 48), (176, 48, 42), (t - 0.5) / 0.5)
+
+
+def render_coverage(picks: list[TilePick], rows: int, cols: int, z: int, lookback: int) -> Image.Image:
+    cell = max(8, min(36, 720 // max(1, cols)))
+    map_w = cols * cell
+    map_h = rows * cell
+    chart = Image.new('RGB', (map_w, map_h), (12, 14, 18))
+    draw = ImageDraw.Draw(chart)
+    gap = 1 if cell >= 8 else 0
+    for pick in picks:
+        x0 = pick.col * cell
+        y0 = pick.row * cell
+        color = age_color(pick.age_days, lookback)
+        draw.rectangle((x0, y0, x0 + cell - 1 - gap, y0 + cell - 1 - gap), fill=color)
+    world_w, world_h = world_px(z)
+    keep_w = min(map_w, int(round(map_w * world_w / (cols * TILE_PX))))
+    keep_h = min(map_h, int(round(map_h * world_h / (rows * TILE_PX))))
+    chart = chart.crop((0, 0, max(1, keep_w), max(1, keep_h)))
+    legend_h = 48
+    width = max(chart.size[0], 380)
+    im = Image.new('RGB', (width, chart.size[1] + legend_h), (12, 14, 18))
+    im.paste(chart, (0, 0))
+    legend = ImageDraw.Draw(im)
+    font = ImageFont.load_default()
+    swatches: list[tuple[int, str]] = [(0, '0 days')]
+    if lookback > 0:
+        swatches.append((lookback, f'{lookback} days'))
+    swatches.append((empty_age(lookback), 'none'))
+    x = 8
+    y = chart.size[1] + 14
+    for age, text in swatches:
+        legend.rectangle((x, y, x + 18, y + 18), fill=age_color(age, lookback))
+        legend.text((x + 24, y + 4), text, fill=(230, 230, 230), font=font)
+        x += 120
+    chart.close()
+    return im
+
+
+def counts(picks: list[TilePick]) -> tuple[dict[str, int], dict[str, int]]:
+    ages: dict[str, int] = {}
+    layers: dict[str, int] = {}
+    for pick in picks:
+        key = str(pick.age_days)
+        ages[key] = ages.get(key, 0) + 1
+        if pick.layer_id:
+            label = LABELS.get(pick.layer_id, pick.layer_id)
+            layers[label] = layers.get(label, 0) + 1
+    ages = {key: ages[key] for key in sorted(ages, key=int)}
+    layers = {label: layers[label] for _layer_id, label in LAYERS if label in layers}
+    return ages, layers
+
+
+def atomic_bytes(path: Path, put) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f'.{os.getpid()}.tmp')
+    try:
+        put(tmp)
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def write_outputs(out: Path, mosaic: Image.Image, coverage: Image.Image, manifest: dict) -> tuple[Path, Path, Path]:
+    mosaic_path = out / 'mosaic.jpg'
+    coverage_path = out / 'coverage.png'
+    manifest_path = out / 'manifest.json'
+
+    def save_mosaic(tmp: Path) -> None:
+        mosaic.save(tmp, format='JPEG', quality=90)
+
+    def save_coverage(tmp: Path) -> None:
+        coverage.save(tmp, format='PNG')
+
+    def save_manifest(tmp: Path) -> None:
+        tmp.write_text(json.dumps(manifest, indent=2) + '\n')
+
+    atomic_bytes(mosaic_path, save_mosaic)
+    atomic_bytes(coverage_path, save_coverage)
+    manifest['files'] = {
+        'mosaic': str(mosaic_path.resolve()),
+        'coverage': str(coverage_path.resolve()),
+        'manifest': str(manifest_path.resolve()),
+    }
+    atomic_bytes(manifest_path, save_manifest)
+    return mosaic_path, coverage_path, manifest_path
+
+
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--mode', choices=('latest', 'single'), default='latest')
+    parser.add_argument('--zoom', type=int, default=5, choices=sorted(MATRIX))
+    parser.add_argument('--lookback', type=int, default=7)
+    parser.add_argument('--out', type=Path, default=Path(os.environ.get('EARTH_MOSAIC_OUT', 'scratch/earth-mosaic')))
+    parser.add_argument('--cache', type=Path, default=None)
+    parser.add_argument('--workers', type=int, default=16)
+    parser.add_argument('--date', default=None, help='Reference UTC day YYYY-MM-DD. Default is today.')
+    args = parser.parse_args(argv)
+    if args.lookback < 0 or args.lookback > 60:
+        parser.error('--lookback must be from 0 to 60')
+    if args.workers < 1 or args.workers > 64:
+        parser.error('--workers must be from 1 to 64')
+    width, height = world_px(args.zoom)
+    if width > JPEG_MAX_PX or height > JPEG_MAX_PX:
+        parser.error(
+            f'zoom {args.zoom} is {width} by {height} px. A JPEG stops near {JPEG_MAX_PX} px. Use zoom 6 or lower.'
         )
-      elif back < primary.age_days:
-        # Newer day found (should not happen with ascending back); replace.
-        best_arr = np.zeros_like(arr)
-        age_px = np.full(arr.shape[:2], lookback + 1, dtype=np.int16)
-        layer_px = np.full(arr.shape[:2], -1, dtype=np.int8)
-        best_arr[usable] = arr[usable]
-        age_px[usable] = back
-        layer_px[usable] = li
-        primary = TilePick(
-          row=row, col=col, age_days=back, majority_age_days=back, oldest_age_days=back,
-          fill_fraction=0.0, mixed=False, layer=layer, date=day, mean=mean,
-        )
-      else:
-        # Same day other sensor, or older day: fill holes only.
-        if take.any():
-          best_arr[take] = arr[take]
-          age_px[take] = back
-          layer_px[take] = li
-    if best_arr is not None and primary is not None:
-      hole = float((best_arr.max(axis=2) <= HOLE_MAX).mean())
-      if hole < 0.02 and primary.age_days <= back:
-        break
-
-  if best_arr is None or primary is None or age_px is None or layer_px is None:
-    return None, None
-
-  painted = age_px <= lookback
-  if not painted.any():
-    return None, None
-  vals, counts = np.unique(age_px[painted], return_counts=True)
-  majority = int(vals[int(counts.argmax())])
-  oldest = int(age_px[painted].max())
-  fill = float(((age_px != primary.age_days) & painted).mean())
-  mixed = fill > 0.02 or bool((layer_px[painted] != LAYERS.index(primary.layer)).any())
-  pick = TilePick(
-    row=row,
-    col=col,
-    age_days=primary.age_days,
-    majority_age_days=majority,
-    oldest_age_days=oldest,
-    fill_fraction=round(fill, 4),
-    mixed=mixed,
-    layer=primary.layer,
-    date=primary.date,
-    mean=float(best_arr.mean()),
-  )
-  return best_arr, pick
-
-
-def stitch_latest(out: Path, cache: Path, z: int, lookback: int, workers: int) -> dict:
-  ref = dt.datetime.now(dt.timezone.utc).date()
-  cols, rows = GEO_EXTENT[z]
-  jobs = [(r, c) for r in range(rows) for c in range(cols)]
-  mosaic = np.zeros((rows * TILE_PX, cols * TILE_PX, 3), dtype=np.uint8)
-  # Coverage colour uses majority pixel age; picks.json keeps primary/oldest/fill/mixed.
-  age_grid = np.full((rows, cols), lookback + 1, dtype=np.int16)
-  layer_grid = np.full((rows, cols), -1, dtype=np.int8)
-  picks: list[dict] = []
-  filled = 0
-
-  def one(rc: tuple[int, int]):
-    r, c = rc
-    return r, c, *pick_latest_tile(cache, ref, z, r, c, lookback)
-
-  t0 = time.time()
-  with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-    for r, c, arr, pick in ex.map(one, jobs):
-      if arr is None or pick is None:
-        continue
-      mosaic[r * TILE_PX:(r + 1) * TILE_PX, c * TILE_PX:(c + 1) * TILE_PX] = arr
-      age_grid[r, c] = pick.majority_age_days
-      layer_grid[r, c] = LAYERS.index(pick.layer)
-      picks.append(asdict(pick))
-      filled += 1
-  elapsed = time.time() - t0
-
-  mosaic = crop_world_array(mosaic, z)
-  img = Image.fromarray(mosaic, 'RGB')
-  path = out / f'earth-latest-{ref.isoformat()}-z{z}.jpg'
-  img.save(path, quality=92, optimize=True)
-  preview = img.resize((max(1, img.width // 4), max(1, img.height // 4)), Image.Resampling.LANCZOS)
-  prev_path = out / f'earth-latest-{ref.isoformat()}-z{z}-preview.jpg'
-  preview.save(prev_path, quality=85, optimize=True)
-
-  age_rgb = np.zeros((rows, cols, 3), dtype=np.uint8)
-  for r in range(rows):
-    for c in range(cols):
-      age = int(age_grid[r, c])
-      if age > lookback:
-        age_rgb[r, c] = (40, 40, 50)
-      else:
-        t = age / max(1, lookback)
-        age_rgb[r, c] = (int(255 * t), int(255 * (1 - t * 0.85)), int(40 * (1 - t)))
-  # Crop coverage choropleth to the same world fraction as the mosaic (cell grid).
-  world_w, world_h = world_size_px(z)
-  cov_cols = max(1, int(round(cols * (world_w / (cols * TILE_PX)))))
-  cov_rows = max(1, int(round(rows * (world_h / (rows * TILE_PX)))))
-  age_rgb = age_rgb[:cov_rows, :cov_cols]
-  cov = Image.fromarray(age_rgb, 'RGB').resize((cov_cols * 48, cov_rows * 48), Image.Resampling.NEAREST)
-  cov_path = out / f'earth-coverage-age-{ref.isoformat()}-z{z}.png'
-  cov.save(cov_path)
-
-  age_counts = {str(int(k)): int(v) for k, v in zip(*np.unique(age_grid, return_counts=True))}
-  layer_counts = {
-    LABEL[LAYERS[i]]: int(c)
-    for i, c in zip(*np.unique(layer_grid[layer_grid >= 0], return_counts=True))
-  }
-  mixed_cells = sum(1 for p in picks if p['mixed'])
-  if filled == 0:
-    raise SystemExit('no tiles filled; GIBS may be unavailable or lookback empty')
-  if filled / len(jobs) < 0.25:
-    print(f'warning: only {filled}/{len(jobs)} tiles filled', file=sys.stderr)
-  picks_path = out / 'picks.json'
-  return {
-    'mode': 'latest',
-    'reference_date': ref.isoformat(),
-    'zoom': z,
-    'lookback_days': lookback,
-    'grid': f'{cols}x{rows}',
-    'pixels': f'{img.width}x{img.height}',
-    'tiles_filled': filled,
-    'tiles_total': len(jobs),
-    'mixed_cells': mixed_cells,
-    'elapsed_s': round(elapsed, 1),
-    'age_counts': age_counts,
-    'layer_counts': layer_counts,
-    'layers_priority': LAYERS,
-    'coverage_age_basis': 'majority_pixel_age',
-    'files': {
-      'mosaic': str(path),
-      'preview': str(prev_path),
-      'coverage_age': str(cov_path),
-      'picks': str(picks_path),
-    },
-    'picks': picks,
-    'caveats': [
-      'GIBS daily Corrected Reflectance browse, not a cloud-free monthly composite.',
-      'Polar night and persistent gaps can remain black after lookback.',
-      'Coverage age is the majority pixel age; picks.json also has oldest_age_days, fill_fraction, mixed.',
-      f'Native VIIRS GSD is ~375 m; z{z} samples coarser than that.',
-    ],
-  }
+    if args.date:
+        try:
+            args.reference = dt.date.fromisoformat(args.date)
+        except ValueError:
+            parser.error('--date must be YYYY-MM-DD')
+    else:
+        args.reference = dt.datetime.now(dt.timezone.utc).date()
+    if args.cache is None:
+        args.cache = args.out / 'cache'
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
-  p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-  p.add_argument('--mode', choices=('latest', 'single'), default='latest')
-  p.add_argument(
-    '--zoom', type=int, default=5, choices=JPEG_ZOOMS,
-    help='GIBS geographic 250m zoom (0–6; higher exceeds JPEG width limits)',
-  )
-  p.add_argument('--lookback', type=int, default=7, help='days of history to search (must be >= 0)')
-  p.add_argument('--out', type=Path, default=Path('scratch/earth-mosaic'))
-  p.add_argument('--cache', type=Path, default=None)
-  p.add_argument('--workers', type=int, default=16)
-  args = p.parse_args(argv)
-  if args.lookback < 0:
-    p.error('--lookback must be >= 0')
-  if args.zoom >= 6:
-    print('warning: zoom 6 allocates ~2.4 GB RGB before encode', file=sys.stderr)
-
-  out: Path = args.out
-  out.mkdir(parents=True, exist_ok=True)
-  cache = args.cache or (out / 'tiles')
-  cache.mkdir(parents=True, exist_ok=True)
-
-  if args.mode == 'single':
-    result = stitch_single(out, cache, args.zoom, args.workers)
-  else:
-    result = stitch_latest(out, cache, args.zoom, args.lookback, args.workers)
-
-  result['generated_at_utc'] = dt.datetime.now(dt.timezone.utc).isoformat()
-  result['projection'] = 'EPSG:4326 / CRS84 GIBS TileMatrixSet 250m'
-  man = out / 'manifest.json'
-  picks = result.pop('picks', None)
-  if picks is not None:
-    picks_path = Path(result['files']['picks'])
-    picks_path.write_text(json.dumps(picks) + '\n')
-  man.write_text(json.dumps(result, indent=2) + '\n')
-  print(json.dumps({k: result[k] for k in result if k != 'caveats'}, indent=2))
-  print('manifest', man, file=sys.stderr)
-  return 0
+    args = parse_args(argv)
+    cols, rows = MATRIX[args.zoom]
+    days = day_list(args.reference, args.lookback)
+    args.out.mkdir(parents=True, exist_ok=True)
+    args.cache.mkdir(parents=True, exist_ok=True)
+    print(
+        f'mode {args.mode} zoom {args.zoom} grid {cols}x{rows} '
+        f'lookback {args.lookback} reference {args.reference.isoformat()}'
+    )
+    started = time.perf_counter()
+    extra: dict = {}
+    if args.mode == 'single':
+        picks, extra = run_single(args.cache, args.zoom, rows, cols, days, args.lookback, args.workers)
+    else:
+        picks = run_latest(args.cache, args.zoom, rows, cols, days, args.lookback, args.workers)
+    age_counts, layer_counts = counts(picks)
+    picked = sum(layer_counts.values())
+    mosaic = crop_to_world(render_mosaic(picks, rows, cols), args.zoom)
+    coverage = render_coverage(picks, rows, cols, args.zoom, args.lookback)
+    manifest = {
+        'generated_at_utc': dt.datetime.now(dt.timezone.utc).isoformat(),
+        'reference_date': args.reference.isoformat(),
+        'mode': args.mode,
+        'method': (
+            'One NOAA-20 day, the newest in the lookback whose non-black share reaches 0.70.'
+            if args.mode == 'single'
+            else (
+                'Per geographic WMTS tile, the newest non-black JPEG across the daily '
+                'Corrected Reflectance layers, then same-day and older sensors fill residual black pixels.'
+            )
+        ),
+        'projection': 'EPSG:4326 / CRS84 GIBS TileMatrixSet 250m',
+        'zoom': args.zoom,
+        'grid': f'{cols}x{rows}',
+        'tile_px': TILE_PX,
+        'grid_pixels': f'{cols * TILE_PX}x{rows * TILE_PX}',
+        'pixels': f'{mosaic.width}x{mosaic.height}',
+        'deg_per_px': round(deg_per_px(args.zoom), 6),
+        'equator_km_per_px': round(deg_per_px(args.zoom) * (EQUATOR_KM / 360), 3),
+        'lookback_days': args.lookback,
+        'empty_mean_brightness_max': EMPTY_MEAN,
+        'layers_priority': [layer_id for layer_id, _label in LAYERS],
+        'age_counts': age_counts,
+        'layer_counts': layer_counts,
+        'picked_tiles': picked,
+        'empty_tiles': len(picks) - picked,
+        'elapsed_s': round(time.perf_counter() - started, 1),
+        'caveats': CAVEATS,
+    }
+    manifest.update(extra)
+    mosaic_path, coverage_path, manifest_path = write_outputs(args.out, mosaic, coverage, manifest)
+    mosaic.close()
+    coverage.close()
+    print(f'age_counts {json.dumps(age_counts)}')
+    print(f'layer_counts {json.dumps(layer_counts)}')
+    print(f'mosaic {mosaic_path}')
+    print(f'coverage {coverage_path}')
+    print(f'manifest {manifest_path}')
+    if picked == 0:
+        print('no imagery found', file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == '__main__':
-  raise SystemExit(main())
+    raise SystemExit(main())
