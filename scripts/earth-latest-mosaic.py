@@ -66,9 +66,14 @@ DEG_PER_PX_Z0 = 0.5625
 JPEG_MAX_PX = 65500
 # One threshold for a whole tile and for a pixel. GIBS answers "no data" with a black JPEG.
 EMPTY_MEAN = 5
+# Stop chasing older days once fewer than this share of pixels are still holes.
+# One dark pixel is normal in ocean and terrain; it is not a swath gap.
+HOLE_FRACTION = 0.01
 # A finished NOAA-20 day on this grid was 0.875 non-black at zoom 4 on 2026-11-13.
 # An unpublished day is 0. The cut sits between those two.
 SOLID_DAY_FRACTION = 0.70
+# Zoom 6 keeps ~4.7 GiB of RGB tiles in memory before temporary buffers.
+MOSAIC_MAX_ZOOM = 5
 USER_AGENT = 'watched-earth-mosaic/1.0'
 HOLE_LUT = [255 if i <= EMPTY_MEAN else 0 for i in range(256)]
 EQUATOR_KM = 40075.017
@@ -202,8 +207,12 @@ def luma_stats(im: Image.Image) -> tuple[int, float, int]:
     return int(lo), mean, int(hi)
 
 
+def hole_count(im: Image.Image) -> int:
+    return im.convert('L').point(HOLE_LUT).histogram()[255]
+
+
 def has_holes(im: Image.Image) -> bool:
-    return im.convert('L').getextrema()[0] <= EMPTY_MEAN
+    return hole_count(im) > HOLE_FRACTION * im.width * im.height
 
 
 def fill_holes(base: Image.Image, donor: Image.Image) -> Image.Image:
@@ -230,8 +239,8 @@ def store_jpeg(path: Path, data: bytes) -> None:
 def load_image(
     cache: Path, layer_id: str, day: str, z: int, row: int, col: int, use_cache: bool,
 ) -> Image.Image | None:
-    # The reference day can still be publishing, so it is never read from cache.
-    # Older days stay as they were written.
+    # Today and yesterday can still be publishing or backfilled, so those ages
+    # bypass the on-disk cache. Older days stay as they were written.
     path = cache_path(cache, layer_id, day, z, row, col)
     if use_cache and path.exists():
         im = open_rgb(path.read_bytes())
@@ -281,17 +290,18 @@ def pick_latest(
         assert base is not None
         if not has_holes(base):
             return
-        before = base.convert('L').point(HOLE_LUT).getextrema()[1]
+        before = hole_count(base)
         base = fill_holes(base, donor)
-        after = base.convert('L').point(HOLE_LUT).getextrema()[1]
-        if before > 0 and after < before:
+        after = hole_count(base)
+        if before > after:
             oldest_age = max(oldest_age, donor_age)
             if donor_age != base_age or donor_layer != base_layer:
                 mixed = True
 
     for age, day in days:
         for layer_id, _label in LAYERS:
-            im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 0)
+            # age 0 and age 1 bypass cache (see load_image).
+            im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 1)
             if im is None:
                 continue
             _lo, mean, hi = luma_stats(im)
@@ -350,7 +360,7 @@ def run_latest(
 def read_cell(
     cache: Path, layer_id: str, day: str, age: int, z: int, row: int, col: int, lookback: int,
 ) -> TilePick:
-    im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 0)
+    im = load_image(cache, layer_id, day, z, row, col, use_cache=age > 1)
     if im is None:
         return blank_pick(row, col, lookback)
     _lo, mean, _hi = luma_stats(im)
@@ -542,6 +552,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     if args.workers < 1 or args.workers > 64:
         parser.error('--workers must be from 1 to 64')
     width, height = world_px(args.zoom)
+    if args.zoom > MOSAIC_MAX_ZOOM:
+        parser.error(
+            f'zoom {args.zoom} holds about 4.7 GiB of RGB tiles before temporary buffers. '
+            f'Use zoom {MOSAIC_MAX_ZOOM} or lower.'
+        )
     if width > JPEG_MAX_PX or height > JPEG_MAX_PX:
         parser.error(
             f'zoom {args.zoom} is {width} by {height} px. A JPEG stops near {JPEG_MAX_PX} px. Use zoom 6 or lower.'
@@ -597,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
         'reference_date': args.reference.isoformat(),
         'mode': args.mode,
         'method': (
-            'One NOAA-20 day, the newest in the lookback whose non-black share reaches 0.70.'
+            'One NOAA-20 day reaching 0.70 if available; otherwise the day with the best non-black share in the lookback.'
             if args.mode == 'single'
             else (
                 'Per geographic WMTS tile, the newest non-black JPEG across the daily '
