@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://www.watched.earth"><b>www.watched.earth</b></a>
   <br>
-  <sub>Nearly 700,000 visits in its first week · 490 points on <a href="https://news.ycombinator.com/item?id=50428907">Hacker News</a> · MIT licensed</sub>
+  <sub>Over a million visits in its first week · 500 points on <a href="https://news.ycombinator.com/item?id=50428907">Hacker News</a> · MIT licensed</sub>
 </p>
 
 <p align="center">

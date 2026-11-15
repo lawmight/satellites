@@ -11,7 +11,7 @@ import { Wordmark } from '@/ui/system/Wordmark'
 import { RANGES, currentSession, fetchLive, fetchStats, liveFor, sendMagicLink, signOut, supabase, takeAuthError, verifyCode, type AdminStats, type LiveCounts, type Range } from './api'
 import { ActivityChart, Funnel, RankList, Split, WorldMap } from './charts'
 import { liveSeries } from './live'
-import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, maintBehind } from './format'
+import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, maintBehind, type FunnelStage } from './format'
 
 type View =
   | { kind: 'loading' }
@@ -350,7 +350,8 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
   const rec = s.recorded
   const shares = (t.share_action ?? 0) + (live?.share_action ?? 0)
   const conv = f.search ? (f.share_action ?? 0) / f.search : null
-  const stages = [
+  // Every step is a share of the recorded sessions (funnelShares): the funnel is counted from recorded events only.
+  const stages: FunnelStage[] = [
     { key: 'search', label: 'Searched', n: f.search ?? 0 },
     { key: 'results', label: 'Saw results', n: f.results ?? 0 },
     { key: 'pass_open', label: 'Opened a pass', n: f.pass_open ?? 0 },
@@ -415,8 +416,10 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
 
       <div className="a-cols">
         <Section n={3} title="FUNNEL · SESSIONS">
-          <Funnel stages={stages} />
-          <p className="a-note">Sessions that reached each step. The last column is the share of the step before.</p>
+          <Funnel stages={stages} sessions={rec.session} />
+          <p className="a-note">
+            Sessions that reached each step at least once (Searched: had at least one search), and their share of the {fmtInt(rec.session)} sessions recorded in this range.
+          </p>
         </Section>
         <Section n={4} title="HOW PEOPLE SEARCH">
           <RankList rows={s.top['search.source']} total={rec.search} label={(x) => SOURCE_NAMES[x] ?? x} />

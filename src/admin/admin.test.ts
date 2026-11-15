@@ -3,7 +3,7 @@ import { searchSource } from '@/app/telemetry'
 import type { Place } from '@/types'
 import { isTimeout, liveFor, parseLive, parseStats, RANGES } from './api'
 import { mockLive, mockStats } from './fixture'
-import { fmtBucket, fmtPct, niceMax, SOURCE_NAMES } from './format'
+import { fmtBucket, fmtPct, funnelShares, niceMax, SOURCE_NAMES, type FunnelStage } from './format'
 import { liveSeries } from './live'
 import { dotRadius, GRID_STEP, legendCounts, placeGrid } from './placeGrid'
 
@@ -52,6 +52,25 @@ describe('formats', () => {
     expect(fmtBucket(Date.UTC(2026, 10, 8), 'day')).toBe('NOV 08') // a UTC day (before 0016)
     expect(fmtBucket(Date.UTC(2026, 10, 8, 5), 'day')).toBe('NOV 08') // an Eastern day: midnight EST
     expect(fmtBucket(Date.UTC(2026, 6, 8, 4), 'day')).toBe('JUL 08') // midnight EDT
+  })
+})
+
+describe('funnel shares', () => {
+  // The all-time funnel on 2026-11-15. Every step is a share of the recorded sessions (owner): the steps are not one
+  // chain, and dividing each by the step listed above it read 211% for Expanded a photo.
+  const stages: FunnelStage[] = [
+    { key: 'search', label: 'Searched', n: 682_426 },
+    { key: 'results', label: 'Saw results', n: 667_734 },
+    { key: 'pass_open', label: 'Opened a pass', n: 165_370 },
+    { key: 'lightbox_open', label: 'Expanded a photo', n: 348_729 },
+    { key: 'share_open', label: 'Opened share', n: 9_478 },
+    { key: 'share_action', label: 'Shared', n: 3_230 },
+  ]
+  it('gives each step as a share of the sessions, Searched being the sessions with at least one search', () => {
+    expect(funnelShares(stages, 1_029_586).map((r) => fmtPct(r.share))).toEqual(['66%', '65%', '16%', '34%', '0.9%', '0.3%'])
+  })
+  it('never divides by zero sessions', () => {
+    expect(funnelShares(stages, 0).every((r) => r.share === null)).toBe(true)
   })
 })
 
