@@ -1,7 +1,7 @@
 /**
  * /admin: what people do in Watched, at a glance. Sign-in is a Supabase email magic link; the stats come from
  * the admin_stats RPC, which only answers for the admin's email (checked in the database).
- * The stats are computed hourly. Sessions, searches and shares, and the activity chart's bars, also add what was
+ * The stats are computed hourly. Sessions, searches and shares, and the activity chart's points, also add what was
  * counted since (admin_live), read with every load and Refresh and every 30 s while the page is in view; the rest of
  * the page waits for the hour, and the note under the totals says so.
  * DEV only: /admin?mock=1 renders a fixture without signing in (src/admin/fixture.ts).

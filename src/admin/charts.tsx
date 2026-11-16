@@ -21,7 +21,9 @@ function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] 
   return [ref, w]
 }
 
-// ── Activity: searches (bars), time-lapse opens (ice) and shares (signal) inside them, sessions (step line) ──
+// ── Activity: searches, time-lapse opens (ice), shares (signal) and sessions over time ──
+// Lines through one point a bucket (an hour or a day), in every range: bars a day wide read as blocks, not as a
+// trend, and the owner wants one look for all ranges. All four are on one scale, so they can be compared directly.
 
 export function ActivityChart({ series, bucket }: { series: [number, number, number, number, number][]; bucket: 'hour' | 'day' }) {
   const [ref, w] = useWidth<HTMLDivElement>()
@@ -37,16 +39,14 @@ export function ActivityChart({ series, bucket }: { series: [number, number, num
   // Shown once the range has any (the time-lapse went live on 2026-11-13): before that the readout would be a row of zeros.
   const lapses = series.some((s) => s[4] > 0)
   const bw = n ? plotW / n : 0
-  const gap = bw > 6 ? 1.5 : bw > 3 ? 1 : 0
   const y = (v: number) => top + plotH - (v / max) * plotH
   const ticks = n ? tickIndexes(series.map((s) => s[0]), bucket, Math.max(2, Math.floor(plotW / 92))) : []
   const sel = hover ?? n - 1
   const cur = series[sel]
-  let line = ''
-  series.forEach((s, i) => {
-    const x0 = i * bw
-    line += `${i ? 'L' : 'M'}${x0.toFixed(1)},${y(s[3]).toFixed(1)}H${(x0 + bw).toFixed(1)}`
-  })
+  const cx = (i: number) => i * bw + bw / 2
+  const through = (k: 1 | 2 | 3 | 4) => series.map((s, i) => `${i ? 'L' : 'M'}${cx(i).toFixed(1)},${y(s[k]).toFixed(1)}`).join('')
+  // Every bucket gets its point while there is room for them; the one under the cursor always does.
+  const dots = series.map((_, i) => i).filter((i) => bw >= 14 || i === sel)
 
   return (
     <div ref={ref} className="a-chart">
@@ -93,27 +93,39 @@ export function ActivityChart({ series, bucket }: { series: [number, number, num
               </text>
             </g>
           ))}
-          {series.map((s, i) => {
-            const x = i * bw + gap / 2
-            const bwi = Math.max(0.6, bw - gap)
+          {n > 1 && (
+            <>
+              <path d={`${through(1)}L${cx(n - 1).toFixed(1)},${y(0)}L${cx(0).toFixed(1)},${y(0)}Z`} className="a-area" />
+              <path d={through(3)} className="a-line" />
+              <path d={through(1)} className="a-line a-line-main" />
+              {lapses && <path d={through(4)} className="a-line a-line-ice" />}
+              {series.some((s) => s[2] > 0) && <path d={through(2)} className="a-line a-line-signal" />}
+            </>
+          )}
+          {cur && <line x1={cx(sel)} x2={cx(sel)} y1={top - 6} y2={y(0)} className="a-cursor" />}
+          {dots.map((i) => {
+            const s = series[i]
+            const r = i === sel ? 3 : 2
             return (
               <g key={s[0]}>
-                {s[1] > 0 && <rect x={x} y={y(s[1])} width={bwi} height={y(0) - y(s[1])} className={i === sel ? 'a-bar a-bar-on' : 'a-bar'} />}
-                {s[4] > 0 && <rect x={x} y={y(s[4])} width={bwi} height={y(0) - y(s[4])} className="a-bar-ice" />}
-                {s[2] > 0 && <rect x={x} y={y(s[2])} width={bwi} height={y(0) - y(s[2])} className="a-bar-signal" />}
+                <circle cx={cx(i)} cy={y(s[3])} r={r} className="a-dot a-dot-dim" />
+                <circle cx={cx(i)} cy={y(s[1])} r={r} className="a-dot" />
+                {s[4] > 0 && <circle cx={cx(i)} cy={y(s[4])} r={r} className="a-dot a-dot-ice" />}
+                {s[2] > 0 && <circle cx={cx(i)} cy={y(s[2])} r={r} className="a-dot a-dot-signal" />}
               </g>
             )
           })}
-          <path d={line} className="a-line" />
-          {cur && <line x1={sel * bw + bw / 2} x2={sel * bw + bw / 2} y1={top - 6} y2={y(0)} className="a-cursor" />}
-          {ticks.map((i) => (
-            <g key={i}>
-              <line x1={i * bw} x2={i * bw} y1={y(0)} y2={y(0) + 4} className="a-tick" />
-              <text x={i * bw} y={H - 6} className="a-axis">
-                {fmtBucket(series[i][0], bucket, true)}
-              </text>
-            </g>
-          ))}
+          {ticks.map((i) => {
+            const x = cx(i)
+            return (
+              <g key={i}>
+                <line x1={x} x2={x} y1={y(0)} y2={y(0) + 4} className="a-tick" />
+                <text x={x} y={H - 6} className="a-axis" textAnchor="middle">
+                  {fmtBucket(series[i][0], bucket, true)}
+                </text>
+              </g>
+            )
+          })}
         </svg>
       )}
     </div>

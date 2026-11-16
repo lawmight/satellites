@@ -365,24 +365,36 @@ a {
   stroke: var(--bone-3-mark);
   shape-rendering: crispEdges;
 }
-.a-bar {
-  fill: var(--bone-4);
-}
-.a-bar-on {
-  fill: var(--bone-2);
-}
-.a-bar-signal {
-  fill: var(--signal);
-}
-/* time-lapse opens: the secondary colour, between the searches' bar and the shares' */
-.a-bar-ice {
-  fill: var(--ice);
-  opacity: 0.72;
-}
 .a-line {
   fill: none;
   stroke: var(--bone-3);
   stroke-width: 1;
+}
+/* one line per number (charts.tsx): searches, then time-lapse opens (the secondary colour) and shares */
+.a-line-main {
+  stroke: var(--bone-2);
+  stroke-width: 1.5;
+}
+.a-line-ice {
+  stroke: var(--ice);
+}
+.a-line-signal {
+  stroke: var(--signal);
+}
+.a-area {
+  fill: var(--line);
+}
+.a-dot {
+  fill: var(--bone-2);
+}
+.a-dot-dim {
+  fill: var(--bone-3);
+}
+.a-dot-ice {
+  fill: var(--ice);
+}
+.a-dot-signal {
+  fill: var(--signal);
 }
 .a-cursor {
   stroke: var(--bone-3-mark);
