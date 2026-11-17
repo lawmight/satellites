@@ -1,12 +1,17 @@
 import { describe, expect, it, vi } from 'vitest'
+import { seasonRegionAt } from './seasonRegions'
 import { BLANK, blueFloor, buildTimelapse, commonGeometry, isBlank, MIN_FRAMES, noDataShare, oneGeometry, planTimelapse, probeUrl, rankGeometries, sceneOf, sceneSearchUrl, seasonDayOf, type Scene, type TimelapseDeps, type TimelapseProgress } from './timelapse'
 
 const TORONTO = { lat: 43.653, lon: -79.384 }
 const SINGAPORE = { lat: 1.352, lon: 103.82 }
+const GAZA = { lat: 31.5017, lon: 34.4668 }
 const NOW = Date.parse('2026-11-13T02:00:00Z')
 
 let n = 0
 const scene = (date: string, cloud: number, over: Partial<Scene> = {}): Scene => ({ id: `S2_${date}_${n++}`, t: Date.parse(`${date}T16:10:00Z`), cloud, tile: '17TPJ', orbit: 140, platform: 'Sentinel-2B', ...over })
+
+/** The date `day` days after 1 January of `year`, "YYYY-MM-DD". */
+const on = (year: number, day: number) => new Date(Date.UTC(year, 0, 1 + day)).toISOString().slice(0, 10)
 
 /** Every August 10th and February 10th from 2018 to 2026, clear in August, half-clouded in February. */
 const yearly = () => [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026].flatMap((y) => [scene(`${y}-08-10`, 2), scene(`${y}-08-20`, 8), scene(`${y}-02-10`, 30)])
@@ -86,6 +91,31 @@ describe('planning', () => {
   it('counts December toward the January a year aims at, the short way round New Year', () => {
     const plan = planTimelapse([scene('2020-12-20', 40), scene('2020-06-01', 1)], SINGAPORE)
     expect(plan.slots[0].candidates.map((c) => c.cloud)).toEqual([40, 1])
+  })
+
+  it('in a war zone, asks only about its one season in every year, and leaves out a year with none', () => {
+    const zone = seasonRegionAt(GAZA)!
+    const off = (zone.day + 182) % 365 // half a year away
+    const scenes = [scene(on(2019, zone.day), 20), scene(on(2019, zone.day - 40), 5), scene(on(2019, off), 1), scene(on(2020, off), 1), scene(on(2021, zone.day + 40), 3)]
+    const plan = planTimelapse(scenes, GAZA)
+    expect(plan.season).toBe(zone.season)
+    expect(plan.slots.map((s) => [s.key, s.candidates.map((c) => c.cloud), s.inSeason])).toEqual([
+      ['2019', [5, 20], 2],
+      ['2021', [3], 1],
+    ])
+    expect(planTimelapse(yearly(), TORONTO).season).toBeUndefined()
+  })
+
+  it('on a glacier, asks only about the end of the melt season, so no year is snow over the ice', () => {
+    const COLUMBIA = { lat: 61.15, lon: -147.08 }
+    const zone = seasonRegionAt(COLUMBIA)!
+    const scenes = [scene(on(2019, zone.day), 10), scene(on(2019, 100), 0), scene(on(2020, 20), 0), scene(on(2021, zone.day + 30), 4)]
+    const plan = planTimelapse(scenes, COLUMBIA)
+    expect(plan.season).toBe('summer')
+    expect(plan.slots.map((s) => [s.key, s.candidates.map((c) => c.cloud)])).toEqual([
+      ['2019', [10]],
+      ['2021', [4]],
+    ])
   })
 })
 
@@ -200,6 +230,14 @@ describe('building', () => {
     await expect(p).rejects.toMatchObject({ name: 'AbortError' })
     expect(revoke.mock.calls.length).toBeGreaterThanOrEqual(3)
     revoke.mockRestore()
+  })
+
+  it('says which season every frame of a war zone is from, and nothing elsewhere', async () => {
+    const zone = seasonRegionAt(GAZA)!
+    const scenes = [2019, 2020, 2021].map((y) => scene(on(y, zone.day), 2))
+    const t = await buildTimelapse(GAZA, { px: 640, now: NOW, deps: deps({ scenes }) })
+    expect([t.season, t.frames.length]).toEqual([zone.season, 3])
+    expect((await buildTimelapse(TORONTO, { px: 640, now: NOW, deps: deps({ scenes: yearly() }) })).season).toBeUndefined()
   })
 
   it('rejects when the archive cannot be listed', async () => {

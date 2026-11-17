@@ -271,7 +271,8 @@ function Player({ place, from, mobile, onClose }: TimelapseProps) {
 
 /** One line under the time line: what is on screen, or what the instrument is doing. */
 function caption(run: RunState, data: TimelapseData | undefined): string {
-  if (data) return `${data.frames.length} clear looks · one a year`
+  // A war zone's frames are all of one season (seasonRegions.ts): say which, so the change reads as the war's.
+  if (data) return `${data.frames.length} clear looks · ${data.season ? `one each ${data.season}` : 'one a year'}`
   if (run.phase === 'short') return 'No time-lapse for this place'
   if (run.phase === 'error') return 'The archive did not answer'
   return 'One clear look a year · since 2015'

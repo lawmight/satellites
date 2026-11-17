@@ -116,7 +116,11 @@
   need no alignment because every crop is on the place's grid, and they come from ONE tile and orbit that covers the
   whole square (two light searches: which geometry, then its scenes; all geometries at once overflow the archive's
   1000-scene page over deserts). The years turn through the seasons (each aims for the next quarter of the calendar,
-  and falls back to any clear date; owner). Its pictures stay out of the photo cache (released when it is dropped);
+  and falls back to any clear date; owner), except in the war zones people search for (`seasonRegions.ts`: Gaza
+  Strip, West Bank, Ukraine, Lebanon): there every year is the one season that shows the war's change most, and only
+  that season, inside the calendar year (owner, 2026-11-16). Glaciers outside the tropics get the same treatment: every year
+  is the end of the melt season (mid-August north, mid-February south), from a 0.1° ice grid built by
+  `scripts/build-glaciers.py` into `glaciers.ts` (it ships only in the time-lapse chunk; owner, 2026-11-16). Its pictures stay out of the photo cache (released when it is dropped);
   the waiting screen develops a small one per year, the big picture shows only when all are in. `Video` renders the
   loop to an MP4 in the browser (`video.ts`: WebCodecs + `mp4-muxer`, a chunk fetched on that press; H.264 first), in
   two presses, because a share sheet or a download only opens inside a press. Its events (`timelapse_open`,

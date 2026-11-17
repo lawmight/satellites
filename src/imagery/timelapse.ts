@@ -16,6 +16,10 @@
  *    (January, April, July, October, by the year's number), so a loop shows the place under snow, in leaf and dry,
  *    not eleven of the same afternoon. It is an aim, not a rule: a year whose quarter has no clear look takes its
  *    least cloudy scene of any date (Singapore gets 10 of 10 years that way, 2 if a season were required).
+ *  - Except in the war zones people search for (seasonRegions.ts: the Palestinian territories, Ukraine, Lebanon):
+ *    there every year is the same season, the one that shows the war's change most, and only that season (owner,
+ *    2026-11-16). Turning seasons there would show summer as damage, or winter rain as recovery. Glaciers too, outside
+ *    the tropics: every year is the end of the melt season, when snow hides the least of the ice (owner, 2026-11-16).
  *  - A scene's cloud percentage is for its whole 110 km tile. Each slot's least cloudy scenes are checked at the
  *    place itself (the cloud mask the photos already use), least cloudy first, and the first that shows at least
  *    95 % of the square is kept: usually the first one asked.
@@ -37,6 +41,7 @@ import { tonedImageBlob } from './image'
 import { fetchJson, isAbortError, mapLimit, throwIfAborted } from './net'
 import { pcCropUrl, pcMaskUrl } from './pcCrop'
 import { fetchMask, fetchPixels } from './pixelsClient'
+import { seasonRegionAt, type SeasonName } from './seasonRegions'
 import { clearFraction } from '../../api/_lib/tone'
 
 const COLLECTION = 'sentinel-2-l2a'
@@ -53,7 +58,7 @@ const MIN_CLEAR = 0.95
 const SAME_GROUND = 0.03
 const MIN_GROUND_CLEAR = 0.6
 /** A scene is of the aimed-for quarter when it is within this many days of its middle. */
-const SEASON_HALF_DAYS = 45
+export const SEASON_HALF_DAYS = 45
 /** The middle day of each quarter a year can aim for (mid-January, mid-April, mid-July, mid-October). */
 export const SEASON_DAYS = [15, 105, 196, 288] as const
 /** Scenes of the aimed-for quarter asked about before any other date of the year gets a turn. */
@@ -90,6 +95,8 @@ export interface Slot {
 
 export interface TimelapsePlan {
   slots: Slot[]
+  /** Every year's season, in a war zone (seasonRegions.ts); elsewhere the seasons turn */
+  season?: SeasonName
 }
 
 export interface Frame {
@@ -112,6 +119,8 @@ export interface Timelapse {
   frames: Frame[]
   /** Years that had scenes to ask about */
   slots: number
+  /** Every frame's season, in a war zone (seasonRegions.ts) */
+  season?: SeasonName
 }
 
 // ── Listing ────────────────────────────────────────────────────────────────────────────────
@@ -260,7 +269,10 @@ export const seasonDayOf = (year: number): number => SEASON_DAYS[((year % 4) + 4
 /** Days between two days of the year, the short way round New Year. */
 const dayGap = (a: number, b: number) => Math.min(Math.abs(a - b), 365 - Math.abs(a - b))
 
-/** Which scenes to ask about, year by year (oldest first): the aimed-for quarter's least cloudy, then any date's. */
+/**
+ * Which scenes to ask about, year by year (oldest first): the aimed-for quarter's least cloudy, then any date's. In a
+ * war zone, only its season's, inside the year; a year with none has no slot.
+ */
 export function planTimelapse(all: readonly Scene[], place: LatLon): TimelapsePlan {
   const years = new Map<string, Scene[]>()
   for (const s of oneGeometry(all, place.lon)) {
@@ -269,9 +281,20 @@ export function planTimelapse(all: readonly Scene[], place: LatLon): TimelapsePl
     if (list) list.push(s)
     else years.set(y, [s])
   }
+  const sorted = [...years.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
+  const region = seasonRegionAt(place)
+  if (region) {
+    const near = (s: Scene) => Math.abs(dayOfYear(mosaicDate(s.t, place.lon)) - region.day) <= SEASON_HALF_DAYS
+    return {
+      season: region.season,
+      slots: sorted.flatMap(([key, list]) => {
+        const season = list.filter(near).sort(byCloud).slice(0, TRIES + HAZE_RETRIES)
+        return season.length ? [{ key, candidates: season, inSeason: season.length }] : []
+      }),
+    }
+  }
   return {
-    slots: [...years.entries()]
-      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    slots: sorted
       .map(([key, list]) => {
         const aim = seasonDayOf(Number(key))
         const near = (s: Scene) => dayGap(dayOfYear(mosaicDate(s.t, place.lon)), aim) <= SEASON_HALF_DAYS
@@ -482,7 +505,7 @@ export async function buildTimelapse(place: LatLon, opts: TimelapseOptions): Pro
     })
     throwIfAborted(signal)
     const frames = meta.flatMap((m, i) => (srcs[i] ? [{ ...m, src: srcs[i]! }] : []))
-    return { frames, slots: plan.slots.length }
+    return { frames, slots: plan.slots.length, ...(plan.season && { season: plan.season }) }
   } catch (err) {
     for (const src of made) URL.revokeObjectURL(src)
     throw err
