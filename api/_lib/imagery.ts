@@ -15,7 +15,7 @@ import { frameRedrawFor } from './infrared.js'
 import { GEO_HALF_KM, isGeoCollection } from './cardSpec.js'
 
 const GIBS_WMS = 'https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi'
-const EUMETSAT_WMS = 'https://view.eumetsat.int/geoserver/ows'
+const EUMETSAT_WMS = 'https://view.eumetsat.int/geoserver/wms'
 const EARTH_RADIUS_KM = 6371
 const DEG = Math.PI / 180
 

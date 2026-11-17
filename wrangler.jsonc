@@ -19,6 +19,12 @@
     // and a request no file matches reaches the Worker too (the app fallback and 404s, as on Vercel).
     "run_worker_first": ["/", "/s/*", "/api/*"],
   },
+  // The Meteosat frame cache (api/_lib/geoFill.ts): each frame is fetched from EUMETSAT once, by the timer below, and
+  // kept here as tiles that /api/geo cuts pictures from. No id: `wrangler deploy` creates the namespace the first
+  // time and keeps the Worker linked to it, so a fork gets its own.
+  "kv_namespaces": [{ "binding": "GEO_FRAMES" }],
+  // Every minute; a run with nothing due reads one key and stops.
+  "triggers": { "crons": ["* * * * *"] },
   // satori imports harfbuzzjs; the package's own loader compiles WebAssembly at runtime, which Workers refuse.
   "alias": { "harfbuzzjs": "./worker/harfbuzz.ts" },
   // Fonts and the default plate arrive as bytes; .wasm files are compiled at deploy time by wrangler's default rule.

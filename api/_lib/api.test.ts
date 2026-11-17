@@ -666,7 +666,7 @@ describe('a shared geostationary image (migration 0014 for the Meteosats)', () =
     expect(plan.metresPerPx).toBeCloseTo(1269.8, 1)
     expect(plan.source).toBe('EUMETSAT METEOSAT')
     const u = new URL(plan.url)
-    expect(u.origin + u.pathname).toBe('https://view.eumetsat.int/geoserver/ows')
+    expect(u.origin + u.pathname).toBe('https://view.eumetsat.int/geoserver/wms')
     expect(u.searchParams.get('layers')).toBe('mtg_fd:rgb_geocolour')
     expect(u.searchParams.get('time')).toBe(AT)
     expect(u.searchParams.get('bgcolor')).toBe('0x000000')

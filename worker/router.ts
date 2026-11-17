@@ -5,11 +5,12 @@
  * wrangler.jsonc runs this for `/`, `/s/*` and `/api/*`, and for any request no static file matches; every other
  * file is served by Cloudflare without running it. In order, as on Vercel:
  *   - `/?q=…` from a link unfurler → that place's share page (api/s.ts); people get the app;
- *   - `/s/<id>` → the stored share's page; `/api/og`, `/api/s`, `/api/e`, `/api/pan` → their handlers;
+ *   - `/s/<id>` → the stored share's page; `/api/og`, `/api/s`, `/api/e`, `/api/pan`, `/api/geo` and
+ *     `/api/geo-frames` → their handlers;
  *   - a path with no dot outside `/api/` and `/s/` → the app's index.html, which routes it itself;
  *   - anything else → 404.
- * Cards, share pages and pan crops are kept in Cloudflare's cache when they say `s-maxage`, as Vercel's CDN kept
- * them: Cloudflare caches nothing a Worker builds unless the Worker stores it (`cached`). Static files get their
+ * Cards, share pages, pan crops and the Meteosat cuts and frame list are kept in Cloudflare's cache when they say
+ * `s-maxage`, as Vercel's CDN kept them: Cloudflare caches nothing a Worker builds unless the Worker stores it (`cached`). Static files get their
  * headers from public/_headers, which does not reach responses built here, so this adds the same security headers. Every host outside PRODUCTION_HOSTS (the staging copy, branch previews) is marked
  * noindex, so search engines only ever index the real site.
  *
@@ -50,6 +51,9 @@ export interface Routes {
   share: Handler
   events: Handler
   pan: Handler
+  /** A place's small Meteosat picture, and the frames there are (api/geo.ts, api/geo-frames.ts) */
+  geo: Handler
+  geoFrames: Handler
   /** Cloudflare's cache, and the Worker's `ctx.waitUntil` to store into it after answering. None: no caching. */
   cache?: EdgeCache
   waitUntil?: (work: Promise<unknown>) => void
@@ -129,6 +133,10 @@ async function dispatch(request: Request, url: URL, routes: Routes): Promise<Res
       return routes.events(request)
     case '/api/pan':
       return cached(request, routes.pan, routes)
+    case '/api/geo':
+      return cached(request, routes.geo, routes)
+    case '/api/geo-frames':
+      return cached(request, routes.geoFrames, routes)
   }
   if (APP_PATH.test(path)) return routes.assets.fetch(rewrite(request, new URL('/', url)))
   return notFound(path)

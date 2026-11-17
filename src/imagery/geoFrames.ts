@@ -1,6 +1,7 @@
 /**
  * The newest frame of each geostationary weather satellite, around a place: one entry point over the two public
- * map services that carry them.
+ * map services that carry them. (The Meteosats' small pictures and frame times reach the app through the site's own
+ * cache of EUMETSAT's frames, at EUMETSAT's request: ./eumetsat.ts.)
  *
  *   goes-east, goes-west   NASA GIBS GeoColor (true colour by day, city lights and cloud at night)
  *   himawari               NASA GIBS: the red visible band by day; the infrared window band when that is dark
@@ -24,7 +25,7 @@
  */
 import type { Capture, CaptureCollection, GeoFrameSource, LatLon } from '@/types'
 import { EUMETSAT_GEOSERVER, gibsWmsUrl, worldviewUrl, type CropOpts } from './endpoints'
-import { eumetsatWmsUrl, latestEumetsatFrame, type EumetsatFrameLayer } from './eumetsat'
+import { eumetsatCropUrl, latestEumetsatFrame, type EumetsatFrameLayer } from './eumetsat'
 import { GIBS_LAYERS, HIMAWARI_INFRARED, isoSeconds, latestGibsFrame, utcDate, type GibsFrameLayer } from './gibs'
 import { preloadImage } from './image'
 
@@ -114,7 +115,7 @@ function captureOf(source: GeoFrameSource, l: GeoFrameLayer, time: number, place
     gsdM: l.gridKm * 1000,
     band: l.band,
     // Both services cut in lon/lat already, so the globe's decal and the panel's card are the same kind of crop.
-    cropUrl: (o) => (l.via === 'gibs' ? gibsWmsUrl(layer, isoSeconds(time), { lat, lon }, o) : eumetsatWmsUrl(layer, time, { lat, lon }, o)),
+    cropUrl: (o) => (l.via === 'gibs' ? gibsWmsUrl(layer, isoSeconds(time), { lat, lon }, o) : eumetsatCropUrl(layer, time, { lat, lon }, o)),
     sourceUrl: l.via === 'gibs' ? worldviewUrl(layer, utcDate(time), { lat, lon }) : `${EUMETSAT_GEOSERVER.replace('/geoserver', '')}/productviewer?v=${encodeURIComponent(layer)}`,
   }
 }

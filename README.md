@@ -86,8 +86,9 @@ capture, so the newest passes may not have an image yet.
 </p>
 
 TypeScript, React 19, three.js through React Three Fiber, zustand and Vite. The pass search and the photo toning run
-in Web Workers in your browser. The server side is four small functions on a Cloudflare Worker (the same handlers
-also run on Vercel) and an optional Supabase database.
+in Web Workers in your browser. The server side is a few small functions on a Cloudflare Worker (the same handlers
+also run on Vercel), the Worker's hour-long cache of EUMETSAT's newest Meteosat frames, and an optional Supabase
+database.
 
 ### A pass search that can't miss
 

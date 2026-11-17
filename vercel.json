@@ -16,6 +16,12 @@
     },
     "api/pan.ts": {
       "maxDuration": 20
+    },
+    "api/geo.ts": {
+      "maxDuration": 5
+    },
+    "api/geo-frames.ts": {
+      "maxDuration": 5
     }
   },
   "routes": [

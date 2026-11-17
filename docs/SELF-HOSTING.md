@@ -1,6 +1,6 @@
 # Self-hosting
 
-How to run your own copy of Watched: a static Vite app with four small functions, on Vercel or on a Cloudflare
+How to run your own copy of Watched: a static Vite app with a few small functions, on Vercel or on a Cloudflare
 Worker, an optional Supabase backend, and a GitHub Action that keeps the orbit catalog fresh.
 
 ## What works without a backend
@@ -112,6 +112,16 @@ headers. Tests keep both equal to `vercel.json`, so a route or header change goe
 
 Locally, after `npm run build`, `npm run dev:worker` runs the Worker in Cloudflare's runtime. Put its variables in
 `.dev.vars`.
+
+**Meteosat frames need the Worker.** EUMETSAT asks sites not to send each visitor's requests to its map service, so
+the Worker fetches each Meteosat frame once, on a timer (`triggers.crons` in `wrangler.jsonc`: every minute, most
+runs do nothing), keeps it about an hour in a Workers KV namespace and cuts every visitor's small picture from it
+(`api/_lib/geoFill.ts`, `api/geo.ts`). `wrangler.jsonc` names the namespace's binding (`GEO_FRAMES`) without an id:
+the first `wrangler deploy` creates it for your account. Nothing else is needed. The fill writes an estimated half
+a million tiles a month, whatever the traffic, against the million writes Workers Paid includes. On Vercel, which
+has no timer and no store here, the two endpoints answer 503 and the Meteosat rows say "No image just now"; the
+same is true of `npm run dev`. To see them locally, run `npx wrangler dev --test-scheduled` after a build and start a
+fill by hand: `curl "http://localhost:8787/__scheduled?cron=*+*+*+*+*"`. A frame is listed two minutes after that.
 
 Share cards render with satori and resvg (`api/_lib/ogRender.ts`). Workers run only WebAssembly bundled at deploy time,
 so the Worker registers its bundled fonts and WebAssembly (`api/_lib/bundled.ts`), and `worker/harfbuzz.ts` starts

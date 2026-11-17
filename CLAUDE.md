@@ -154,3 +154,23 @@
   (filter on `pass.geostationary`). The images line counts the watchers' frames from `report.geo`, never from these
   captures, so the number is final before a frame loads. The engine never waits for a frame. Ask EUMETSAT only for
   listed frame times (`src/imagery/eumetsat.ts`).
+- Meteosat frame cache (`api/_lib/geoGrid.ts`, `geoFill.ts`, `geoCut.ts`, `api/geo.ts`, `api/geo-frames.ts`):
+  EUMETSAT wrote on 2026-11-17 that the app's visitors were far beyond fair use of its map service (each search asked
+  it for a frame list and a 176 px picture per Meteosat: about 1,000 pictures a minute at the peak of 2026-11-15) and
+  that it would throttle or block us; its measure is about one request a minute per layer. So the Worker's cron
+  fetches each frame ONCE (four 2048 px JPEG pieces a layer), keeps it about an hour as raw 512 px tiles in Workers KV
+  (`GEO_FRAMES`) and cuts every small picture (up to 176 px) itself; the app reads `/api/geo-frames` and `/api/geo`.
+  Keep all of these true: nothing a visitor does may add a request to EUMETView except opening a frame (its 1024 px
+  card, still direct, to `/geoserver/wms`); the app NEVER falls back to EUMETView when the cache does not answer (a
+  broken cache would send everyone there at once), and a Meteosat picture is asked for once, never retried; the fill
+  stays under one request a minute per layer (a new layer or a finer grid multiplies it: do the sum first). Pieces
+  are JPEG because EUMETView's download speed is the limit (50–165 kB/s; the same piece as PNG is 7 MB). JPEG work
+  in the Worker is MozJPEG in WebAssembly (`worker/jpegCodec.ts`): jpeg-js needs ~116 MB to decode a piece, against
+  a Worker's 128 MB. KV is eventually consistent (up to a minute), which is why a frame is listed two minutes after
+  it is stored and the fill keeps its own state key. The Worker stores no logs (Workers Logs would bill every
+  request): what the fill's last 40 working runs saw is in that state, KV key `fill`, field `log` (read it with the
+  Cloudflare API: `…/storage/kv/namespaces/<id>/values/fill`). EUMETView publishes a frame 21–29 minutes after it
+  is taken, and its cached list can lag minutes more (seen in the log on 2026-11-17), so every second read asks its tile service. Vercel and `npm run dev` have no cache: the Meteosat rows say
+  "No image just now" there; `npx wrangler dev --test-scheduled` has one (start a fill with `/__scheduled`, see
+  docs/SELF-HOSTING.md). Cloud containers cannot reach EUMETView from `wrangler dev` (workerd ignores the proxy): set
+  `GEO_UPSTREAM` to a local stand-in that serves downloaded pieces.

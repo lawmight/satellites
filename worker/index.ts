@@ -6,6 +6,11 @@
  * renderer runs. Those are imported here, which makes wrangler bundle them (fonts and images as bytes, WebAssembly
  * compiled), and registered before the first request (api/_lib/bundled.ts). Static files come from `dist/`
  * through the ASSETS binding (wrangler.jsonc).
+ *
+ * The Worker also keeps the Meteosat frame cache, which Vercel cannot (it has no store and no timer): `scheduled`
+ * runs the fill once a minute (api/_lib/geoFill.ts), into the GEO_FRAMES KV namespace, and /api/geo and
+ * /api/geo-frames read it. Without that binding (a fork that has not deployed yet) the two answer 503 and the fill
+ * does nothing.
  */
 import yoga from '../node_modules/satori/yoga.wasm'
 import resvg from '../node_modules/@resvg/resvg-wasm/index_bg.wasm'
@@ -19,11 +24,18 @@ import monoMediumLatin from '../api/_fonts/mono-medium-latin.ttf'
 import serifItalicLatin from '../api/_fonts/serif-italic-latin.ttf'
 import serifItalicLatinExt from '../api/_fonts/serif-italic-latin-ext.ttf'
 import plate from '../api/_assets/og-default-plate.jpg'
+import mozjpegDecoder from '../node_modules/@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm'
+import mozjpegEncoder from '../node_modules/@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm'
 import { registerBundled } from '../api/_lib/bundled.js'
+import { runFill, type GeoStore } from '../api/_lib/geoFill.js'
+import type { GeoServe } from '../api/_lib/geoServe.js'
 import { handleEvents } from '../api/e.ts'
+import { handleGeoFrames } from '../api/geo-frames.ts'
+import { handleGeo } from '../api/geo.ts'
 import { handleOg } from '../api/og.tsx'
 import { handlePan } from '../api/pan.ts'
 import { handleSharePage } from '../api/s.ts'
+import { jpegCodec } from './jpegCodec.ts'
 import { route, type EdgeCache, type Routes } from './router.ts'
 
 registerBundled({
@@ -41,8 +53,19 @@ registerBundled({
   '_assets/og-default-plate.jpg': plate,
 })
 
+/** The parts of a Workers KV namespace the frame cache uses. */
+interface KvNamespace {
+  get(key: string, options: { type: 'text'; cacheTtl?: number }): Promise<string | null>
+  get(key: string, options: { type: 'arrayBuffer'; cacheTtl?: number }): Promise<ArrayBuffer | null>
+  put(key: string, value: string | ArrayBufferView, options?: { expirationTtl?: number }): Promise<void>
+}
+
 interface Env {
   ASSETS: Routes['assets']
+  /** The Meteosat frame cache (wrangler.jsonc); absent until a deploy has created it */
+  GEO_FRAMES?: KvNamespace
+  /** Another GeoServer than EUMETView's, for `wrangler dev` only (.dev.vars) */
+  GEO_UPSTREAM?: string
 }
 
 interface Context {
@@ -52,16 +75,52 @@ interface Context {
 /** Cloudflare's own cache (per data centre); not part of the standard CacheStorage type. */
 const edgeCache = (caches as unknown as { default: EdgeCache }).default
 
+const codec = jpegCodec(mozjpegDecoder, mozjpegEncoder)
+
+/**
+ * The frame cache's store on KV. The state is read at most 30 seconds old (KV's shortest); a tile never changes, so a
+ * data centre keeps the ones it has read for an hour.
+ */
+const storeOf = (kv: KvNamespace): GeoStore => ({
+  getText: (key) => kv.get(key, { type: 'text', cacheTtl: 30 }),
+  getBytes: (key) => kv.get(key, { type: 'arrayBuffer', cacheTtl: 3600 }),
+  put: (key, value, ttlSeconds) => kv.put(key, value, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined),
+})
+
+/** One store object per namespace, so what api/_lib/geoServe.ts remembers per store lasts as long as the Worker runs. */
+const stores = new WeakMap<KvNamespace, GeoStore>()
+function store(kv: KvNamespace): GeoStore {
+  let s = stores.get(kv)
+  if (!s) stores.set(kv, (s = storeOf(kv)))
+  return s
+}
+
 export default {
   fetch(request: Request, env: Env, ctx: Context): Promise<Response> {
+    const waitUntil = (work: Promise<unknown>) => ctx.waitUntil(work)
+    const geo: GeoServe | null = env.GEO_FRAMES ? { store: store(env.GEO_FRAMES), cache: edgeCache, waitUntil, encode: codec.encode } : null
     return route(request, {
       assets: env.ASSETS,
       og: handleOg,
       share: handleSharePage,
       events: handleEvents,
       pan: handlePan,
+      geo: (r) => handleGeo(r, geo),
+      geoFrames: (r) => handleGeoFrames(r, geo),
       cache: edgeCache,
-      waitUntil: (work) => ctx.waitUntil(work),
+      waitUntil,
     })
+  },
+
+  /** Once a minute (wrangler.jsonc `triggers`): keep the frame cache full. Most minutes there is nothing to do. */
+  scheduled(_event: unknown, env: Env, ctx: Context): void {
+    if (!env.GEO_FRAMES) return
+    const run = runFill({ store: store(env.GEO_FRAMES), fetch: (url, init) => fetch(url, init), decode: codec.decode, geoserver: env.GEO_UPSTREAM || undefined }).then(
+      (report) => {
+        if (report.ready.length || report.failed.length) console.log('[geo] fill', JSON.stringify(report))
+      },
+      (err: unknown) => console.error('[geo] fill failed', err),
+    )
+    ctx.waitUntil(run)
   },
 }

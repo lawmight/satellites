@@ -22,8 +22,10 @@ Other services see the place too, but less often than you might think: names com
 countries and landmarks that ships with the site, so most searches, and any spot near a town, never leave your
 browser. A search the list can't answer goes to [Open-Meteo](https://open-meteo.com/en/docs/geocoding-api), and to
 [Photon](https://photon.komoot.io) if Open-Meteo has nothing; a spot far from any town goes to Photon, and to
-[Nominatim](https://nominatim.openstreetmap.org) if Photon is slow. Planetary Computer and NASA GIBS see the point and the area around it, to send the photos, and so
-does EUMETSAT where a Meteosat watches the place.
+[Nominatim](https://nominatim.openstreetmap.org) if Photon is slow. Planetary Computer and NASA GIBS see the point and the area around it, to send the photos.
+Where a Meteosat watches the place, its small picture is cut by the site itself from a copy of EUMETSAT's newest
+frame, which the site fetches on a timer: that request tells the site's host the point to about a kilometre, is
+not stored, and tells EUMETSAT nothing. EUMETSAT sees the point and the area around it only if you open that picture.
 Element 84 sees it only when Planetary Computer is down.
 
 The host, Cloudflare, also counts page views and page speed with Cloudflare Web Analytics, with no cookies or local

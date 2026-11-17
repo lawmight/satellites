@@ -18,7 +18,7 @@ function routes(): Routes {
     const u = new URL(r.url)
     return new Response(`${name} ${u.pathname}${u.search}`, { headers: { 'cache-control': 'public, max-age=0, must-revalidate' } })
   }
-  return { assets: { fetch: answer('asset') }, og: answer('og'), share: answer('share'), events: answer('events'), pan: answer('pan') }
+  return { assets: { fetch: answer('asset') }, og: answer('og'), share: answer('share'), events: answer('events'), pan: answer('pan'), geo: answer('geo'), geoFrames: answer('geoFrames') }
 }
 
 async function at(path: string, ua = PERSON, init: RequestInit = {}, host = 'https://www.watched.earth') {
@@ -47,6 +47,8 @@ describe('worker routes', () => {
     expect((await at('/api/s?id=ab3d5f7h')).body).toBe('share /api/s?id=ab3d5f7h')
     expect((await at('/api/e', PERSON, { method: 'POST', body: '{}' })).body).toBe('events /api/e')
     expect((await at('/api/pan?bbox=1')).body).toBe('pan /api/pan?bbox=1')
+    expect((await at('/api/geo?layer=x')).body).toBe('geo /api/geo?layer=x')
+    expect((await at('/api/geo-frames')).body).toBe('geoFrames /api/geo-frames')
     expect((await at('/api/nope')).res.status).toBe(404)
   })
 
