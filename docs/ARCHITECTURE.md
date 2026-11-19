@@ -53,7 +53,7 @@ Rules for parallel work:
 ### engine → `src/engine/index.ts`
 ```ts
 export interface LoadedCatalog { fetchedAt: string; source: string; sats: SatInfo[]; byNorad: Map<number, SatInfo> }
-export function loadCatalog(url?: string): Promise<LoadedCatalog>             // singleton, cached
+export function loadCatalog(url?: string): Promise<LoadedCatalog>             // singleton, cached; a failed download is tried twice more, then rejects with a CatalogLoadError
 export function getSatInfo(norad: number): SatInfo | undefined                  // after loadCatalog
 export function propagate(norad: number, ms: number): SatState | null          // main-thread SGP4 for a handful of sats
 export interface SatState { lat: number; lon: number; altKm: number; ecef: [number, number, number]; velKmS: number }
@@ -159,6 +159,8 @@ full stop, painted before any script runs (DESIGN §10). React never renders a b
   If the HUD's wordmark can't be measured, it is shown at once and the centred one fades with the ink.
 - `dropBootCurtain()` removes it immediately (dev sandboxes). Nothing may set the phase back to `boot` after it has
   left: a retry of the catalog (controller `retryCatalog`) loads it behind the fault notice instead.
+  The controller asks for it again by itself (6 s, 20 s and 60 s after the notice appeared, and when the browser comes back
+  online), so the landing returns without the button.
 - The HUD's other lines and the landing's headline wipe in under the fading ink on CSS time (`<Reveal>` is a CSS
   animation whose delay is set at mount), from the curtain's first frame: a busy main thread can drop frames of them but
   never pushes their start back. The HUD's version and About lines start at 780 / 820 ms, after the 760 ms glide.

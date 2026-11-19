@@ -28,7 +28,7 @@ import { timelapseParam, useTimelapseUi } from '@/state/timelapse'
 import { useApp } from '@/state/store'
 import type { Capture, Place, ProgressEvent, Report } from '@/types'
 import type { EngineReport } from '@/engine/report'
-import { currentCatalog, loadCatalog, loadCatalogNames } from '@/engine/catalog'
+import { isCatalogLoadError, loadCatalog, loadCatalogNames } from '@/engine/catalog'
 import { ensureTz } from '@/imagery'
 import { getShare, recordLookup, type Share } from '@/lib/backend'
 import { createLateShareGate } from './lateShare'
@@ -104,21 +104,47 @@ const ARCHIVE_RETRY_MS = 8000
 
 // ───────────────────────────── boot ─────────────────────────────
 
-let catalogFailed = false
+/** Why the last catalog load failed (its cause, for the stats); undefined while none has. */
+let catalogFault: string | undefined
 const CATALOG_ERROR = 'Could not load the orbit catalog. Check your connection and try again.'
+const COMPUTE_ERROR = 'Something went wrong computing passes for this place. Try again in a moment.'
+/**
+ * With the catalog's notice up and nothing to re-run, the catalog is asked for again this long after the notice
+ * appeared, and whenever the browser says it is back online: a phone that opened the page with no signal gets its
+ * landing without finding the button. (The loader has already tried three times before the notice shows.)
+ */
+const CATALOG_RECHECK_MS = [6000, 20_000, 60_000]
+
+/** An error as the stats keep it: its name and message. */
+const causeOf = (e: unknown) => (e instanceof Error ? (isCatalogLoadError(e) ? e.message : `${e.name}: ${e.message}`) : String(e))
 
 /** Load the catalog in the background. A failure surfaces only when no report is running (that one reports it). */
 function startCatalog() {
-  catalogFailed = false
+  catalogFault = undefined
   loadCatalog().then(
     () => useApp.getState().setCatalogReady(true),
     (e: unknown) => {
       console.error(e)
-      catalogFailed = true
+      catalogFault = causeOf(e)
       const phase = useApp.getState().phase
-      if (phase === 'idle' || phase === 'locating') useApp.getState().setPhase('error', CATALOG_ERROR)
+      if (phase === 'idle' || phase === 'locating') showCatalogFault()
     },
   )
+}
+
+/** The catalog's notice in place of the landing (no search to re-run), and the quiet re-asks behind it. */
+function showCatalogFault() {
+  useApp.getState().setPhase('error', CATALOG_ERROR, catalogFault)
+  const again = () => void retryCatalog()
+  const timers = CATALOG_RECHECK_MS.map((ms) => setTimeout(again, ms))
+  addEventListener('online', again)
+  // Until the notice goes: the catalog arrived (retryCatalog shows the landing), or the visitor pressed Back.
+  const unsubscribe = useApp.subscribe((st) => {
+    if (st.phase === 'error') return
+    timers.forEach(clearTimeout)
+    removeEventListener('online', again)
+    unsubscribe()
+  })
 }
 
 let booted = false
@@ -175,8 +201,8 @@ export async function boot() {
     void runReport(run.place, run.opts)
     return
   }
-  if (catalogFailed) {
-    useApp.getState().setPhase('error', CATALOG_ERROR)
+  if (catalogFault !== undefined) {
+    showCatalogFault()
     return
   }
   mark('boot-landing')
@@ -311,9 +337,9 @@ let catalogRetry: Promise<void> | null = null
  */
 function retryCatalog(): Promise<void> {
   catalogRetry ??= (async () => {
-    catalogFailed = false
     try {
       await loadCatalog()
+      catalogFault = undefined
       useApp.getState().setCatalogReady(true)
       if (useApp.getState().phase === 'error') {
         useApp.getState().setPhase('idle')
@@ -321,7 +347,7 @@ function retryCatalog(): Promise<void> {
       }
     } catch (e) {
       console.error(e)
-      catalogFailed = true
+      catalogFault = causeOf(e)
     } finally {
       catalogRetry = null
     }
@@ -559,9 +585,10 @@ export async function runReport(place: Place, opts: RunOpts = {}) {
     progress.cancel()
     if (ctrl.signal.aborted) return
     console.error(e)
-    // The place stays in the store, so "Try again" needs no input. Say what actually failed: without a
-    // catalog no pass can be computed (the HUD says "catalog unavailable" too).
-    useApp.getState().setPhase('error', currentCatalog() ? 'Something went wrong computing passes for this place. Try again in a moment.' : CATALOG_ERROR)
+    // The place stays in the store, so "Try again" needs no input. Say what actually failed: the catalog only
+    // when its own load did (the HUD says "catalog unavailable" too). Anything else that fails while the catalog
+    // is still on its way (the engine's chunk, a worker) is not the catalog's fault and not the connection's.
+    useApp.getState().setPhase('error', isCatalogLoadError(e) ? CATALOG_ERROR : COMPUTE_ERROR, causeOf(e))
   }
 }
 

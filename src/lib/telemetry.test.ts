@@ -15,7 +15,7 @@ import {
   track,
   utmOf,
 } from './telemetry'
-import { reportCounts, searchSource } from '@/app/telemetry'
+import { phaseErrorMsg, reportCounts, searchSource } from '@/app/telemetry'
 import type { Pass, Place } from '@/types'
 
 describe('opt-outs', () => {
@@ -252,5 +252,20 @@ describe('the boot-time arrival record (src/app/telemetryDeps.ts)', () => {
     expect((await boot('/', '?q=1,2&noanalytics=1', store({}, true))).optedOut).toBe(true)
     vi.resetModules()
     expect(await boot('/', '?q=1,2', store({}, true))).toMatchObject({ optedOut: false, entry: 'deep_link' })
+  })
+})
+
+describe('a fault notice in the stats (src/app/telemetry.ts)', () => {
+  it('keeps the sentence the visitor read, then what failed', () => {
+    const said = 'Could not load the orbit catalog. Check your connection and try again.'
+    expect(phaseErrorMsg({ error: said, errorCause: 'TypeError: Failed to fetch' })).toBe(`${said} (TypeError: Failed to fetch)`)
+    expect(phaseErrorMsg({ error: said, errorCause: 'Catalog request failed: HTTP 503' })).toBe(`${said} (Catalog request failed: HTTP 503)`)
+    expect(phaseErrorMsg({ error: said })).toBe(said)
+    expect(phaseErrorMsg({})).toBe('error')
+  })
+  it('masks a URL in the cause, like every other message', () => {
+    expect(phaseErrorMsg({ error: 'Something went wrong.', errorCause: 'TypeError: Failed to fetch dynamically imported module: https://www.watched.earth/assets/engine-abc.js' })).toBe(
+      'Something went wrong. (TypeError: Failed to fetch dynamically imported module: [url])',
+    )
   })
 })

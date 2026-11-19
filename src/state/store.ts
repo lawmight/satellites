@@ -56,6 +56,8 @@ export type CameraIntent =
 export interface AppState {
   phase: Phase
   error?: string
+  /** What failed, in the code's words (an error's name and message): for the usage stats, never shown. */
+  errorCause?: string
   place?: Place
   report?: Report
   /** The [start, end] window of the report being computed (ms). Set by the controller before computing. */
@@ -94,7 +96,7 @@ export interface AppState {
   pinAtCentre: number
 
   // actions
-  setPhase: (p: Phase, error?: string) => void
+  setPhase: (p: Phase, error?: string, errorCause?: string) => void
   setPlace: (p?: Place) => void
   setPendingWindow: (w?: [number, number]) => void
   setReport: (r?: Report) => void
@@ -138,7 +140,7 @@ export const useApp = create<AppState>((set) => ({
   pinReady: false,
   pinAtCentre: 0,
 
-  setPhase: (phase, error) => set({ phase, error }),
+  setPhase: (phase, error, errorCause) => set({ phase, error, errorCause }),
   setPlace: (place) => set({ place }),
   setPendingWindow: (pendingWindow) => set({ pendingWindow }),
   setReport: (report) => set({ report }),

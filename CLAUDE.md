@@ -62,6 +62,12 @@
   events per tab, 120 a minute per tab on average, 6000 events + new tabs a minute overall (counters in
   `overflight_private.event_rate`, constant cost). Over a limit, events are dropped silently. 2026-11-12's viral peak was
   2,555 a minute. Raising the overall limit raises the worst-case storage (48 hours of it) and the prune's work.
+- Error events: a fault notice's `msg` is the sentence the visitor read, then the cause in brackets (`errorCause` in
+  the store, `phaseErrorMsg`). "Could not load the orbit catalog" is said only for the loader's own failure, after three
+  attempts (`CatalogLoadError`). Before blaming the site for a burst of errors, look at who sent them: on 2026-11-18,
+  1,400 tabs in two minutes (182 with that notice) were an automated link scanner: Windows desktop Chrome, no referrer,
+  data-centre countries, no searches, and `Object Not Found Matching Id` errors next to them. Cloudflare had answered
+  every one of its catalog requests with a full 200 (zone analytics: GraphQL `httpRequestsAdaptiveGroups`).
 - Ad-hoc queries on production: at most an hour or two of `public.events` at a time. A 12-hour scan on 2026-11-12
   stalled the API on the small machine.
 - `VITE_*` env vars are bundled into the browser. Server secrets (`CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET`) are only

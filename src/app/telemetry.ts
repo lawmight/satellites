@@ -70,6 +70,18 @@ function passProps(st: AppState): Props {
   return { norad: pass.norad, verdict: pass.verdict, collection: cap?.collection }
 }
 
+/**
+ * A fault notice as the stats keep it: the sentence the visitor read, then what failed in brackets. The sentence
+ * alone could not tell a dropped connection from a server error or a broken file (2026-11-18: 187 tabs said "Could
+ * not load the orbit catalog" in two hours, and nothing recorded why).
+ */
+export function phaseErrorMsg(st: Pick<AppState, 'error' | 'errorCause'>): string | undefined {
+  const said = st.error ?? 'error'
+  // The cause is scrubbed on its own first: a masked URL would otherwise swallow the closing bracket.
+  const cause = scrubMessage(st.errorCause)
+  return scrubMessage(cause ? `${said} (${cause})` : said)
+}
+
 let installed = false
 
 export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: TelemetryDeps): void {
@@ -125,7 +137,7 @@ export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: T
     if (st.selectedPassId && st.selectedPassId !== prev.selectedPassId && st.report === prev.report && st.phase === prev.phase && st.phase === 'results')
       track('pass_open', passProps(st))
     if (st.aboutOpen && !prev.aboutOpen) track('about_open')
-    if (st.phase === 'error' && prev.phase !== 'error') track('error', { where: 'phase', msg: scrubMessage(st.error ?? 'error') })
+    if (st.phase === 'error' && prev.phase !== 'error') track('error', { where: 'phase', msg: phaseErrorMsg(st) })
   }
 
   // Whatever happened before this module loaded (a deep link computes during boot).
@@ -134,7 +146,7 @@ export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: T
     // Timed by the controller's marks only if the results were already up; a search still computing is timed live.
     onSearch(now, lastMark('run-report'), now.phase === 'results')
     onReport(now)
-  } else if (now.phase === 'error') track('error', { where: 'phase', msg: scrubMessage(now.error ?? 'error') })
+  } else if (now.phase === 'error') track('error', { where: 'phase', msg: phaseErrorMsg(now) })
   useApp.subscribe(onChange)
 
   // ── overlays: the lightbox ──────────────────────────────────────────────────────────────

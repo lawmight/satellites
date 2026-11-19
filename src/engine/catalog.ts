@@ -541,8 +541,9 @@ function parseInWorker(buf: ArrayBuffer): Promise<ParsedCatalog | null> {
   })
 }
 
-async function fetchCatalog(url: string): Promise<Response> {
-  const res = await fetch(url)
+/** `fresh` skips the browser's cache (and index.html's preload): what answered the last attempt is not read again. */
+async function fetchCatalog(url: string, fresh = false): Promise<Response> {
+  const res = await (fresh ? fetch(url, { cache: 'reload' }) : fetch(url))
   if (!res.ok) throw new Error(`Catalog request failed: HTTP ${res.status}`)
   return res
 }
@@ -553,28 +554,70 @@ function checkFile(file: unknown): AnyCatalogFile {
 }
 
 /**
- * Fetch and ingest the catalog once; concurrent and later calls share the same download.
+ * The catalog could not be loaded, after every attempt. `message` is the last attempt's cause in a few words
+ * ("TypeError: Failed to fetch", "Catalog request failed: HTTP 503", "Catalog file is malformed"): the visitor is
+ * told the same sentence whatever it was, so this is what the usage stats keep to tell the causes apart.
+ */
+export class CatalogLoadError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? (cause.name === 'Error' ? cause.message : `${cause.name}: ${cause.message}`) : String(cause), { cause })
+    this.name = 'CatalogLoadError'
+  }
+}
+
+/** By name, not `instanceof`: the error may come from another chunk's copy of this module. */
+export function isCatalogLoadError(e: unknown): boolean {
+  return e instanceof Error && e.name === 'CatalogLoadError'
+}
+
+/**
+ * Waits before the second and third attempts at the catalog. One request used to be the only one, and the app
+ * showed its fault notice the moment it failed: on 2026-11-18 that was 0.3–1% of real tabs (mostly phones, where
+ * a 526 kB download is the likeliest request of a page load to be cut), although the server had answered every
+ * request it received. The waits are short because a dropped connection is usually back at once, and the notice
+ * must not be held back long when the network really is gone.
+ */
+export const CATALOG_RETRY_WAITS_MS: readonly number[] = [600, 2400]
+
+/** One download, parse and install. `fresh` is a retry: past the browser's cache. */
+async function loadOnce(url: string, fresh: boolean): Promise<LoadedCatalog> {
+  const res = await fetchCatalog(url, fresh)
+  if (typeof Worker !== 'undefined') {
+    const parsed = await parseInWorker(await res.arrayBuffer())
+    if (parsed) {
+      const cat = installCatalog(parsed.payload)
+      if (parsed.elements) prebuiltElements.set(cat, parsed.elements)
+      // Hover labels for any object without a stall later: build the rest in idle slices.
+      void store?.warm()
+      return cat
+    }
+    // The worker couldn't start: the bytes went with it, so read the (HTTP-cached) file again.
+    return ingestCatalog(checkFile(await (await fetchCatalog(url)).json()))
+  }
+  return ingestCatalog(checkFile(await res.json()))
+}
+
+/** `loadOnce`, tried again after each wait; rejects with a CatalogLoadError naming the last cause. */
+async function loadWithRetries(url: string): Promise<LoadedCatalog> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await loadOnce(url, attempt > 0)
+    } catch (e) {
+      if (attempt >= CATALOG_RETRY_WAITS_MS.length) throw new CatalogLoadError(e)
+      await new Promise((r) => setTimeout(r, CATALOG_RETRY_WAITS_MS[attempt]))
+    }
+  }
+}
+
+/**
+ * Fetch and ingest the catalog once; concurrent and later calls share the same download. A failed download is
+ * tried twice more before the call rejects (CATALOG_RETRY_WAITS_MS), always with a CatalogLoadError.
  * `signal` only stops this caller's wait (rejecting with AbortError): the shared download carries on
  * for everyone else (the globe, the HUD, the next report), so one cancelled report can't break them.
  */
 export function loadCatalog(url = '/data/catalog.json', signal?: AbortSignal): Promise<LoadedCatalog> {
   if (!pending) {
-    const p = (async () => {
-      const res = await fetchCatalog(url)
-      if (typeof Worker !== 'undefined') {
-        const parsed = await parseInWorker(await res.arrayBuffer())
-        if (parsed) {
-          const cat = installCatalog(parsed.payload)
-          if (parsed.elements) prebuiltElements.set(cat, parsed.elements)
-          // Hover labels for any object without a stall later: build the rest in idle slices.
-          void store?.warm()
-          return cat
-        }
-        // The worker couldn't start: the bytes went with it, so read the (HTTP-cached) file again.
-        return ingestCatalog(checkFile(await (await fetchCatalog(url)).json()))
-      }
-      return ingestCatalog(checkFile(await res.json()))
-    })()
+    const p = loadWithRetries(url)
     pending = p
     // A failed load must not poison the cache: the next call retries.
     p.catch(() => {
