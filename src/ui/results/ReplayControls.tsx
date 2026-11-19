@@ -10,8 +10,13 @@
  *
  * <ReplayStrip>: the same controls compacted to one 44px row for the phone pass header, so the sweep
  * can be watched and controlled at the low snap (MOB-16).
+ *
+ * Words: the 'results' namespace (replay). The clocks (T−00:42, 16:14:21 UTC) and the rates (30×) are international
+ * notation, the same in every language.
  */
 import { useId, useRef } from 'react'
+import enResults from '@/i18n/en/results'
+import { msgs, useMsgs } from '@/i18n/runtime'
 import { sceneClock } from '@/state/sceneClock'
 import { useAfterSceneFrame } from './capture'
 import { useApp } from '@/state/store'
@@ -60,7 +65,7 @@ function useReplayFrame(pass: Pass, refs: FrameRefs, dragging: React.RefObject<b
       if (refs.tminus.current) refs.tminus.current.textContent = tm
       const utc = `${fmtUtcTime(t)} UTC`
       if (refs.utc.current) refs.utc.current.textContent = utc
-      refs.range.current?.setAttribute('aria-valuetext', `${tm}, ${utc}`)
+      refs.range.current?.setAttribute('aria-valuetext', msgs(enResults).replay.scrubValue(tm, utc))
     }
   })
 }
@@ -70,6 +75,7 @@ function Scrubber({ pass, refs, dragging, compact = false }: { pass: Pass; refs:
   const w = replayWindow(pass)
   const pct = (x: number) => `${(windowFraction(x, w) * 100).toFixed(3)}%`
   const inField = pass.tEnd > pass.tStart
+  const m = useMsgs(enResults).replay
   return (
     <div className={cx(s.scrub, compact && s.scrubCompact)}>
       <div className={s.track} aria-hidden>
@@ -87,7 +93,7 @@ function Scrubber({ pass, refs, dragging, compact = false }: { pass: Pass; refs:
         </span>
       </div>
       <label htmlFor={id} className="sr-only">
-        Scene time within the pass
+        {m.scrubLabel}
       </label>
       <input
         id={id}
@@ -109,12 +115,13 @@ function Scrubber({ pass, refs, dragging, compact = false }: { pass: Pass; refs:
 
 function PlayButton({ pass, className }: { pass: Pass; className?: string }) {
   const playing = useApp((st) => st.timeMode === 'replay')
+  const m = useMsgs(enResults).replay
   return (
     <button
       type="button"
       className={cx(s.play, playing && s.playing, className)}
       onClick={() => togglePlay(pass)}
-      aria-label={playing ? 'Pause replay' : 'Play replay'}
+      aria-label={playing ? m.pause : m.play}
       aria-keyshortcuts="Space"
       data-space="play"
     >
@@ -141,12 +148,13 @@ export function ReplayControls({ pass }: { pass: Pass }) {
   const w = replayWindow(pass)
   const inField = pass.tEnd > pass.tStart
   const mobile = useIsMobile()
+  const m = useMsgs(enResults).replay
 
   return (
     <div className={s.root}>
       <div className={s.row}>
         <PlayButton pass={pass} />
-        <div className={s.rates} role="radiogroup" aria-label="Replay speed">
+        <div className={s.rates} role="radiogroup" aria-label={m.speed}>
           {REPLAY_RATES.map((r) => (
             <button
               key={r}
@@ -172,19 +180,26 @@ export function ReplayControls({ pass }: { pass: Pass }) {
         <span className={s.legendMid}>
           {inField ? (
             <>
-              <i className={s.fieldKey} /> In view {fmtDuration(pass.tEnd - pass.tStart)}
+              <i className={s.fieldKey} /> {m.inView(fmtDuration(pass.tEnd - pass.tStart))}
             </>
           ) : null}
-          <i className={s.closestKey} /> Closest
+          <i className={s.closestKey} /> {m.closest}
         </span>
         <span>{fmtUtcTime(w[1])}</span>
       </div>
       {!mobile ? (
         <div className={s.keys}>
-          <Kbd>Space</Kbd> play / pause
-          <span className={s.keysGap} />
-          <Kbd>←</Kbd>
-          <Kbd>→</Kbd> previous / next pass of this kind
+          {/* Each key with its words, as one group: the line wraps between the groups, never inside one */}
+          <span className={s.keyPair}>
+            <Kbd>{m.spaceKey}</Kbd> {m.playPause}
+          </span>
+          <span className={s.keyPair}>
+            <span className={s.arrows}>
+              <Kbd>←</Kbd>
+              <Kbd>→</Kbd>
+            </span>{' '}
+            {m.stepKind}
+          </span>
         </div>
       ) : null}
     </div>

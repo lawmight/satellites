@@ -1,0 +1,160 @@
+/* The language switcher (LanguageSwitcher.tsx): the trigger sits on the HUD's "How this works" line and inherits its
+   mono caps; the menu is a flat ink panel with a hairline, two columns of language names (DESIGN §1, §4). */
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  /* the same generous hit area as the About link beside it */
+  padding: 6px 0;
+  margin: -6px 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--bone-3);
+  white-space: nowrap;
+  transition: color var(--d-hover) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .trigger:hover {
+    color: var(--bone);
+  }
+}
+.trigger:active,
+.trigger[aria-expanded='true'] {
+  color: var(--bone);
+  transition-duration: 0ms;
+}
+@media (pointer: coarse) {
+  .trigger {
+    padding: 22px 0 8px;
+    margin: -22px 0 -8px;
+  }
+}
+.trigger:focus-visible {
+  outline: none;
+}
+.trigger:focus-visible .full {
+  text-decoration: underline 1px var(--signal);
+  text-underline-offset: 4px;
+}
+
+/* A hairline between "How this works" and the language (none when the language is alone on the line). */
+.trigger:first-child .rule {
+  display: none;
+}
+.rule {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin: 0 12px;
+  background: var(--bone-4);
+}
+
+.menu {
+  position: fixed;
+  z-index: var(--z-overlay);
+  min-width: 296px;
+  overflow: auto;
+  padding: 12px 0 8px;
+  background: var(--ink-1);
+  border: 1px solid var(--line-strong);
+  animation: menu-in var(--d-sm) var(--ease-out);
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu {
+    animation-name: menu-fade;
+  }
+  @keyframes menu-fade {
+    from {
+      opacity: 0;
+    }
+  }
+}
+
+.title {
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: var(--fs-label);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+  color: var(--bone-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(8, auto);
+  grid-auto-flow: column;
+  column-gap: 4px;
+  padding: 6px 6px 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
+  text-align: start;
+  color: var(--bone-2);
+  transition:
+    color var(--d-hover) var(--ease-out),
+    background-color var(--d-hover) var(--ease-out);
+}
+@media (pointer: coarse) {
+  .item {
+    min-height: 44px;
+    font-size: var(--fs-body);
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .item:hover {
+    color: var(--bone);
+    background: var(--ink-2);
+  }
+}
+.item:focus-visible {
+  outline: none;
+  color: var(--bone);
+  background: var(--ink-2);
+}
+.item[aria-checked='true'] {
+  color: var(--bone);
+}
+.item[data-busy] .name {
+  animation: busy 800ms var(--ease-in-out) infinite alternate;
+}
+@keyframes busy {
+  to {
+    opacity: 0.4;
+  }
+}
+
+/* The current language: the signal diamond. Others keep the slot, so the names line up. */
+.mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+}
+.item[aria-checked='true'] .mark {
+  background: var(--signal);
+}
+
+.name {
+  min-width: 0;
+  white-space: nowrap;
+}

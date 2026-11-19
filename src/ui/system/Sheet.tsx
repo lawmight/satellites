@@ -36,8 +36,12 @@
  * Position is written imperatively (transform + transition on the section, and the opposite transform
  * on the footer, so both moves stay on the compositor and never lay out);
  * React only renders the height and the snap variables.
+ *
+ * Its own words (the grip's name, the close button's default) are the 'system' namespace.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
+import enSystem from '@/i18n/en/system'
+import { useMsgs } from '@/i18n/runtime'
 import { easeOut } from '@/lib/ease'
 import { Glyph } from './Glyph'
 import { useIsMobile } from './media'
@@ -69,6 +73,7 @@ export interface SheetProps {
   onVisibleChange?: (px: number, settled: boolean) => void
   /** Adds a close button; called on press (and on dismiss-drag / Esc when enabled) */
   onClose?: () => void
+  /** The close button's accessible name and tooltip (the 'system' namespace's "Close" by default) */
   closeLabel?: string
   /** Mobile: dragging well below the lowest snap calls onClose */
   dismissible?: boolean
@@ -116,13 +121,14 @@ export function Sheet({
   onSnapChange,
   onVisibleChange,
   onClose,
-  closeLabel = 'Close',
+  closeLabel,
   dismissible = false,
   closeOnEscape = false,
   className,
   bodyClassName,
   bodyRef,
 }: SheetProps) {
+  const m = useMsgs(enSystem)
   const mobile = useIsMobile()
   const rootRef = useRef<HTMLElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
@@ -534,21 +540,21 @@ export function Sheet({
             className={s.grip}
             onClick={cycle}
             onKeyDown={onGripKey}
-            aria-label={index >= heights.length - 1 ? 'Collapse panel' : 'Expand panel'}
+            aria-label={index >= heights.length - 1 ? m.collapsePanel : m.expandPanel}
           >
             <span className={s.gripMark} aria-hidden />
           </button>
           {header || onClose ? (
             <div className={s.head}>
               <div className={s.headMain}>{header}</div>
-              {onClose ? <CloseButton label={closeLabel} onClose={onClose} /> : null}
+              {onClose ? <CloseButton label={closeLabel ?? m.close} onClose={onClose} /> : null}
             </div>
           ) : null}
         </div>
       ) : header || onClose ? (
         <div ref={headRef} className={cx(s.top, s.head)}>
           <div className={s.headMain}>{header}</div>
-          {onClose ? <CloseButton label={closeLabel} onClose={onClose} /> : null}
+          {onClose ? <CloseButton label={closeLabel ?? m.close} onClose={onClose} /> : null}
         </div>
       ) : null}
       <div ref={setBodyRef} className={cx(s.body, bodyClassName)}>

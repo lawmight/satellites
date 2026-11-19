@@ -1,14 +1,18 @@
 /**
- * What the address bar asks for, and which pass a report opens on. Pure functions (no store, no DOM), so the
- * link rules are unit-tested (src/app/app.test.ts).
+ * What the address bar asks for (and what a report writes there), and which pass a report opens on. Pure functions
+ * (no store, no DOM), so the link rules are unit-tested (src/app/app.test.ts).
  *
  *   /?s=<shareId>                                       a shared pass (resolved by the controller)
  *   /?q=<lat>,<lon>&n=<label>[&p=<passId>]              a deep link straight to a report
  *   /?q=…&p=…&norad=<id>&t=<ms>[&sat=…&verdict=…]       share's fallback deep link (R2K5): opens that satellite's
  *                                                       pass nearest t, with the window re-centred on t when
  *                                                       t is older than the default window
+ *
+ * A link is data, the same whoever made it in whatever language: `n` is a curated place's ENGLISH name
+ * (placeSearch), and each reader sees that place in their own language (linkPlaceIn).
  */
 import type { Place, Report } from '@/types'
+import { CURATED_NAMES, curatedPlace, type CuratedId } from '@/ui/landing/places'
 
 const DAY = 86_400_000
 
@@ -66,6 +70,42 @@ export function readUrlTarget(search: string, now: number = Date.now()): UrlTarg
   const norad = positiveInt(params.get('norad'))
   if (t !== undefined && norad !== undefined) return { kind: 'q', place, opts: passLinkOpts(t, norad, now) }
   return { kind: 'q', place, opts: { selectPassId: params.get('p') ?? undefined } }
+}
+
+/**
+ * The address bar for a report: `q=<lat>,<lon>&n=<label>[&p=<passId>]`. Coordinates are rounded to 3 decimals
+ * (~110 m): people copy the address bar far more often than they press Share, and it must not leak a precise location
+ * (the share card promises ~1 km). A curated place shown in another language is named by its English label
+ * (canonicalLabel), as it always was, so a link never carries its sender's language.
+ */
+export function placeSearch(place: Place, passId?: string): string {
+  const p = new URLSearchParams()
+  p.set('q', `${place.lat.toFixed(3)},${place.lon.toFixed(3)}`)
+  p.set('n', place.canonicalLabel ?? place.label)
+  if (passId) p.set('p', passId)
+  return p.toString()
+}
+
+/** English label → curated id (labels are unique: the landing's tests hold them to it). Built on first use. */
+let curatedByLabel: Map<string, CuratedId> | undefined
+
+/**
+ * A deep link's place as its reader sees it. A link to a curated place (an example chip or a Surprise me pick: its
+ * English name, at its spot to the link's 3 decimals) shows that place's name from `names`, the 'places' namespace in
+ * the reader's language (msgs(enPlaces)), and keeps the English one as canonicalLabel for the usage stats and the next
+ * address-bar write. Nothing else about it changes (source 'url', no sublabel, as a link has always opened), so the
+ * stats record the same search in every language. Any other link, and every link in English, is returned as it is.
+ */
+export function linkPlaceIn(place: Place, names: Readonly<Record<CuratedId, { label: string }>>): Place {
+  curatedByLabel ??= new Map(Object.entries(CURATED_NAMES).map(([id, n]) => [n.label, id as CuratedId]))
+  const id = place.source === 'url' ? curatedByLabel.get(place.label) : undefined
+  if (!id) return place
+  const spot = curatedPlace(id)
+  const same = (a: number, b: number) => a.toFixed(3) === b.toFixed(3)
+  // A translation that lacks the place (a stale bundle) shows the English name.
+  const label = names[id]?.label
+  if (!same(spot.lat, place.lat) || !same(spot.lon, place.lon) || !label || label === place.label) return place
+  return { ...place, label, canonicalLabel: place.label }
 }
 
 /** The pass a report opens on: the named pass if it is in the report, else `selectNorad`'s pass nearest `selectNear`. */

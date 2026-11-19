@@ -10,6 +10,7 @@
  * page and kept in memory (a small LRU), shared by every caller: an abort only stops that caller waiting.
  */
 import { haversineKm } from '@/lib/geo'
+import { LOCALE_INFO, type Locale } from '../../api/_lib/i18n/locales'
 import { PLACE_GROUPS, PLACE_SPLIT, PLACE_TILES, PLACE_TILES_SPLIT, PLACES_VERSION } from './localPlaces.gen'
 import { Lru } from './lru'
 import { raceAbort, throwIfAborted } from './net'
@@ -93,21 +94,52 @@ function load(path: string, signal?: AbortSignal): Promise<LocalPlace[] | null> 
   return raceAbort(p, signal)
 }
 
-let regionNames: Intl.DisplayNames | null | undefined
-/** "United States" for "US", in English; the code itself if the browser can't say. */
-export function countryName(cc: string): string {
-  if (regionNames === undefined) {
+/** The browser's country names, one set per language and style (null where it has none). */
+const regionNames = new Map<string, Intl.DisplayNames | null>()
+
+function regionName(cc: string, locale: Locale, style: 'long' | 'short'): string {
+  const k = `${locale}|${style}`
+  let names = regionNames.get(k)
+  if (names === undefined) {
     try {
-      regionNames = new Intl.DisplayNames(['en'], { type: 'region' })
+      names = new Intl.DisplayNames([locale === 'en' ? 'en' : LOCALE_INFO[locale].intl], { type: 'region', style })
     } catch {
-      regionNames = null
+      names = null
     }
+    regionNames.set(k, names)
   }
   try {
-    return regionNames?.of(cc) ?? cc
+    return names?.of(cc.toUpperCase()) ?? cc
   } catch {
     return cc
   }
+}
+
+/**
+ * "United States" for "US": in English by default, which is what the offline list's rows are matched against ("paris
+ * france") and what the places keep as data; in `locale` for a name in another language. The code itself if the
+ * browser can't say. A name shown to the visitor goes through shownCountryName instead.
+ */
+export function countryName(cc: string, locale: Locale = 'en'): string {
+  return regionName(cc, locale, 'long')
+}
+
+/**
+ * The countries read by CLDR's short name on screen (owner, 2026-11-19): Hong Kong and Macao in every language, English
+ * included (the long names are officialese in a where line: "Hong Kong SAR China", "R.A.S. chinoise de Hong Kong"), and
+ * Palestine in Arabic and Indonesian (فلسطين, Palestina, for الأراضي الفلسطينية and Wilayah Palestina; the other
+ * languages keep the long name). Never the short style wholesale: it turns the US and the UK into "US" and "UK".
+ */
+const SHORT_NAMES: Record<string, true | readonly Locale[]> = { HK: true, MO: true, PS: ['ar', 'id'] }
+
+/**
+ * A country's name as the visitor reads it (geocode.ts displaySublabel): countryName in `locale`, or its CLDR short name
+ * for the few countries SHORT_NAMES lists. Display only: matching, the stored labels and the usage stats keep
+ * countryName's English.
+ */
+export function shownCountryName(cc: string, locale: Locale): string {
+  const short = SHORT_NAMES[cc.toUpperCase()]
+  return short === true || short?.includes(locale) ? regionName(cc, locale, 'short') : regionName(cc, locale, 'long')
 }
 
 /**

@@ -79,7 +79,7 @@
   gap: 12px;
   height: 36px;
   padding: 0 12px;
-  margin-right: -12px;
+  margin-inline-end: -12px;
   border: 1px solid transparent;
   font: inherit;
   letter-spacing: inherit;
@@ -112,7 +112,7 @@
     justify-content: center;
     min-width: 44px;
     height: 44px;
-    margin-right: -14px;
+    margin-inline-end: -14px;
   }
   .closeText,
   .closeKbd {
@@ -242,6 +242,8 @@
   position: absolute;
   right: var(--s-3);
   top: var(--s-3);
+  /* "01 / 12" is a count, not words: it never reads "12 / 01" */
+  direction: ltr;
   z-index: 3;
   padding: 4px 7px;
   background: color-mix(in srgb, var(--ink-0) 82%, transparent);
@@ -343,6 +345,7 @@
   white-space: nowrap;
 }
 .statusCount {
+  direction: ltr;
   color: var(--bone);
 }
 .statusCount:empty {
@@ -361,8 +364,10 @@
   transform-origin: 0 50%;
   transition: transform var(--d-md) var(--ease-out);
 }
-/* The strip: one cell a year along the foot of the frame, each developing its picture as it lands. */
+/* The strip: one cell a year along the foot of the frame, each developing its picture as it lands. The years run left
+   to right in every language, as on the time line under the picture. */
 .strip {
+  direction: ltr;
   position: absolute;
   left: var(--s-4);
   right: var(--s-4);
@@ -420,8 +425,8 @@
 .waitHead {
   margin: 0;
   font-size: var(--fs-h3);
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   letter-spacing: var(--track-display);
   color: var(--bone);
 }
@@ -477,9 +482,12 @@
 .play:disabled {
   color: var(--bone-3-mark);
 }
+/* The time line runs left to right in every language, as clocks and charts do in Arabic (docs/I18N.md, Right to left);
+   the play button beside it follows the reading. */
 .scrubWrap {
   flex: 1;
   min-width: 0;
+  direction: ltr;
 }
 .scrub {
   position: relative;
@@ -581,7 +589,7 @@
   min-width: 132px;
   overflow: hidden;
 }
-/* Rendering: the button is its own hairline bar, filling left to right. */
+/* Rendering: the button is its own hairline bar, filling left to right (right to left in Arabic, below). */
 .videoBusy:disabled {
   opacity: 1;
   color: var(--bone);
@@ -647,7 +655,8 @@
   align-items: baseline;
   gap: var(--s-3);
   width: 100%;
-  padding: 9px 2px 9px 10px;
+  padding-block: 9px;
+  padding-inline: 10px 2px;
   border-bottom: 1px solid var(--line);
   box-shadow: inset 2px 0 0 transparent;
   font-family: var(--font-mono);
@@ -656,7 +665,7 @@
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
-  text-align: left;
+  text-align: start;
   color: var(--bone-3);
   transition: color var(--d-hover) var(--ease-out);
 }
@@ -735,4 +744,34 @@
   .side .credit {
     margin-top: 0;
   }
+}
+
+/* ── right to left ── */
+/* The bar, the controls, the tools, the frame list and the note follow the reading; the picture and what is drawn on
+   it do not (the chips keep their corners, as the video draws them: ./video.ts), and neither do the time line and
+   the strip of years (above). */
+/* The readout's lines hug the chip's corner, as in the video. */
+:root[dir='rtl'] .readout {
+  align-items: flex-end;
+}
+/* A progress bar fills the way the reading goes. */
+:root[dir='rtl'] .progressFill,
+:root[dir='rtl'] .videoBusy::before {
+  transform-origin: 100% 50%;
+}
+/* The frame on view is marked on the row's leading edge. */
+:root[dir='rtl'] .logRow {
+  box-shadow: inset -2px 0 0 transparent;
+}
+:root[dir='rtl'] .logRow[aria-current='true'] {
+  box-shadow: inset -2px 0 0 var(--signal);
+}
+/* The dates at the line's ends are words: each reads in its own direction («22 أكتوبر 2015»). */
+:root[dir='rtl'] .ends > span {
+  unicode-bidi: plaintext;
+}
+/* The licence credit is English (lang='en'): a left-to-right line, kept to the column's right edge. */
+:root[dir='rtl'] .credit:lang(en) {
+  direction: ltr;
+  text-align: right;
 }

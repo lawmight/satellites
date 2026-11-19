@@ -16,9 +16,14 @@
  * Keys: ←/→ walk the photos (the gallery) or, on a pass without one, step through passes of its verdict;
  * F opens the photo large (the lightbox); Space plays/pauses the replay. Esc is NOT handled here (except
  * inside the inline search field and the lightbox): the app shell owns it.
+ *
+ * Words: the 'results' namespace, read at render (useMsgs), so a language switch rewords the panel in place.
  */
 import { createPortal, flushSync } from 'react-dom'
 import { startTransition, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Rich } from '@/i18n/Rich'
+import enResults from '@/i18n/en/results'
+import { msgs, useMsgs } from '@/i18n/runtime'
 import { timeZoneAt } from '@/imagery'
 import { useBackLayer } from '@/lib/backStack'
 import { SHORT_LANDSCAPE_QUERY } from '@/lib/layout'
@@ -48,6 +53,7 @@ import { replayWindow } from './lib/replay'
 import { stepPass } from './lib/timeline'
 import { useResultsModel, type ResultsModel } from './model'
 import { useOnce } from './once'
+import { placeName } from './placeName'
 import { SHORT_DESK_QUERY, exitTimeline, headHeight, lastShellUnmount, publishSheetInset, rememberComputingSnap, lastComputingSnapPx, useAnimatedHeight, useInsets, useSheetGeometry, useShellExit, useStagedKey } from './shell'
 import s from './results.module.css'
 
@@ -132,6 +138,7 @@ export function ResultsView({ onBack, onRetry, onSearch }: ResultsViewProps) {
   const shortLandscape = useMediaQuery(SHORT_LANDSCAPE_QUERY) && !mobile
   const shortDesk = useMediaQuery(SHORT_DESK_QUERY) && !mobile && !shortLandscape
   const reduced = useReducedMotion()
+  const m = useMsgs(enResults)
   const computing = phase !== 'results' || !report
   const liveModel = useResultsModel(computing ? undefined : report)
   // While the old overview fades out for a new computing run, it keeps rendering its last model.
@@ -562,8 +569,9 @@ export function ResultsView({ onBack, onRetry, onSearch }: ResultsViewProps) {
       if (!frame) return
       const foot = body.nextElementSibling as HTMLElement | null
       const cap = frame.parentElement?.querySelector('figcaption') as HTMLElement | null
-      // A plate set beside the square (short landscape phones, U-3) takes no height under it.
-      const capBeside = !!cap && cap.offsetLeft > frame.offsetLeft + 1
+      // A plate set beside the square (short landscape phones, U-3) takes no height under it: on its right, or on its
+      // left right to left (Arabic: counted under it, the square shrank to 132 px against 175).
+      const capBeside = !!cap && Math.abs(cap.offsetLeft - frame.offsetLeft) > 1
       const caption = cap && !capBeside ? cap.offsetHeight + 8 : 0
       const offset = frame.getBoundingClientRect().top - inner.getBoundingClientRect().top
       const vh = window.innerHeight
@@ -717,7 +725,7 @@ export function ResultsView({ onBack, onRetry, onSearch }: ResultsViewProps) {
   return (
     <>
       <Sheet
-        label={place ? `Satellites over ${place.label}` : 'Computing passes'}
+        label={place ? m.sheetLabel(placeName(place)) : m.computingPasses}
         header={
           <GlideHeight swapKey={headerKeyOf(staged.shown)}>
             <div key={headerKeyOf(staged.shown)} className={cx(headSwapClass, headActions && s.headActions)} style={dirStyle}>
@@ -865,6 +873,7 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
   const idx = (n: number) => String(mobile || noSummaryRule ? n - 1 : n).padStart(2, '0')
   const enter = useOnce(`${enterKey}:body`)
   const listReady = useListReady(model)
+  const m = useMsgs(enResults)
   // The summary leads with the photos (owner B): the gallery, photo #1 being the closest look (with no photo
   // at all it holds the radar images and the geostationary frames, if there are any).
   const hero = model.photos.length ? (
@@ -875,13 +884,13 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
   const timelapse = hero ? <TimelapseRow model={model} /> : null
   const inviteBar = invite ? (
     <div className={s.invite}>
-      <p className={s.inviteText}>Something watched you this week too.</p>
+      <p className={s.inviteText}>{m.invite.text}</p>
       {onCheckPlace ? (
         <Button variant="primary" size="sm" onClick={onCheckPlace}>
-          Check your place
+          {m.invite.checkPlace}
         </Button>
       ) : null}
-      <button type="button" className={s.inviteClose} onClick={onCloseInvite} aria-label="Dismiss">
+      <button type="button" className={s.inviteClose} onClick={onCloseInvite} aria-label={m.invite.dismiss}>
         <Glyph name="close" size={12} />
       </button>
     </div>
@@ -891,7 +900,7 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
     <>
       {inviteBar}
       {mobile ? (
-        <section className={s.section} aria-label="Summary">
+        <section className={s.section} aria-label={m.sections.summary}>
           {hero}
           {timelapse}
           <div data-peek-end={hero ? undefined : ''}>
@@ -906,10 +915,10 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
           )}
         </section>
       ) : (
-        <section className={cx(s.section, wide && s.summaryWide)} aria-label="Summary">
+        <section className={cx(s.section, wide && s.summaryWide)} aria-label={m.sections.summary}>
           {noSummaryRule ? null : (
             <Rule index="01" className={s.rule}>
-              Summary
+              {m.sections.summary}
             </Rule>
           )}
           <div className={s.headBlock}>
@@ -926,15 +935,15 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
       )}
       {full && listReady ? (
         <>
-          <section className={s.section} aria-label="Passes">
+          <section className={s.section} aria-label={m.sections.passes}>
             <Rule index={idx(2)} className={s.rule}>
-              Passes
+              {m.sections.passes}
             </Rule>
             <PassList model={model} selectedId={selectedId} onSelect={onSelect} />
           </section>
-          <section className={s.section} aria-label="Watched continuously">
+          <section className={s.section} aria-label={m.sections.watchedContinuously}>
             <Rule index={idx(3)} className={s.rule}>
-              Watched continuously
+              {m.sections.watchedContinuously}
             </Rule>
             <GeoWatchers watchers={report.geo} place={report.place} days={model.windowDays} scans={model.geoScans} selectedId={selectedId} onSelect={onSelect} />
           </section>
@@ -943,8 +952,7 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
                 the counts line that grows when the archives answer moves nothing under it. */}
             <Notes model={model} />
             <p className={s.footnote}>
-              Pass times are when each satellite was closest to {report.place.label}, computed from public orbital elements
-              {report.catalogFetchedAt ? ` (fetched ${report.catalogFetchedAt.slice(0, 16).replace('T', ' ')}Z)` : ''}. Local times are {model.tzLabel}.
+              {m.notes.passTimes(placeName(report.place), report.catalogFetchedAt ? `${report.catalogFetchedAt.slice(0, 16).replace('T', ' ')}Z` : undefined, model.tzLabel)}
             </p>
           </section>
         </>
@@ -954,11 +962,12 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
         // 'watched', and re-sorting rows under the reader is a layout shift (U-2). It mounts once, final.
         <section className={s.section} aria-hidden={full ? undefined : true}>
           <Rule index={idx(2)} className={s.rule}>
-            Passes
+            {m.sections.passes}
           </Rule>
           {full ? (
             <p className={s.listWait} role="status">
-              Checking the archives<span className={s.listCaret} aria-hidden />
+              {m.checkingArchives}
+              <span className={s.listCaret} aria-hidden />
             </p>
           ) : null}
         </section>
@@ -993,6 +1002,10 @@ function useListReady(model: ResultsModel): boolean {
 /** What Share shares: a pass, or (a geostationary scan, which is no pass) its image. */
 const shareNoun = (p: Pass) => (p.geostationary ? 'image' : 'pass')
 
+/** The footer's optional words (the strong parts of its labels), dropped on narrow phones */
+const CTA_LEAD = { strong: s.ctaLead }
+const CTA_TAIL = { strong: s.ctaTail }
+
 // ── pass footer ───────────────────────────────────────────────────────────────────────────
 
 function DetailFooter({
@@ -1022,50 +1035,55 @@ function DetailFooter({
   const clearer = !sharedPass && !!capture && isClouded(capture) && cover?.pass && !cover.clouded && cover.pass.id !== pass.id ? cover.pass : undefined
   // R2R10: the recipient's primary is their own place; Share and Replay become icons.
   const iconOnly = compact || !!clearer || (sharedPass && !!onCheckPlace)
+  const r = useMsgs(enResults)
+  const m = r.footer
+  const noun = shareNoun(pass)
   const replay = (
-    <Button onClick={onReplay} title="Replay the pass on the globe" aria-label="Replay the pass" className={cx(iconOnly && s.iconBtn)}>
+    <Button onClick={onReplay} title={m.replayTitle} aria-label={m.replayLabel} className={cx(iconOnly && s.iconBtn)}>
       <Glyph name="play" size={12} />
-      {iconOnly ? null : 'Replay'}
+      {iconOnly ? null : m.replay}
     </Button>
   )
   const shareIcon = (
-    <Button onClick={() => onShare(pass)} aria-label={`Share this ${shareNoun(pass)}`} title={`Share this ${shareNoun(pass)}`} className={s.iconBtn}>
+    <Button onClick={() => onShare(pass)} aria-label={m.shareLabel[noun]} title={m.shareLabel[noun]} className={s.iconBtn}>
       <Glyph name="share" size={13} />
     </Button>
   )
   return (
     <div className={cx(s.actions, iconOnly && s.actionsThree, compact && s.actionsCompact)}>
       {mobile ? (
-        <Button onClick={clearPass} aria-label="All passes" className={s.iconBtn}>
+        <Button onClick={clearPass} aria-label={r.allPasses} className={s.iconBtn}>
           <Glyph name="arrow-left" size={13} />
         </Button>
       ) : null}
       {sharedPass && onCheckPlace ? (
         <>
-          <Button variant="primary" onClick={onCheckPlace} className={s.primary} aria-label="Check your place">
+          <Button variant="primary" onClick={onCheckPlace} className={s.primary} aria-label={r.invite.checkPlace}>
             <Glyph name="search" size={13} />
             {/* "Your place" on narrow phones (V2: "Check your place" ran into the padding at 376 px). */}
             <span>
-              <span className={s.ctaLead}>Check </span>your place
+              <Rich parts={m.checkPlace} classes={CTA_LEAD} strongAs="span" />
             </span>
           </Button>
           {shareIcon}
         </>
       ) : clearer ? (
         <>
-          <Button variant="primary" onClick={() => focusPass(clearer)} className={s.primary} aria-label="See the clearest look">
-            <span className={s.ctaLead}>See the </span>clearest look
+          <Button variant="primary" onClick={() => focusPass(clearer)} className={s.primary} aria-label={m.clearestLabel}>
+            <Rich parts={m.clearest} classes={CTA_LEAD} strongAs="span" />
           </Button>
           {shareIcon}
         </>
       ) : (
-        <Button variant="primary" onClick={() => onShare(pass)} className={s.primary} aria-label={`Share this ${shareNoun(pass)}`}>
+        <Button variant="primary" onClick={() => onShare(pass)} className={s.primary} aria-label={m.shareLabel[noun]}>
           <Glyph name="share" size={14} />
           {/* "Share this pass" where it fits; "Share" on narrow phones (≤ 400 px: it was cut to "SHARE THIS PAS"). */}
-          {compact ? 'Share' : (
+          {compact ? (
+            r.share
+          ) : (
             // One inline run: as separate flex items "Share" and " this pass" got the button's gap between them.
             <span>
-              Share<span className={s.ctaTail}> this {shareNoun(pass)}</span>
+              <Rich parts={m.shareButton[noun]} classes={CTA_TAIL} strongAs="span" />
             </span>
           )}
         </Button>
@@ -1198,7 +1216,7 @@ function holdKeyboard() {
   if (typeof document === 'undefined') return
   const proxy = document.createElement('input')
   proxy.type = 'text'
-  proxy.setAttribute('aria-label', 'Search another place')
+  proxy.setAttribute('aria-label', msgs(enResults).searchAnother)
   proxy.tabIndex = -1
   proxy.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;border:0;padding:0;pointer-events:none'
   document.body.appendChild(proxy)

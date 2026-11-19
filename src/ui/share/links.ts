@@ -3,9 +3,18 @@
  *
  * Privacy: a share never carries the exact searched point. Coordinates are rounded to 2 decimals
  * (≈ 1.1 km of latitude, less of longitude), and the card's crop is centred on that rounded point.
+ *
+ * Language: the post is in the app's language when it is written (msgs, read at call time), and every link carries
+ * that language as `l=<locale>` so its card and share page say the same (api/s.ts, api/og.tsx) — except English,
+ * whose links are exactly what they always were. The reader's own app ignores `l`: it speaks their browser's language.
  */
 import type { Pass } from '@/types'
-import { LOOK_CODES, cloudWords, photosSentence, summaryHeadline, type SummaryLook } from '../../../api/_lib/cardSpec'
+import enShare from '@/i18n/en/share'
+import { currentLocale, msgs } from '@/i18n/runtime'
+// The card's words in the post (cloud, the week's headline) come from the app's loaded bundle (installed on import).
+import '@/i18n/en/card'
+import { LOOK_CODES, cloudWords, localClock, photosSentence, summaryHeadline, type SummaryLook } from '../../../api/_lib/cardSpec'
+import { DEFAULT_LOCALE, LOCALE_INFO, type Locale } from '../../../api/_lib/i18n/locales'
 
 /** 2 decimals of a degree ≈ 1.1 km north–south. */
 export const SHARE_DECIMALS = 2
@@ -47,12 +56,19 @@ export const DEEP_LINK_PASS_KEYS = ['sat', 'norad', 'verdict', 't', 'alt', 'off'
 
 const finite = (v: number | undefined): v is number => v !== undefined && Number.isFinite(v)
 
+/** The card's language for a link (`l`, last), only when it is not English: English links never change. */
+function withLocale(p: URLSearchParams, locale: Locale): URLSearchParams {
+  if (locale !== DEFAULT_LOCALE) p.set('l', locale)
+  return p
+}
+
 /**
  * Fallback deep link when the share service is unavailable: `/?q=lat,lon&n=label&p=passId`, plus, with
  * `pass`, the pass itself (sat, norad, verdict, t, alt, off, hdg and the capture: collection, item,
- * cloud, gsd, spot), so the link unfurls to that very pass. Coordinates are rounded to ~1 km.
+ * cloud, gsd, spot), so the link unfurls to that very pass, and the card's language (`l`, not for English).
+ * Coordinates are rounded to ~1 km.
  */
-export function deepLink(origin: string, label: string, lat: number, lon: number, passId: string, pass?: DeepLinkPass): string {
+export function deepLink(origin: string, label: string, lat: number, lon: number, passId: string, pass?: DeepLinkPass, locale: Locale = DEFAULT_LOCALE): string {
   const r = roundedPlace(lat, lon)
   const p = new URLSearchParams()
   p.set('q', `${r.lat.toFixed(SHARE_DECIMALS)},${r.lon.toFixed(SHARE_DECIMALS)}`)
@@ -77,11 +93,12 @@ export function deepLink(origin: string, label: string, lat: number, lon: number
     // N: the card's "7 satellites watched Waterloo." (owner)
     if (finite(pass.satellites) && pass.satellites >= 1) p.set('sv', String(Math.round(pass.satellites)))
   }
-  return `${origin}/?${p.toString()}`
+  return `${origin}/?${withLocale(p, locale).toString()}`
 }
 
-export function shareLink(origin: string, id: string): string {
-  return `${origin}/s/${encodeURIComponent(id)}`
+/** The short link of a stored share, with the card's language (`?l=`, not for English). */
+export function shareLink(origin: string, id: string, locale: Locale = DEFAULT_LOCALE): string {
+  return `${origin}/s/${encodeURIComponent(id)}${locale !== DEFAULT_LOCALE ? `?${withLocale(new URLSearchParams(), locale).toString()}` : ''}`
 }
 
 export interface PostTextInput {
@@ -89,18 +106,19 @@ export interface PostTextInput {
   satName: string
   placeLabel: string
   altitudeKm: number
-  /** "Sun 1 Nov" */
-  localDay: string
-  /** "11:21" */
-  localTime: string
-  /** e.g. "10 m" */
-  resolution?: string
+  /** When the pass was closest (epoch ms) and the place's IANA zone: the post says the day and time there. */
+  tClosest: number
+  timeZone: string
+  /** The picture's pixel size on the ground, metres (the capture's gsdM): the post says "10 m per pixel" */
+  pixelM?: number
   /** The capture's cloud (scene %, spot class): a clouded picture says what it saw (cloudWords), not "the actual image". */
   cloud?: { pct?: number; spot?: string }
 }
 
-/** The credit every post ends with, on its own line just before the link (R3-14). */
-export const POST_CREDIT = 'via @armaangupt0'
+/** The X handle every post credits (never translated). */
+const CREDIT_HANDLE = '@armaangupt0'
+/** The credit every post ends with, on its own line just before the link (R3-14), as English says it. */
+export const POST_CREDIT = enShare.credit(CREDIT_HANDLE)
 
 /** X's limit, and what any link costs in it (t.co wraps every URL to 23 characters). */
 export const X_MAX = 280
@@ -125,18 +143,13 @@ export function xLength(text: string): number {
  */
 export const POST_MAX = X_MAX - 1 - X_LINK
 
-/** The line that turns a reader into the next person to look (share SH4). */
-const HOOK = {
-  watched: 'Something watched you this week too.',
-  passed: 'What passed over you this week?',
-} as const
-
 /**
- * Body paragraphs + the credit line, kept within POST_MAX: the invitation is dropped first, then the lead is
- * cut with an ellipsis. The credit always stays, as the last line.
+ * Body paragraphs + the credit line, kept within POST_MAX: the invitation (the line that turns a reader into the next
+ * person to look, share SH4) is dropped first, then the lead is cut with an ellipsis. The credit always stays, as the
+ * last line.
  */
 function withCredit(lead: string, hook: string): string {
-  const credit = `\n${POST_CREDIT}`
+  const credit = `\n${msgs(enShare).credit(CREDIT_HANDLE)}`
   const full = `${lead}\n\n${hook}${credit}`
   if (xLength(full) <= POST_MAX) return full
   if (xLength(lead + credit) <= POST_MAX) return lead + credit
@@ -156,30 +169,30 @@ function withCredit(lead: string, hook: string): string {
  * very long place name would push the post past POST_MAX.
  */
 export function postText(i: PostTextInput): string {
-  const alt = `${Math.round(i.altitudeKm)} km`
-  const when = `${i.localDay} at ${i.localTime} local`
+  const m = msgs(enShare)
+  const when = { ms: i.tClosest, timeZone: i.timeZone, clock: localClock(i.tClosest, i.timeZone) }
   let lead: string
   let hook: string
   switch (i.verdict) {
     case 'imaged': {
-      const words = i.cloud ? cloudWords(i.cloud.pct, i.cloud.spot) : undefined
+      const words = i.cloud ? cloudWords(i.cloud.pct, i.cloud.spot, currentLocale()) : undefined
       lead = words
-        ? `${i.satName} watched ${i.placeLabel} from ${alt} up on ${when}. ${words.post}`
-        : `${i.satName} watched ${i.placeLabel} from ${alt} up on ${when}. ${i.resolution ? `${i.resolution} per pixel; this` : 'This'} is the actual image.`
-      hook = HOOK.watched
+        ? m.post.clouded(i.satName, i.placeLabel, i.altitudeKm, when, words.post)
+        : m.post.imaged(i.satName, i.placeLabel, i.altitudeKm, when, i.pixelM)
+      hook = m.hookWatched
       break
     }
     case 'likely':
-      lead = `${i.satName} swept over ${i.placeLabel} from ${alt} up on ${when}. Its camera's swath covered the spot.`
-      hook = HOOK.passed
+      lead = m.post.likely(i.satName, i.placeLabel, i.altitudeKm, when)
+      hook = m.hookPassed
       break
     case 'could':
-      lead = `${i.satName} passed within view of ${i.placeLabel} on ${when}. It could have pointed here. Its operator doesn't say whether it did.`
-      hook = HOOK.passed
+      lead = m.post.could(i.satName, i.placeLabel, when)
+      hook = m.hookPassed
       break
     case 'overhead':
-      lead = `${i.satName} passed ${alt} over ${i.placeLabel} on ${when}.`
-      hook = HOOK.passed
+      lead = m.post.overhead(i.satName, i.placeLabel, i.altitudeKm, when)
+      hook = m.hookPassed
       break
   }
   return withCredit(lead, hook)
@@ -198,16 +211,19 @@ export interface SummaryLinkInput {
   /** The archives were still answering (K is a floor) */
   partial?: boolean
   windowEnd: number
-  /** The results gallery's first image, and why it leads (missing: the closest look) */
-  best?: { collection: string; itemId: string; satName: string; tClosest: number; gsdM?: number; look?: SummaryLook }
+  /**
+   * The results gallery's first image, and why it leads (missing: the closest look). `satName` is missing when its
+   * satellite has no name: the link then carries none (`bs`), and each card prints its own words for "a satellite".
+   */
+  best?: { collection: string; itemId: string; satName?: string; tClosest: number; gsdM?: number; look?: SummaryLook }
 }
 
 /**
  * A week's summary link (share SH6): the place link (`/?q=…&n=…`, which recomputes the week for whoever
- * opens it) plus the numbers its unfurl card prints, so nothing has to be stored. Coordinates are
- * rounded to ~1 km like every share.
+ * opens it) plus the numbers its unfurl card prints, so nothing has to be stored, and the card's language
+ * (`l`, not for English). Coordinates are rounded to ~1 km like every share.
  */
-export function summaryLink(origin: string, i: SummaryLinkInput): string {
+export function summaryLink(origin: string, i: SummaryLinkInput, locale: Locale = DEFAULT_LOCALE): string {
   const r = roundedPlace(i.lat, i.lon)
   const p = new URLSearchParams()
   p.set('q', `${r.lat.toFixed(SHARE_DECIMALS)},${r.lon.toFixed(SHARE_DECIMALS)}`)
@@ -220,12 +236,12 @@ export function summaryLink(origin: string, i: SummaryLinkInput): string {
   if (i.best) {
     p.set('bc', i.best.collection)
     p.set('bi', i.best.itemId)
-    p.set('bs', i.best.satName)
+    if (i.best.satName) p.set('bs', i.best.satName)
     p.set('bt', String(Math.round(i.best.tClosest)))
     if (i.best.gsdM !== undefined) p.set('bg', String(Math.round(i.best.gsdM * 100) / 100))
     if (i.best.look && i.best.look !== 'closest') p.set('bw', LOOK_CODES[i.best.look])
   }
-  return `${origin}/?${p.toString()}`
+  return `${origin}/?${withLocale(p, locale).toString()}`
 }
 
 /**
@@ -233,8 +249,10 @@ export function summaryLink(origin: string, i: SummaryLinkInput): string {
  * then the invitation and the credit (R3-14).
  */
 export function summaryPostText(i: { placeLabel: string; satellites: number; photos: number; archiveDown?: boolean; partial?: boolean }): string {
-  const lead = `${summaryHeadline(i)} ${photosSentence(i.photos, i)}`
-  return withCredit(lead, i.satellites > 0 ? HOOK.watched : HOOK.passed)
+  const l = currentLocale()
+  const m = msgs(enShare)
+  const lead = [summaryHeadline(i, l), photosSentence(i.photos, i, l)].join(LOCALE_INFO[l].sentenceGap)
+  return withCredit(lead, i.satellites > 0 ? m.hookWatched : m.hookPassed)
 }
 
 /**

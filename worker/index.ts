@@ -23,6 +23,10 @@ import monoLatinExt from '../api/_fonts/mono-latin-ext.ttf'
 import monoMediumLatin from '../api/_fonts/mono-medium-latin.ttf'
 import serifItalicLatin from '../api/_fonts/serif-italic-latin.ttf'
 import serifItalicLatinExt from '../api/_fonts/serif-italic-latin-ext.ttf'
+import displayCyrillic from '../api/_fonts/display-cyrillic.ttf'
+import sansCyrillic from '../api/_fonts/sans-cyrillic.ttf'
+import monoCyrillic from '../api/_fonts/mono-cyrillic.ttf'
+import serifItalicCyrillic from '../api/_fonts/serif-italic-cyrillic.ttf'
 import plate from '../api/_assets/og-default-plate.jpg'
 import mozjpegDecoder from '../node_modules/@jsquash/jpeg/codec/dec/mozjpeg_dec.wasm'
 import mozjpegEncoder from '../node_modules/@jsquash/jpeg/codec/enc/mozjpeg_enc.wasm'
@@ -50,6 +54,10 @@ registerBundled({
   '_fonts/mono-medium-latin.ttf': monoMediumLatin,
   '_fonts/serif-italic-latin.ttf': serifItalicLatin,
   '_fonts/serif-italic-latin-ext.ttf': serifItalicLatinExt,
+  '_fonts/display-cyrillic.ttf': displayCyrillic,
+  '_fonts/sans-cyrillic.ttf': sansCyrillic,
+  '_fonts/mono-cyrillic.ttf': monoCyrillic,
+  '_fonts/serif-italic-cyrillic.ttf': serifItalicCyrillic,
   '_assets/og-default-plate.jpg': plate,
 })
 

@@ -12,44 +12,60 @@
  * Reads `store.progress` (latest event only) through a subscription folded into a ref; a 10 Hz
  * clock repaints. Slow archives get an honest note after a few seconds. A shared link shows the
  * shared picture right away (R15), so the recipient sees it while their own report computes.
+ *
+ * Words: the 'results' namespace (computing), and the progress lines the engine and the controller write into the
+ * store as MessageRefs ('engine.progress.*', 'app.progress.*'). The fold keeps the ref, never its text: each row is
+ * worded when it is painted (refText, both namespaces), so a language switch mid-search rewords the rows.
  */
 import { useEffect, useRef, useState } from 'react'
+import { Rich } from '@/i18n/Rich'
+import enApp from '@/i18n/en/app'
+import enEngine from '@/i18n/en/engine'
+import enResults, { type UtcWhen } from '@/i18n/en/results'
+import { refText } from '@/i18n/messageRef'
+import { msgs, useMsgs } from '@/i18n/runtime'
 import { gibsWmsUrl, pcCropUrl } from '@/imagery'
 import { northInCropDeg } from '../../../api/_lib/toneRender'
 import type { Share } from '@/lib/backend'
 import { useApp } from '@/state/store'
-import type { ProgressEvent } from '@/types'
+import type { MessageRef, ProgressEvent } from '@/types'
 import { shareCropUrl } from '@/ui/share'
 import { cropSpec, displayUrl } from './lib/captures'
-import { cx, fmtUtc } from '@/ui/system'
+import { cx, fmtUtcTime } from '@/ui/system'
 import { PushbroomReveal } from './PushbroomReveal'
 import { markSeen } from './once'
-import { fmtLocalDay, fmtLocalTime } from './lib/time'
+import { fmtLocalTime } from './lib/time'
 import s from './ComputingReadout.module.css'
 
 type Stage = Exclude<ProgressEvent['stage'], 'done'>
-const STAGES: { stage: Stage; idle: string; done: string }[] = [
-  { stage: 'catalog', idle: 'Orbital catalog', done: 'Catalog loaded' },
-  { stage: 'propagate', idle: 'Propagate orbits · 7 days', done: 'Orbits propagated' },
-  { stage: 'archive', idle: 'Sentinel-2 + Landsat archives', done: 'Archives searched' },
-  { stage: 'match', idle: 'Match scenes to passes', done: 'Scenes matched' },
-]
+const STAGES: readonly Stage[] = ['catalog', 'propagate', 'archive', 'match']
 const ORDER: Record<ProgressEvent['stage'], number> = { catalog: 0, propagate: 1, archive: 2, match: 3, done: 4 }
+/** The window the readout computes ahead (the engine's default) */
+const WINDOW_DAYS = 7
+
+/** Every namespace a progress line can point into: the controller's lines sit between the engine's. */
+const PROGRESS = { app: enApp, engine: enEngine }
 
 interface Line {
-  message?: string
+  /** The engine's or the controller's line for this step (worded when painted) */
+  message?: string | MessageRef
   start?: number
   end?: number
 }
 
-const pad2 = (n: number) => String(n).padStart(2, '0')
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-/** "1 Nov 05:47" (UTC) */
-const shortUtc = (ms: number) => {
-  const d = new Date(ms)
-  return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${fmtUtc(ms, false).split(' ')[1]}`
+/** A step's label before it starts (also what screen readers hear as it starts), in the active language. */
+function idleLabel(stage: Stage): string {
+  const m = msgs(enResults).computing.stages
+  return stage === 'propagate' ? m.propagate.idle(WINDOW_DAYS) : m[stage].idle
 }
-export const secs = (ms: number) => `${(ms / 1000).toFixed(2)} s`
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+/** A window end under the bar: the instant (its day is worded by the message, at UTC) and its UTC clock, "05:47" */
+const utcWhen = (ms: number): UtcWhen => ({ ms, time: fmtUtcTime(ms, false) })
+/** The window's words under the bar (the strong part: hidden on narrow phones) */
+const WINDOW = { strong: s.windowWord }
+/** "1.84 s": a step's duration, and the header's T+ clock (read at call time) */
+export const secs = (ms: number) => msgs(enResults).computing.seconds(ms / 1000)
 
 export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
   const pending = useApp((st) => st.pendingWindow)
@@ -57,7 +73,9 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
   const [fallbackEnd] = useState(() => Date.now())
   const windowEnd = pending?.[1] ?? fallbackEnd
   const [now, setNow] = useState(() => performance.now())
-  const [announce, setAnnounce] = useState('Computing passes')
+  const m = useMsgs(enResults)
+  // What screen readers hear: the stage that is running, worded when shown ('start' until the engine speaks).
+  const [announce, setAnnounce] = useState<Stage | 'start' | 'done'>('start')
   // Progress history lives in a ref, folded from a store subscription. The engine streams events from
   // worker messages (hundreds a second); rendering each one would be wasted work, so the 10 Hz clock
   // below is what repaints the readout.
@@ -75,7 +93,7 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
       const at = performance.now()
       const idx = ORDER[e.stage]
       h.current = e.stage
-      for (const { stage } of STAGES) {
+      for (const stage of STAGES) {
         const i = ORDER[stage]
         const l = h.lines[stage]
         if (i < idx) {
@@ -101,13 +119,13 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
     })
     if (useApp.getState().phase === 'computing') id = window.setInterval(() => setNow(performance.now()), 100)
     // Screen readers hear the stage, at most once a second (the visual readout repaints at 10 Hz).
-    let said = ''
+    let heard: Stage | 'start' | 'done' = 'start'
     const sayId = window.setInterval(() => {
       const h = hist.current
-      const text = h.current === 'done' ? 'Report ready' : STAGES[Math.min(ORDER[h.current], STAGES.length - 1)].idle
-      if (text !== said) {
-        said = text
-        setAnnounce(text)
+      const stage = h.current === 'done' ? 'done' : STAGES[Math.min(ORDER[h.current], STAGES.length - 1)]
+      if (stage !== heard) {
+        heard = stage
+        setAnnounce(stage)
       }
     }, 1000)
     return () => {
@@ -124,24 +142,26 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
   const curIdx = ORDER[current]
   const slow = elapsed > 7000 && curIdx >= 2
   const verySlow = elapsed > 16000 && curIdx >= 2
-  const [d0, d1] = [shortUtc(windowEnd - 7 * 86_400_000), shortUtc(windowEnd)]
+  const c = m.computing
 
   return (
     <div className={s.body} role="status" aria-live="polite">
-      <p className="sr-only">{announce}</p>
+      <p className="sr-only">{announce === 'start' ? m.computingPasses : announce === 'done' ? c.ready : idleLabel(announce)}</p>
       {shared ? <SharedPicture tz={tz} /> : null}
       <div aria-hidden className={s.readout} data-readout>
         <ol className={s.lines}>
-          {STAGES.map(({ stage, idle, done }, i) => {
+          {STAGES.map((stage, i) => {
             const l = lines[stage]
             const state = i < curIdx ? 'done' : i === curIdx ? 'run' : 'idle'
             const dur = l.start !== undefined ? Math.max(0, (l.end ?? now) - l.start) : undefined
+            // The engine's line once it has written one (an id no namespace knows reads as the step's own label).
+            const written = state === 'idle' ? undefined : refText(l.message, PROGRESS)
             return (
               <li key={stage} className={cx(s.line, s[state])}>
                 <span className={s.idx}>{pad2(i + 1)}</span>
-                <span className={s.msg}>{state === 'idle' ? idle : state === 'done' ? (l.message ?? done) : (l.message ?? idle)}</span>
+                <span className={s.msg}>{written ?? (state === 'done' ? c.stages[stage].done : idleLabel(stage))}</span>
                 <span className={s.dur}>{dur !== undefined && state !== 'idle' ? secs(dur) : '—'}</span>
-                <span className={s.status}>{state === 'done' ? 'OK' : state === 'run' ? <span className={s.caret} /> : ''}</span>
+                <span className={s.status}>{state === 'done' ? c.ok : state === 'run' ? <span className={s.caret} /> : ''}</span>
               </li>
             )
           })}
@@ -149,23 +169,18 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
 
         <div className={s.bar}>
           <span className={s.fill} style={{ transform: `scaleX(${fraction.toFixed(4)})` }} />
-          <span className={s.lead} style={{ transform: `translateX(${(fraction * 100).toFixed(2)}cqw)` }} />
+          <span className={s.lead} style={{ transform: `translateX(calc(${(fraction * 100).toFixed(2)}cqw * var(--dir-x)))` }} />
         </div>
         <div className={s.foot}>
           <span>
-            <span className={s.windowWord}>7-day window · </span>
-            {d0} → {d1} UTC
+            <Rich parts={c.window(WINDOW_DAYS, utcWhen(windowEnd - WINDOW_DAYS * 86_400_000), utcWhen(windowEnd))} classes={WINDOW} strongAs="span" />
           </span>
-          <span className={s.pct}>{Math.round(fraction * 100)}%</span>
+          <span className={s.pct}>{c.percent(Math.round(fraction * 100))}</span>
         </div>
       </div>
 
       {slow ? (
-        <p className={s.note}>
-          {verySlow
-            ? 'The image archives are slow to answer. If they don’t, the passes will still be shown from orbital geometry, and we’ll say so.'
-            : 'Planetary Computer and NASA render on demand; this step can take a few seconds.'}
-        </p>
+        <p className={s.note}>{verySlow ? c.verySlow : c.slow}</p>
       ) : null}
     </div>
   )
@@ -191,6 +206,7 @@ function sharedImageUrl(share: Share): string | undefined {
 /** A shared link's picture, shown at once while the recipient's own report computes. */
 function SharedPicture({ tz }: { tz?: string }) {
   const shared = useApp((st) => st.shared)
+  const c = useMsgs(enResults).computing
   const itemId = shared?.capture?.itemId
   // PassDetail will not replay the reveal for this capture when the report lands.
   useEffect(() => {
@@ -201,9 +217,10 @@ function SharedPicture({ tz }: { tz?: string }) {
   // shows this very image, decoded already, from the one request.
   const url = sharedImageUrl(shared)
   if (!url) return null
-  const name = shared.satName ?? 'A satellite'
+  // No name in the share: the messages say "a satellite" their own way (nothing English is carried).
+  const sat = shared.satName
   const t = shared.tClosest
-  const when = t !== undefined && tz ? ` · ${fmtLocalDay(t, tz)}, ${fmtLocalTime(t, tz)}` : ''
+  const when = t !== undefined && tz ? { ms: t, timeZone: tz, time: fmtLocalTime(t, tz) } : undefined
   return (
     <div className={s.shared}>
       <PushbroomReveal
@@ -211,13 +228,12 @@ function SharedPicture({ tz }: { tz?: string }) {
         view="shared"
         headingDeg={(shared.pass?.headingDeg ?? 180) + northInCropDeg(url)}
         lines={cropSpec(shared.capture.collection).px}
-        alt={`${name} image of ${shared.placeLabel}, shared with you.`}
+        alt={c.sharedAlt(sat, shared.placeLabel)}
         startAt="now"
         frameClassName={s.sharedFrame}
       />
       <p className={s.sharedCaption}>
-        <b>Shared with you</b> · {name} watched {shared.placeLabel}
-        {when}
+        <Rich parts={c.sharedCaption(sat, shared.placeLabel, when)} strongAs="b" />
       </p>
     </div>
   )

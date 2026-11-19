@@ -7,6 +7,8 @@
  *  - Never coordinates: a search is a city-level label ("Waterloo, Ontario, Canada") and its 0.1° (~10 km) cell.
  *  - Never an IP (the relay reads only Vercel's derived country header), never a full referrer (host only).
  *  - Error messages lose URLs and decimal numbers before they leave the browser (the server masks them again).
+ *  - Each batch says what the tab is (`ctx`): its device class, UTM tags, referrer host, the app's version, and the
+ *    language the app is showing (one of its locale codes), so the admin page counts tabs per language.
  *
  * Off (nothing is queued or sent) under automation (`navigator.webdriver`), on dev builds, on any host but the
  * production ones (previews and local builds write nothing), and for the rest of the tab once a page was opened
@@ -236,6 +238,7 @@ let timer: ReturnType<typeof setTimeout> | undefined
 let enricher: Enricher | undefined
 let sender: Sender = defaultSender
 let ctxCache: Record<string, string> | undefined
+let language: (() => string) | undefined
 /** Captured at boot (src/app/telemetryDeps.ts): the referrer and query the visit arrived with, before any
  *  redirect (/s/<id> → /?s=<id>) or URL rewrite lost them. */
 let arrival: { referrer: string; search: string; optedOut?: boolean } | undefined
@@ -278,8 +281,28 @@ export function setEnricher(fn: Enricher | undefined): void {
   enricher = fn
 }
 
+/**
+ * The language the app is showing (src/i18n/runtime `currentLocale`, handed in by src/app/telemetry.ts: this module
+ * imports nothing). Read at every send, not cached with the rest of the context, so a switch in the language menu
+ * reaches the tab's stats with its next batch: the database keeps the tab's latest (migration 0027).
+ */
+export function setLanguage(fn: (() => string) | undefined): void {
+  language = fn
+}
+
+/** Device, UTM tags, referrer and version (fixed for the tab, worked out once), and the language as it is now. */
 function context(): Record<string, string> {
-  if (ctxCache) return ctxCache
+  const ctx = (ctxCache ??= baseContext())
+  let lang: string | undefined
+  try {
+    lang = language?.()
+  } catch {
+    /* no language: the batch goes without one */
+  }
+  return lang ? { ...ctx, lang } : ctx
+}
+
+function baseContext(): Record<string, string> {
   const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
   const ctx: Record<string, string> = {
     device: deviceClass(innerWidth, innerHeight, coarse),
@@ -289,7 +312,7 @@ function context(): Record<string, string> {
   if (ref) ctx.ref = ref
   const v = appVersion(typeof document === 'undefined' ? undefined : document)
   if (v) ctx.v = v
-  return (ctxCache = ctx)
+  return ctx
 }
 
 /**
@@ -363,6 +386,7 @@ export function _testing(opts: { allowed?: boolean; sender?: Sender; ctx?: Recor
   sid = opts.sid
   queue = []
   enricher = undefined
+  language = undefined
   if (timer !== undefined) clearTimeout(timer)
   timer = undefined
   return { queue: () => queue }

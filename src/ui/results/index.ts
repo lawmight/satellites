@@ -15,5 +15,8 @@ export { prewarmResultsModel } from './model'
 /** Start the panel's first thumbnails and the gallery's next photos before the first paint (core calls it). */
 export { warmFirstPhotos } from './warm'
 export { orderPhotos, type Photo, type PhotoFilter } from './lib/photos'
-/** The one verdict vocabulary (DESIGN §7): About and the share renderers import it from here. */
-export { VERDICT_META, VERDICTS, verdictUnit, type Verdict, type VerdictWords } from './lib/meta'
+/**
+ * The one verdict vocabulary (DESIGN §7), in the active language: verdictWords(v) at call time (React:
+ * useMsgs(enVerdicts) from src/i18n/en/verdicts.ts). VERDICT_META's entries read the active language when used.
+ */
+export { VERDICT_META, VERDICTS, verdictUnit, verdictWords, type Verdict, type VerdictWords } from './lib/meta'

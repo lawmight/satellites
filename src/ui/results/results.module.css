@@ -63,7 +63,7 @@
   }
   /* doubled class: must beat the base .timelineDock rule below */
   .vars.timelineDock {
-    right: calc(var(--bezel-inset) + var(--margin) + var(--panel-w) + var(--gutter));
+    inset-inline-end: calc(var(--bezel-inset) + var(--margin) + var(--panel-w) + var(--gutter));
   }
 }
 /* Laptops up to 860 px tall (1280×800): no summary notch, a smaller headline and tighter counts (below) buy the photo room. */
@@ -103,8 +103,7 @@
 .timelineDock {
   position: fixed;
   z-index: var(--z-panel);
-  left: calc(var(--bezel-inset) + var(--margin));
-  right: calc(var(--bezel-inset) + var(--margin));
+  inset-inline: calc(var(--bezel-inset) + var(--margin));
   bottom: calc(var(--bezel-inset) + var(--timeline-bottom));
   height: var(--timeline-h);
 }
@@ -152,7 +151,8 @@
   position: relative;
 }
 
-/* Two-beat content swap: out 160 ms ease-in-out, in 240 ms ease-out (--dir: 1 deeper, -1 back). */
+/* Two-beat content swap: out 160 ms ease-in-out, in 240 ms ease-out (--dir: 1 deeper, -1 back; --dir-x turns "deeper"
+   toward the reading's start, so in right to left a pass comes in from the left). */
 .swapOut {
   animation: swap-out 160ms var(--ease-in-out) forwards;
   pointer-events: none;
@@ -160,7 +160,7 @@
 @keyframes swap-out {
   to {
     opacity: 0;
-    transform: translateX(calc(-12px * var(--dir, 1)));
+    transform: translateX(calc(-12px * var(--dir, 1) * var(--dir-x)));
   }
 }
 .swapIn {
@@ -169,7 +169,7 @@
 @keyframes swap-in {
   from {
     opacity: 0;
-    transform: translateX(calc(12px * var(--dir, 1)));
+    transform: translateX(calc(12px * var(--dir, 1) * var(--dir-x)));
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -279,7 +279,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-left: -2px;
+  margin-inline-start: -2px;
   padding: 4px 2px;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
@@ -316,12 +316,13 @@
   .crumb {
     position: relative;
     padding: 14px 4px;
-    margin: -14px -4px -14px -6px;
+    margin-block: -14px;
+    margin-inline: -6px -4px;
   }
 }
 .kbdHover {
   display: inline-flex;
-  margin-left: 2px;
+  margin-inline-start: 2px;
 }
 /* The header action's labels share one cell: the button keeps the longest one's width (R3-8). */
 .crumbLabels {
@@ -387,7 +388,8 @@
   place-items: center;
   width: 44px;
   height: 44px;
-  margin: -12px -12px -12px 0;
+  margin-block: -12px;
+  margin-inline: 0 -12px;
   color: var(--bone-2);
 }
 .searchIcon:active {
@@ -405,7 +407,7 @@
   margin-top: 8px;
   padding: 0;
   border-bottom: 1px solid var(--line-strong);
-  text-align: left;
+  text-align: start;
   color: var(--bone);
 }
 .searchBar:active {
@@ -460,8 +462,8 @@
   display: inline-flex;
   align-items: center;
   height: 32px;
-  padding-left: 14px;
-  border-left: 1px solid var(--line-strong);
+  padding-inline-start: 14px;
+  border-inline-start: 1px solid var(--line-strong);
   font-family: var(--font-mono);
   font-stretch: 87.5%;
   font-size: var(--fs-label);
@@ -501,8 +503,8 @@
 .tzText {
   color: var(--bone-3);
 }
-/* One line, always (R3-8): a long place keeps its row's height; the zone (the least of the three) truncates
-   instead of wrapping onto a second line when the place changes. */
+/* One line, always (R3-8): a long place keeps its row's height; the zone (the least of the three) gives way first,
+   whole (below), instead of wrapping onto a second line when the place changes. */
 .placeRow {
   flex-wrap: nowrap;
   min-width: 0;
@@ -523,6 +525,15 @@
 }
 .placeRow .tzText {
   flex: 0 1000 auto;
+}
+/* What fits of the zone, measured (Headers.tsx PlaceRow): the full label, the offset alone, or nothing. */
+.tzShort,
+.placeRow[data-zone='short'] .tzFull,
+.placeRow[data-zone='none'] .tzPart {
+  display: none;
+}
+.placeRow[data-zone='short'] .tzShort {
+  display: inline;
 }
 /* Phones: the summary under the search bar, with room above it (it is the finding, not a caption to the field). */
 .mHead {
@@ -636,7 +647,7 @@
   color: var(--bone-2);
 }
 .position {
-  margin-right: 6px;
+  margin-inline-end: 6px;
   white-space: nowrap;
 }
 /* Narrow phones: a four-digit total goes (V1); the search icon beside the stepper keeps its 44 px. */
@@ -682,10 +693,10 @@
 .passName {
   margin: 0;
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   font-size: 30px;
-  line-height: 0.95;
+  line-height: calc(0.95 * var(--lh-k));
   letter-spacing: var(--track-display);
   color: var(--bone);
   overflow-wrap: anywhere;
@@ -706,7 +717,7 @@
   height: 28px;
   justify-content: center;
   padding: 0;
-  margin-left: -6px;
+  margin-inline-start: -6px;
 }
 .passTitleInline {
   flex: 1;
@@ -780,9 +791,10 @@
   align-items: center;
   gap: 12px;
   margin-bottom: 20px;
-  padding: 10px 0 10px 12px;
+  padding-block: 10px;
+  padding-inline: 12px 0;
   border: 1px solid var(--line-strong);
-  border-left: 1px solid var(--signal);
+  border-inline-start: 1px solid var(--signal);
 }
 .inviteText {
   flex: 1;
@@ -811,27 +823,28 @@
 .headline {
   margin: 0;
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 540;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-panel-h);
+  font-feature-settings: var(--feat-heading);
   font-size: var(--fs-panel-h, 34px);
-  line-height: 0.98;
+  line-height: calc(0.98 * var(--lh-k));
   letter-spacing: var(--track-display);
   color: var(--bone-2);
   text-wrap: balance;
 }
 .headline strong,
 .mHeadline strong {
-  font-weight: 560;
+  font-weight: var(--w-strong);
   color: var(--bone);
 }
 .headline .serif,
 .mHeadline .serif {
   font-family: var(--font-serif);
   font-style: italic;
-  font-weight: 400;
+  font-weight: var(--w-serif);
   font-stretch: 100%;
   letter-spacing: -0.01em;
-  font-size: 1.16em;
+  font-size: calc(1.16em * var(--accent-k));
   color: var(--bone);
 }
 /* Numbers inside display sentences: the display face, tabular (V19), so "7 days, 7 satellites" match. */
@@ -843,10 +856,11 @@
 .headlineMore {
   margin: 10px 0 0;
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 500;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-panel-sub);
+  font-feature-settings: var(--feat-heading);
   font-size: var(--fs-panel-sub, 22px);
-  line-height: 1.05;
+  line-height: calc(1.05 * var(--lh-k));
   letter-spacing: -0.01em;
   color: var(--bone-3);
   text-wrap: balance;
@@ -974,7 +988,10 @@
 /* ── verdict readouts: 2 × 2, number + unit over the verdict's name ── */
 .verdicts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Equal tiles: each keeps 10 px between its words and the divider, and the outer edges none, as the first's start
+     never had any; the second also carries the 1 px divider, so it gets 0.5 px more of the width. Both tiles' words
+     then have the same width (they differed by 13 px), and a long verdict name breaks alike in both columns. */
+  grid-template-columns: minmax(0, calc(50% - 0.5px)) minmax(0, 1fr);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
@@ -983,8 +1000,9 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 11px 10px 11px 0;
-  text-align: left;
+  padding-block: 11px;
+  padding-inline: 0 10px;
+  text-align: start;
   min-width: 0;
   color: var(--bone);
   transition:
@@ -993,8 +1011,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 .verdict:nth-child(2n) {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
+  padding-inline: 10px 0;
+  border-inline-start: 1px solid var(--line);
 }
 /* Laptops: a tighter counts strip (after the base rule, so it applies), tighter still up to 860 px tall (R2R1). */
 @media (min-width: 761px) and (orientation: landscape), (min-width: 1101px) {
@@ -1018,8 +1036,12 @@
 }
 .verdictTop {
   display: flex;
+  /* A count too wide for its tile ("1.565 overvluchten" on a phone) puts its unit under the number, never into the
+     divider; English's fit one line. */
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px 6px;
+  max-width: 100%;
   white-space: nowrap;
 }
 .verdictTop svg {
@@ -1050,7 +1072,9 @@
   text-transform: uppercase;
   color: var(--bone-2);
   line-height: 1.35;
-  white-space: nowrap;
+  /* A verdict name too long for its tile takes two balanced lines rather than be cut: English's fit one line on
+     laptops; "Probablemente observada" or "Pudo haber apuntado aquí" do not (LAP-09 did this for 1024 px first). */
+  text-wrap: balance;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
@@ -1097,7 +1121,7 @@
 .prose {
   margin: 0;
   font-size: var(--fs-body);
-  line-height: 1.5;
+  line-height: calc(1.5 * var(--lh-text-k));
   color: var(--bone);
   text-wrap: pretty;
 }
@@ -1107,14 +1131,14 @@
   font-weight: 350;
 }
 .unit {
-  margin-left: 0.25em;
+  margin-inline-start: 0.25em;
   font-size: 0.82em;
   color: var(--bone-2);
 }
 .blurb {
   margin: 0;
   font-size: var(--fs-small);
-  line-height: 1.5;
+  line-height: calc(1.5 * var(--lh-text-k));
   color: var(--bone-3);
 }
 
@@ -1124,21 +1148,40 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   border-top: 1px solid var(--line);
 }
+/* Each cell is a subgrid of two rows (label, value) and its Readout's box steps aside (display: contents), so a label
+   that takes two lines in a narrow phone cell ("Scan line here · local", "Elevación desde tu posición") moves its
+   neighbour's value down with its own: the two values of a row stay on one line. */
 .cell {
-  padding: 11px 12px 11px 0;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  row-gap: 4px;
+  padding-block: 11px;
+  padding-inline: 0 12px;
   border-bottom: 1px solid var(--line);
   min-width: 0;
 }
+.cell > div {
+  display: contents;
+}
+/* A label takes the cell's width and wraps there, balanced, rather than run past the cell's edge. */
+.cell > div > span:first-child {
+  white-space: normal;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
 .cell:nth-child(2n) {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--line);
 }
 .cellWide {
   grid-column: 1 / -1;
 }
 .cellWide.cell {
-  padding-left: 0;
-  border-left: 0;
+  padding-inline-start: 0;
+  border-inline-start: 0;
 }
 .cell > div > span:last-child {
   white-space: normal;
@@ -1150,10 +1193,11 @@
 .mHeadline {
   margin: 0;
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 540;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-panel-h);
+  font-feature-settings: var(--feat-heading);
   font-size: clamp(25px, 7.4vw, 30px);
-  line-height: 1;
+  line-height: var(--lh-k);
   letter-spacing: var(--track-display);
   color: var(--bone-2);
   text-wrap: balance;
@@ -1161,10 +1205,11 @@
 .mMore {
   margin: 8px 0 0;
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 500;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-panel-sub);
+  font-feature-settings: var(--feat-heading);
   font-size: 17px;
-  line-height: 1.1;
+  line-height: calc(1.1 * var(--lh-k));
   letter-spacing: -0.005em;
   color: var(--bone-3);
 }
@@ -1224,7 +1269,7 @@
   display: inline-block;
   width: 6px;
   height: 11px;
-  margin-left: 6px;
+  margin-inline-start: 6px;
   background: var(--bone-3);
   animation: list-caret 1s steps(1, end) infinite;
 }
@@ -1288,21 +1333,10 @@
   padding: 32px 0;
 }
 
-/* The 400 px panel of narrow laptops (1024): a long verdict name takes two lines rather than be cut (LAP-09). */
-@media (min-width: 761px) and (max-width: 1100px) {
-  .verdictLabel {
-    white-space: normal;
-  }
-}
-
 /* ── stacked layouts ──────────────────────────────────────────── */
 @media (max-width: 760px), (orientation: portrait) and (max-width: 1100px) {
   .body.body {
     padding-top: 16px;
-  }
-  /* phones: the name may take two lines rather than be cut */
-  .verdictLabel {
-    white-space: normal;
   }
   .passName {
     font-size: 24px;
@@ -1318,7 +1352,7 @@
 @media (min-width: 600px) and (max-width: 1100px) and (orientation: portrait) {
   .mHeadline {
     font-size: 28px;
-    line-height: 1;
+    line-height: var(--lh-k);
     max-width: 22ch;
   }
 }
@@ -1333,4 +1367,17 @@
     position: absolute;
     inset: -8px;
   }
+}
+
+/* ── right to left (docs/I18N.md) ─────────────────────────────── */
+/* The dock sits on the left and slides in from there (src/ui/system/Sheet.module.css mirrors it; useInsets reads
+   where it is, so the globe frames itself in what is left). A remount mid-flow still gets no second entrance: the
+   Sheet's right-to-left animation rule would otherwise outrank .noEnter. */
+:root[dir='rtl'] .panel.noEnter {
+  animation: none;
+}
+/* Stepping through a verdict's passes is a sequence: "3 / 31 < >" reads left to right as the gallery does (ar.md),
+   its arrows keep their keys' physical meaning. */
+:root[dir='rtl'] .stepper {
+  direction: ltr;
 }

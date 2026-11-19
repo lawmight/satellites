@@ -1,6 +1,9 @@
 /*
  * The dropped pin's card and the press ring (PinOverlay.tsx). The card is the callout plate (ink-1, hairline) with the
  * search field's orange arrow; it fades in with a short slide away from the pin.
+ *
+ * Right to left, what is inside the card reads right to left (name, then the arrow, then ×: logical sides), but where
+ * the card sits and the way it slides belong to the globe (beside the pin, on its free side) and never mirror.
  */
 .layer {
   position: absolute;
@@ -48,7 +51,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 5px 0 5px 12px;
+  padding: 5px 0;
+  padding-inline-start: 12px;
   background: var(--ink-1);
   border: 1px solid var(--line-strong);
   animation: card-in var(--d-sm) var(--ease-out) both;
@@ -89,6 +93,12 @@
   color: var(--bone-3);
   white-space: nowrap;
 }
+/* Coordinates are Latin notation: one left-to-right line, at the reading's start of the card (right to left). */
+:root[dir='rtl'] .coord {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: right;
+}
 .name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -104,7 +114,7 @@
   color: var(--bone-3);
 }
 .sub {
-  margin-left: 3px;
+  margin-inline-start: 3px;
   color: var(--bone-3);
 }
 
@@ -134,7 +144,7 @@
   flex: none;
   width: 30px;
   height: 40px;
-  margin-left: -12px;
+  margin-inline-start: -12px;
   color: var(--bone-3);
   transition: color var(--d-hover) var(--ease-out);
 }

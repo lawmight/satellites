@@ -15,7 +15,9 @@ import junk from './__fixtures__/photon-junk.json'
 import {
   coordinateLabel,
   dedupePlaces,
+  displaySublabel,
   joinUnique,
+  locateMe,
   parseCoordinates,
   photonReverseToPlace,
   photonToPlace,
@@ -28,11 +30,14 @@ import {
   sublabelOf,
   timeZoneAt,
   ensureTz,
+  inCrimea,
   tzReady,
   nauticalZone,
   type PhotonResponse,
 } from './geocode'
 import type { Place } from '@/types'
+import { setBundleForTests } from '@/i18n/runtime'
+import enGeo from '@/i18n/en/geo'
 
 const places = (r: unknown) => dedupePlaces((r as PhotonResponse).features.map((f) => photonToPlace(f)).filter((p): p is Place => !!p))
 const labels = (ps: Place[]) => ps.map((p) => [p.label, p.sublabel ?? ''])
@@ -193,6 +198,52 @@ describe('coordinates', () => {
     expect(parseCoordinates('waterloo')).toBeNull()
     expect(parseCoordinates('10 Downing St')).toBeNull()
   })
+  it('reads the true minus and an en dash wherever a hyphen is read', () => {
+    // The search hint, as every language prints it.
+    expect(parseCoordinates('43.47, \u221280.54')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('\u221233.8688 151.2093')).toEqual({ lat: -33.8688, lon: 151.2093 })
+    expect(parseCoordinates('\u221233.8688;\u2212151.2093')).toEqual({ lat: -33.8688, lon: -151.2093 })
+    expect(parseCoordinates('43.47, \u201380.54')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('\u2212 33, 151')).toBeNull() // a sign apart from its number, as for '-'
+    // Copied out of the Arabic hint, isolates and all, or with an Arabic letter mark.
+    expect(parseCoordinates('\u206643.47, \u221280.54\u2069')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('\u061c43.47, \u221280.54')).toEqual({ lat: 43.47, lon: -80.54 })
+  })
+  it('reads full-width digits and punctuation, as a Chinese, Japanese or Korean input method types them', () => {
+    expect(parseCoordinates('43.47\uff0c\u221280.54')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('\uff14\uff13\uff0e\uff14\uff17\uff0c\u3000\uff0d\uff18\uff10\uff0e\uff15\uff14')).toEqual({
+      lat: 43.47,
+      lon: -80.54,
+    })
+    expect(parseCoordinates('\uff14\uff13\uff0e\uff14\uff17\uff2e \uff18\uff10\uff0e\uff15\uff14\uff37')).toEqual({
+      lat: 43.47,
+      lon: -80.54,
+    })
+    // The ordinal sign some keyboards give for a degree is still a degree, not the letter o.
+    expect(parseCoordinates('43.47\u00baN 80.54\u00baW')).toEqual({ lat: 43.47, lon: -80.54 })
+  })
+  it('reads decimal commas only when a space or a semicolon parts the numbers', () => {
+    expect(parseCoordinates('41,01 28,98')).toEqual({ lat: 41.01, lon: 28.98 })
+    expect(parseCoordinates('43,47; \u221280,54')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('43,47;-80,54')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('33,8688°S 151,2093°E')).toEqual({ lat: -33.8688, lon: 151.2093 })
+    expect(parseCoordinates('41,01   28')).toEqual({ lat: 41.01, lon: 28 })
+    // Where the comma could be the separator, it is read as one, as before.
+    expect(parseCoordinates('41,01')).toEqual({ lat: 41, lon: 1 })
+    expect(parseCoordinates('41, 28')).toEqual({ lat: 41, lon: 28 })
+    expect(parseCoordinates('41,01,28,98')).toBeNull()
+    expect(parseCoordinates('41,01, 28,98')).toBeNull()
+    // After a hemisphere letter a comma can only part the numbers.
+    expect(parseCoordinates('41,01N, 28,98E')).toEqual({ lat: 41.01, lon: 28.98 })
+    expect(parseCoordinates('33,8688°S,151,2093°E')).toEqual({ lat: -33.8688, lon: 151.2093 })
+    expect(parseCoordinates('41,01N28,98E')).toBeNull() // no separator at all, as with points
+    expect(parseCoordinates('91,5 0')).toBeNull()
+  })
+  it('reads no hemisphere letters but N, S, E and W', () => {
+    // O is west in French, Spanish and Italian but east (Ost) in German: never guessed.
+    expect(parseCoordinates('43.47N 80.54O')).toBeNull()
+    expect(parseCoordinates('41,01N 28,98E')).toEqual({ lat: 41.01, lon: 28.98 })
+  })
 })
 
 describe('time zones', () => {
@@ -316,6 +367,78 @@ describe('Nominatim reverse labels', () => {
   })
 })
 
+describe('Crimea', () => {
+  /** A Photon feature at (lat, lon) whose country is `country` */
+  const feature = (name: string, lat: number, lon: number, country: string, countrycode: string, state?: string): PhotonResponse['features'][number] => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [lon, lat] },
+    properties: { name, state, country, countrycode, osm_key: 'place', osm_value: 'city' },
+  })
+
+  it('is the peninsula and Sevastopol, up to the middle of the Kerch Strait', () => {
+    for (const [lat, lon] of [
+      [44.9521, 34.1025], // Simferopol
+      [44.6054, 33.522], // Sevastopol
+      [44.4988, 34.169], // Yalta
+      [45.3563, 36.4671], // Kerch, on the strait
+      [45.2716, 36.5463], // Tuzla Island, in it
+      [46.1109, 33.6922], // Armyansk, on the Perekop isthmus
+      [45.2957, 35.4788], // the Arabat fortress, at the Arabat Spit's Crimean end
+      [45.4299, 35.8225], // Shcholkine, on the Sea of Azov
+    ])
+      expect(inCrimea(lat, lon), `${lat}, ${lon}`).toBe(true)
+    for (const [lat, lon] of [
+      [45.333, 36.6662], // Chushka, on the Chushka spit (Russia), 3 km across the strait from Crimea
+      [45.3402, 36.6746], // Port Kavkaz
+      [45.3601, 36.7137], // the Chushka spit
+      [45.1954, 36.598], // Cape Tuzla, the Taman peninsula's tip
+      [45.2117, 36.7161], // Taman
+      [45.0448, 38.976], // Krasnodar
+      [46.1714, 34.8034], // Henichesk, Kherson Oblast
+      [46.6354, 32.6169], // Kherson
+      [45.8959, 34.883], // Strilkove, on the Arabat Spit in Kherson Oblast
+    ])
+      expect(inCrimea(lat, lon), `${lat}, ${lon}`).toBe(false)
+  })
+
+  it('reads a Photon answer that names Russia for a point in Crimea as Ukraine, and only there', () => {
+    expect(photonToPlace(feature('Simferopol', 44.9521, 34.1025, 'Russia', 'RU', 'Republic of Crimea'))).toMatchObject({
+      label: 'Simferopol',
+      sublabel: 'Republic of Crimea, Ukraine',
+      countryCode: 'ua',
+    })
+    expect(photonToPlace(feature('Kerch', 45.3563, 36.4671, 'Russian Federation', 'RU'))).toMatchObject({ sublabel: 'Ukraine', countryCode: 'ua' })
+    expect(photonToPlace(feature('Port Kavkaz', 45.3402, 36.6746, 'Russia', 'RU', 'Krasnodar Krai'))).toMatchObject({
+      sublabel: 'Krasnodar Krai, Russia',
+      countryCode: 'ru',
+    })
+    // An answer that already says Ukraine, or another country, is left as it came.
+    expect(photonToPlace(feature('Yalta', 44.4988, 34.169, 'Ukraine', 'UA', 'Autonomous Republic of Crimea'))).toMatchObject({
+      sublabel: 'Autonomous Republic of Crimea, Ukraine',
+      countryCode: 'ua',
+    })
+    // A reverse lookup is judged at the point asked about, and a country alone is the label.
+    const rev = photonReverseToPlace({ geometry: { type: 'Point', coordinates: [0, 0] }, properties: { country: 'Russia', countrycode: 'RU' } }, 45.2716, 36.5463)
+    expect(rev).toMatchObject({ label: 'Ukraine', countryCode: 'ua' })
+  })
+
+  it('reads Nominatim and Open-Meteo the same way', () => {
+    const nom = nominatimToPhoton(geocoding({ type: 'city', name: 'Sevastopol', state: 'Sevastopol', country: 'Russia', country_code: 'ru' }), 44.6054, 33.522)
+    expect(nom && photonReverseToPlace(nom, 44.6054, 33.522)).toMatchObject({ label: 'Sevastopol', sublabel: 'Ukraine', countryCode: 'ua' })
+    const om = openMeteoToPlaces(
+      [
+        { name: 'Feodosiya', latitude: 45.0319, longitude: 35.3824, country_code: 'RU', country: 'Russia', admin1: 'Crimea', population: 69145 },
+        { name: 'Feodosiyevka', latitude: 45.3, longitude: 39.1, country_code: 'RU', country: 'Russia', admin1: 'Krasnodar Krai' },
+      ],
+      'feodosiy',
+    )
+    expect(om.map((p) => [p.sublabel, p.countryCode])).toEqual([
+      ['Crimea, Ukraine', 'ua'],
+      ['Krasnodar Krai, Russia', 'ru'],
+    ])
+  })
+})
+
 /** Open-Meteo search results (abridged from live answers, 2026-11-12). */
 const omWaterloo = [
   { name: 'Austin', latitude: 30.26715, longitude: -97.74306, country_code: 'US', country: 'United States', admin1: 'Texas' },
@@ -368,5 +491,65 @@ describe('searchPlaces on the network (Open-Meteo first, Photon as backup)', () 
     expect(settled).toBe(false)
     ctrl.abort()
     await expect(p).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
+describe('places on screen', () => {
+  afterEach(() => setBundleForTests('en', null))
+
+  it('show the English sublabel as it is in English', () => {
+    for (const sublabel of ['Ontario, Canada', 'Paris, Île-de-France, France', 'Giza, Egypt', 'Japan', 'Bus stop, Ushuaia, Tierra del Fuego, Argentina'])
+      expect(displaySublabel({ sublabel, countryCode: 'ca' })).toBe(sublabel)
+    expect(displaySublabel({ sublabel: 'New York, United States', countryCode: 'us' })).toBe('New York, United States')
+    expect(displaySublabel({ countryCode: 'ca' })).toBeUndefined()
+  })
+
+  it('name the country in the language on screen, joined its way to the rest, which keeps its order and punctuation', () => {
+    const where = (rest: string | undefined, country: string) => (rest === undefined ? country : `${country} · ${rest}`)
+    setBundleForTests('de', { geo: { ...enGeo, where } })
+    expect(displaySublabel({ sublabel: 'Ontario, Canada', countryCode: 'ca' })).toBe('Kanada · Ontario')
+    expect(displaySublabel({ sublabel: 'Germany', countryCode: 'de' })).toBe('Deutschland')
+    // The rest is never reordered or re-punctuated: a disambiguated row keeps its kind and commas exactly as written.
+    expect(displaySublabel({ sublabel: 'Paris, Île-de-France, France', countryCode: 'fr' })).toBe('Frankreich · Paris, Île-de-France')
+    expect(displaySublabel({ sublabel: 'Bus stop, Ushuaia, Tierra del Fuego, Argentina', countryCode: 'ar' })).toBe(
+      'Argentinien · Bus stop, Ushuaia, Tierra del Fuego',
+    )
+  })
+
+  it('name Hong Kong and Macao by their short names in every language, English included, and Palestine so in Arabic and Indonesian', () => {
+    expect(displaySublabel({ sublabel: 'Wong Tai Sin District, Hong Kong SAR China', countryCode: 'hk' })).toBe('Wong Tai Sin District, Hong Kong')
+    expect(displaySublabel({ sublabel: 'Macao SAR China', countryCode: 'mo' })).toBe('Macao')
+    expect(displaySublabel({ sublabel: 'Gaza Strip, Palestinian Territories', countryCode: 'ps' })).toBe('Gaza Strip, Palestinian Territories')
+    expect(displaySublabel({ sublabel: 'England, United Kingdom', countryCode: 'gb' })).toBe('England, United Kingdom') // never "UK"
+    const where = (rest: string | undefined, country: string) => (rest === undefined ? country : `${rest}، ${country}`)
+    setBundleForTests('ar', { geo: { ...enGeo, where } })
+    expect(displaySublabel({ sublabel: 'Gaza Strip, Palestinian Territories', countryCode: 'ps' })).toBe('Gaza Strip، فلسطين')
+    expect(displaySublabel({ sublabel: 'Hong Kong SAR China', countryCode: 'hk' })).toBe('هونغ كونغ')
+    expect(displaySublabel({ sublabel: 'Washington, United States', countryCode: 'us' })).toBe('Washington، الولايات المتحدة')
+    setBundleForTests('id', { geo: { ...enGeo } })
+    expect(displaySublabel({ sublabel: 'West Bank, Palestinian Territories', countryCode: 'ps' })).toBe('West Bank, Palestina')
+    expect(displaySublabel({ sublabel: 'Macao SAR China', countryCode: 'mo' })).toBe('Makau')
+    setBundleForTests('de', { geo: { ...enGeo } })
+    expect(displaySublabel({ sublabel: 'Gaza Strip, Palestinian Territories', countryCode: 'ps' })).toBe('Gaza Strip, Palästinensische Autonomiegebiete')
+    expect(displaySublabel({ sublabel: 'Kowloon City District, Hong Kong SAR China', countryCode: 'hk' })).toBe('Kowloon City District, Hongkong')
+    // A geocoder that writes the short name already is read the same way.
+    expect(displaySublabel({ sublabel: 'Macao', countryCode: 'mo' })).toBe('Macau')
+  })
+
+  it('show any other sublabel as it came: no code, another country, a spelling not the browser’s, copy already translated', () => {
+    setBundleForTests('de', { geo: { ...enGeo, where: () => 'never' } })
+    expect(displaySublabel({ sublabel: 'Ontario, Canada' })).toBe('Ontario, Canada')
+    expect(displaySublabel({ sublabel: 'Ontario, Canada', countryCode: 'us' })).toBe('Ontario, Canada')
+    expect(displaySublabel({ sublabel: 'Ontario, Kanada', countryCode: 'ca' })).toBe('Ontario, Kanada')
+    expect(displaySublabel({ sublabel: 'Gizeh, Ägypten', countryCode: 'eg' })).toBe('Gizeh, Ägypten')
+    expect(displaySublabel({ sublabel: 'Little Canada', countryCode: 'ca' })).toBe('Little Canada')
+    expect(displaySublabel({ countryCode: 'ca' })).toBeUndefined()
+  })
+
+  it('reject a failed "Use my location" with a stable code and an English diagnostic, whatever the language', async () => {
+    const failure = { name: 'LocateError', code: 'unsupported', message: 'Geolocation failed: unsupported' }
+    await expect(locateMe()).rejects.toMatchObject(failure)
+    setBundleForTests('de', { geo: enGeo })
+    await expect(locateMe()).rejects.toMatchObject(failure)
   })
 })

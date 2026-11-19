@@ -4,10 +4,31 @@
  *
  * Everything that arrives here is untrusted (the RPC output was user input once; query params
  * are anyone's). Each field is re-validated and clamped before it reaches a renderer.
+ *
+ * The copy is in the language the caller names (a link's `l=`, read by api/s.ts and api/og.tsx; English by default):
+ * whole sentences from the card catalog (cardMessages(locale), api/_lib/i18n/card/), with the names inserted as
+ * they were stored. What is stored and what links carry never depends on a language.
  */
 import tzlookup from '@photostructure/tz-lookup'
-import { VERDICT_WORDS, cloudWords, localStamp, photosSentence, summaryHeadline, watchedLead, lookOfCode, type CardInput, type SummaryInput, type SummaryLook } from './cardSpec.js'
+import {
+  cloudWords,
+  headText,
+  localClock,
+  passHeadline,
+  photosSentence,
+  summaryHeadline,
+  zoneAbbr,
+  lookOfCode,
+  type CardInput,
+  type SummaryInput,
+  type SummaryLook,
+} from './cardSpec.js'
 import { supabaseConfig } from './env.js'
+import { cardMessages, type CardWhen } from './i18n/card/index.js'
+// Every language's card copy for the server's cards and pages (the app never imports this module).
+import './i18n/card/server.js'
+import { DEFAULT_LOCALE, LOCALE_INFO, isLocale, type Locale } from './i18n/locales.js'
+import type { Rich } from './i18n/parts.js'
 
 export type Verdict = 'imaged' | 'likely' | 'could' | 'overhead'
 
@@ -251,6 +272,17 @@ export function shareFromDeepLink(q: URLSearchParams): ShareRecord | null {
   return shareFromParams(p)
 }
 
+// ── Language ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The language a link names (`l=<locale>`: the sharer's, written by the app only when it isn't English), when we
+ * speak it; English otherwise. It chooses the card's and the share page's words, never what the app shows the reader.
+ */
+export function linkLocale(q: URLSearchParams): Locale {
+  const l = q.get('l')
+  return isLocale(l) ? l : DEFAULT_LOCALE
+}
+
 // ── Places (address-bar links: /?q=lat,lon&n=label) ─────────────────────────────────────────
 
 export interface SharedPlace {
@@ -296,13 +328,14 @@ export const SUMMARY_KEYS = ['sv', 'sc', 'sw', 'sa', 'sp', 'bc', 'bi', 'bs', 'bt
  * A summary from a link: `sv` the satellites that watched the place (N: any pass, geostationary excluded),
  * `sc` the four verdict counts ("31,220,1544,66"; the first is K, the photos made public), `sw` the window
  * end (ms), `sa=1` the archives didn't answer, `sp=1` the archives were still answering (K is a floor), and
- * the gallery's first image: `bc` collection, `bi` item id, `bs` satellite name, `bt` time (ms), `bg` pixel size (m),
- * `bw` why it leads when it is not the closest look (`lc` last clear look, `co` clouded over, `ra` radar, `pl` none).
+ * the gallery's first image: `bc` collection, `bi` item id, `bs` satellite name (absent when it has none: the card
+ * then prints its own words for "a satellite"), `bt` time (ms), `bg` pixel size (m), `bw` why it leads when it is not
+ * the closest look (`lc` last clear look, `co` clouded over, `ra` radar, `pl` none).
  * Null unless place, sv and sc are valid.
  */
 export type LinkSummary = Omit<SummaryInput, 'host' | 'timeZone' | 'best'> & {
   place: SharedPlace
-  best?: { satName: string; tClosest?: number; capture: ShareCapture; look?: SummaryLook }
+  best?: { satName?: string; tClosest?: number; capture: ShareCapture; look?: SummaryLook }
 }
 
 export function summaryFromParams(q: URLSearchParams): LinkSummary | null {
@@ -322,7 +355,7 @@ export function summaryFromParams(q: URLSearchParams): LinkSummary | null {
     satellites: Math.round(satellites),
     counts: { imaged, likely, could, overhead },
     windowEnd: num(q.get('sw'), 0, 8.64e15),
-    best: capture && satName ? { satName, tClosest, capture, ...(lookOfCode(q.get('bw')) ? { look: lookOfCode(q.get('bw')) } : {}) } : undefined,
+    best: capture ? { ...(satName ? { satName } : {}), tClosest, capture, ...(lookOfCode(q.get('bw')) ? { look: lookOfCode(q.get('bw')) } : {}) } : undefined,
   }
   // Flags are present only when set, so a summary rebuilt from its link equals the one the app built.
   if (q.get('sa') === '1') out.archiveDown = true
@@ -330,26 +363,36 @@ export function summaryFromParams(q: URLSearchParams): LinkSummary | null {
   return out
 }
 
+/** Sentences of one paragraph, joined as the language joins them (a space; nothing in Chinese and Japanese). */
+const sentences = (locale: Locale, ...parts: string[]) => parts.join(LOCALE_INFO[locale].sentenceGap)
+
 /** "31 satellites watched Waterloo this week." (R3-13: the results headline's N, as the card and the post say it) */
-export function summaryTitle(s: Pick<SummaryInput, 'satellites' | 'placeLabel'>): string {
-  return summaryHeadline(s)
+export function summaryTitle(s: Pick<SummaryInput, 'satellites' | 'placeLabel'>, locale: Locale = DEFAULT_LOCALE): string {
+  return summaryHeadline(s, locale)
 }
 
 /** "12 images were made public. The closest look is from Sentinel-2C. What watched you this week?" */
-export function summaryDescription(s: Pick<SummaryInput, 'best' | 'counts' | 'placeLabel' | 'archiveDown' | 'partial'>): string {
+export function summaryDescription(s: Pick<SummaryInput, 'best' | 'counts' | 'placeLabel' | 'archiveDown' | 'partial'>, locale: Locale = DEFAULT_LOCALE): string {
+  const m = cardMessages(locale)
   const look = s.best?.look ?? 'closest'
-  const what = look === 'closest' ? 'The closest look' : look === 'lastClear' ? 'The last clear look' : 'The first image'
-  const best = s.best ? ` ${what} is from ${s.best.satName}.` : ''
-  return `${photosSentence(s.counts.imaged, s)}${best} What watched you this week?`
+  const from = look === 'closest' ? m.bestFrom.closest : look === 'lastClear' ? m.bestFrom.lastClear : m.bestFrom.first
+  const best = s.best ? [from(s.best.satName)] : []
+  return sentences(locale, photosSentence(s.counts.imaged, s, locale), ...best, m.question)
+}
+
+/** The week's card described for its image alt: its title, then what the card shows. */
+export function summaryAlt(s: Pick<SummaryInput, 'best' | 'satellites' | 'placeLabel'>, locale: Locale = DEFAULT_LOCALE): string {
+  const m = cardMessages(locale)
+  return sentences(locale, summaryTitle(s, locale), s.best ? m.cardAlt.withPhoto(s.best.satName) : m.cardAlt.plain)
 }
 
 /** "What watched Waterloo this week" */
-export function placeTitle(p: SharedPlace): string {
-  return `What watched ${p.label} this week`
+export function placeTitle(p: SharedPlace, locale: Locale = DEFAULT_LOCALE): string {
+  return cardMessages(locale).page.placeTitle(p.label)
 }
 
-export function placeDescription(p: SharedPlace): string {
-  return `Every satellite that passed over ${p.label} in the last 7 days, and the actual pictures they took. What watched you this week?`
+export function placeDescription(p: SharedPlace, locale: Locale = DEFAULT_LOCALE): string {
+  return cardMessages(locale).page.placeDescription(p.label)
 }
 
 // ── Fetch ───────────────────────────────────────────────────────────────────────────────────
@@ -381,47 +424,40 @@ export async function fetchShare(id: string, timeoutMs = 4000): Promise<FetchSha
 
 // ── Copy ────────────────────────────────────────────────────────────────────────────────────
 
-/** "Sentinel-2C", or "NORAD 60989" when the share didn't carry a name. */
-export function satLabel(s: ShareRecord): string {
-  return s.satName ?? (s.norad ? `NORAD ${s.norad}` : 'A satellite')
+/**
+ * "Sentinel-2C", or "NORAD 60989" when the share didn't carry a name (NORAD ids read the same in every language), or
+ * undefined when it carried neither: each sentence then says "a satellite" in its own words (the card catalog).
+ */
+export function satLabel(s: ShareRecord): string | undefined {
+  return s.satName ?? (s.norad ? `NORAD ${s.norad}` : undefined)
 }
 
 /**
- * The headline, split so the renderer can set the place in the accent face. With the week's N (owner):
- *   any      → "7 satellites watched | Waterloo | ."
+ * The headline as the card's rich parts (blocks in the language's order, the place as the accent), with the whole
+ * place label (the card cuts it to 48 characters; the page title never does). With the week's N (owner):
+ *   any      → "7 satellites watched | Waterloo."
  * Older shares without N, by verdict:
- *   imaged   → "Sentinel-2C watched | Waterloo | ."
- *   likely   → "Sentinel-2C swept over | Waterloo | ."
- *   could    → "WorldView Legion 4 passed within view of | Waterloo | ."
- *   overhead → "ISS (ZARYA) passed over | Waterloo | ."
+ *   imaged   → "Sentinel-2C watched | Waterloo."
+ *   likely   → "Sentinel-2C swept over | Waterloo."
+ *   could    → "WorldView Legion 4 passed within view of | Waterloo."
+ *   overhead → "ISS (ZARYA) passed over | Waterloo."
+ * A place already cut short with an ellipsis takes no full stop ("…" not "….").
  */
-export function headlineParts(s: ShareRecord): { lead: string; place: string; tail: string } {
-  // The card's own words (owner): "7 satellites watched Waterloo." when the share carries N.
-  if (s.satellites !== undefined && s.satellites >= 1) return { lead: watchedLead(s.satellites), place: s.placeLabel, tail: s.placeLabel.endsWith('…') ? '' : '.' }
-  const sat = satLabel(s)
-  const verb = VERDICT_WORDS[s.verdict].verb
-  // A place already cut short with an ellipsis takes no full stop ("…" not "….").
-  return { lead: `${sat} ${verb}`, place: s.placeLabel, tail: s.placeLabel.endsWith('…') ? '' : '.' }
+export function headlineParts(s: ShareRecord, locale: Locale = DEFAULT_LOCALE): Rich {
+  return passHeadline(cardMessages(locale), s.verdict, satLabel(s), s.placeLabel, s.satellites)
 }
 
-export function headline(s: ShareRecord): string {
-  const h = headlineParts(s)
-  return `${h.lead} ${h.place}${h.tail}`
+/** The share page's title: the card's headline as one line ("7 satellites watched Waterloo."). */
+export function headline(s: ShareRecord, locale: Locale = DEFAULT_LOCALE): string {
+  return headText(headlineParts(s, locale), locale)
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
-/** "2026-11-01 16:14:21 UTC" */
+/** "2026-11-01 16:14:21 UTC" (machine stamp: the same in every language) */
 export function fmtUtc(ms: number): string {
   const d = new Date(ms)
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`
-}
-
-/** "1 Nov 2026" */
-export function fmtDate(ms: number): string {
-  const d = new Date(ms)
-  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]
-  return `${d.getUTCDate()} ${m} ${d.getUTCFullYear()}`
 }
 
 /**
@@ -432,10 +468,9 @@ export function momentOf(s: ShareRecord): number | undefined {
   return s.tClosest ?? s.pass.tClosest ?? s.capture?.datetime
 }
 
-const COMPASS = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest']
-/** 194.6° → "south" (8-point compass, for prose). */
-export function compass(deg: number): string {
-  return COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8]
+/** 194.6° → 4 (south): the 8-point compass for prose, 0 north, 1 northeast … 7 northwest (each language names them). */
+export function compassPoint(deg: number): number {
+  return Math.round((((deg % 360) + 360) % 360) / 45) % 8
 }
 
 /** The IANA zone at the share's place ("America/Toronto"), or UTC if the lookup fails. */
@@ -447,10 +482,9 @@ export function shareTimeZone(s: Pick<ShareRecord, 'lat' | 'lon'>): string {
   }
 }
 
-/** "11:21 EST on Sun 1 Nov 2026" at the place (the card's stamp, in prose order). */
-function localWhen(ms: number, timeZone: string): string {
-  const [day, time] = localStamp(ms, timeZone).split(' · ')
-  return `${time} on ${day}`
+/** When the pass was closest, at the place: the instant and zone, and the clock and zone name the card prints. */
+function whenOf(ms: number, timeZone: string): CardWhen {
+  return { ms, timeZone, clock: localClock(ms, timeZone), zone: zoneAbbr(ms, timeZone) }
 }
 
 /**
@@ -459,33 +493,36 @@ function localWhen(ms: number, timeZone: string): string {
  * "Sentinel-2C crossed 795 km above Waterloo at 11:21 EST on Sun 1 Nov 2026, moving south.
  *  It was looking 5.3° off nadir. Cloud cover: 26%. What watched you this week?"
  */
-export function description(s: ShareRecord): string {
-  const sat = satLabel(s)
+export function description(s: ShareRecord, locale: Locale = DEFAULT_LOCALE): string {
+  const m = cardMessages(locale)
   const p = s.pass
   const t = momentOf(s)
-  const alt = p.altitudeKm !== undefined ? ` ${Math.round(p.altitudeKm)} km above` : ' over'
-  const when = t !== undefined ? ` at ${localWhen(t, shareTimeZone(s))}` : ''
-  const moving = p.headingDeg !== undefined ? `, moving ${compass(p.headingDeg)}` : ''
+  const facts = {
+    sat: satLabel(s),
+    place: s.placeLabel,
+    when: t !== undefined ? whenOf(t, shareTimeZone(s)) : undefined,
+    heading: p.headingDeg !== undefined ? compassPoint(p.headingDeg) : undefined,
+  }
   const parts: string[] = []
   if (s.verdict === 'could') {
-    parts.push(`${sat} ${VERDICT_WORDS.could.verb} ${s.placeLabel}${when}${moving}.`, "It could have pointed here. Its operator doesn't say whether it did.")
+    parts.push(m.withinView(facts), m.couldHave)
   } else {
-    parts.push(`${sat} ${s.verdict === 'overhead' ? 'passed' : 'crossed'}${alt} ${s.placeLabel}${when}${moving}.`)
-    if (s.verdict === 'imaged' && p.offNadirDeg !== undefined) parts.push(p.offNadirDeg < 2 ? 'It was looking straight down.' : `It was looking ${p.offNadirDeg.toFixed(1)}° off nadir.`)
+    parts.push(m.crossed({ ...facts, verdict: s.verdict, altitudeKm: p.altitudeKm }))
+    if (s.verdict === 'imaged' && p.offNadirDeg !== undefined) parts.push(p.offNadirDeg < 2 ? m.straightDown : m.offNadir(p.offNadirDeg))
     const pct = s.capture?.cloudCoverPct
     // The card's own words for a clouded picture (cloudWords), else the plain cloud cover.
-    const words = s.verdict === 'imaged' ? cloudWords(pct, s.capture?.spot) : undefined
+    const words = s.verdict === 'imaged' ? cloudWords(pct, s.capture?.spot, locale) : undefined
     if (words) parts.push(words.desc)
-    else if (s.verdict === 'imaged' && pct !== undefined) parts.push(`Cloud cover: ${Math.round(pct)}%.`)
-    if (s.verdict === 'likely') parts.push(`${s.placeLabel} was inside its swath.`)
+    else if (s.verdict === 'imaged' && pct !== undefined) parts.push(m.cloudCover(Math.round(pct)))
+    if (s.verdict === 'likely') parts.push(m.inSwath(s.placeLabel))
   }
-  parts.push('What watched you this week?')
-  return parts.join(' ')
+  parts.push(m.question)
+  return sentences(locale, ...parts)
 }
 
 /**
  * The card input for a stored share (the client builds the same from the live pass: see
- * src/ui/share/card.ts), so both sides print identical fields.
+ * src/ui/share/card.ts), so both sides print identical fields. Language-free: buildCardSpec takes the locale.
  */
 export function cardInputFromShare(s: ShareRecord, host: string, imageMiss?: CardInput['imageMiss']): CardInput {
   const p = s.pass

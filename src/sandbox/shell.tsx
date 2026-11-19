@@ -16,6 +16,7 @@
  *   scene=1          put the store on a replay clock 3 days back (the HUD shows the scene time)
  */
 import { Component, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { CATALOG_FAULT } from '@/app/messageRefs'
 import { loadCatalog } from '@/engine'
 import { latLonToWorld, subsolarPoint, sunDirectionWorld } from '@/lib/geo'
 import { useApp, type Phase } from '@/state/store'
@@ -69,7 +70,7 @@ export default function ShellSandbox() {
         await catalog
         if (alive) useApp.getState().setCatalogReady(true)
       } catch {
-        if (alive) useApp.getState().setPhase('error', 'Could not load the orbit catalog.')
+        if (alive) useApp.getState().setPhase('error', CATALOG_FAULT)
         return
       }
       await Promise.race([waitFor(() => useApp.getState().globeReady), sleep(12_000)])

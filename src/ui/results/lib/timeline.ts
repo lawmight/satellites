@@ -5,7 +5,7 @@
 import { sunElevationDeg } from '@/lib/geo'
 import type { Pass } from '@/types'
 import { VERDICTS, type Verdict } from './meta'
-import { partsAtOffset, windowOffset, type LocalParts } from './time'
+import { partsAtOffset, windowOffset, type DateFields, type LocalParts } from './time'
 
 export const SUN_SAMPLE_MS = 10 * 60_000
 
@@ -26,14 +26,17 @@ export function daylight(elevDeg: number): number {
   return t * t * (3 - 2 * t)
 }
 
+/**
+ * A local midnight. No words: the timeline writes its labels when it renders ("Sun 1 Nov", "Su 1": fmtLocalDay /
+ * fmtDayCompact with `p`), in the language showing then, since the day marks are cached with the place's model.
+ */
 export interface DayMark {
   /** Instant of local midnight */
   t: number
-  /** "Sun 1 Nov" */
-  label: string
-  /** Day-of-month, for compact labels */
+  /** Day-of-month, for the narrowest labels */
   day: number
-  weekday: string
+  /** The day's local fields (year, month, day, weekday), for its labels */
+  p: DateFields
 }
 
 /**
@@ -51,7 +54,7 @@ export function dayBoundaries(t0: number, t1: number, timeZone: string): DayMark
     const p = partsAtOffset(t, offset(t))
     const key = keyOf(p)
     if (key !== prev) {
-      out.push({ t, label: `${p.weekday} ${p.day} ${p.monthName}`, day: p.day, weekday: p.weekday })
+      out.push({ t, day: p.day, p })
       prev = key
     }
   }

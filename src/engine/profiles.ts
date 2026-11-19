@@ -9,18 +9,26 @@
  *  - `scan` is how a geostationary imager covers the disc: ABI and AHI step their east-west swaths from north to
  *    south, SEVIRI and FCI from south to north; a full disc takes about 10 minutes (SEVIRI 12.5). It times the scan
  *    line's crossing of a place within a frame, to about a minute.
- *  - Blurbs are one plain sentence (docs/DESIGN.md §7). No hype.
+ *  - Blurbs are one plain sentence (docs/DESIGN.md §7). No hype. They are copy, so they live in the 'sats' namespace
+ *    (src/i18n/en/sats.ts) and a profile names its own by key: this table is loaded by the orbit-catalog worker at
+ *    boot, which shows no words, and the pass view reads the blurb in the visitor's language (`profileBlurb`).
+ *  - Display names, operators and agencies are proper names: the same in every language (shares carry them).
  *
  * Resolution order: an exact NORAD id wins; otherwise the FIRST matching name pattern in table order.
  * Every catalog object that matches nothing is category 'other' (ambient only).
  */
 import type { SatProfile } from '@/types'
+import type enSats from '@/i18n/en/sats'
+
+/** A blurb's key in the 'sats' namespace. */
+export type SatBlurb = keyof (typeof enSats)['blurb']
 
 const MAXAR = 'Maxar Intelligence'
 const PLANET = 'Planet'
 const AIRBUS = 'Airbus'
 
-export const PROFILES: readonly SatProfile[] = [
+/** `blurb` is the key of the profile's sentence in the 'sats' namespace (src/i18n/en/sats.ts), never the sentence. */
+export const PROFILES: readonly (SatProfile & { blurb: SatBlurb })[] = [
   // ───────────────────────────── open optical: real pixels via STAC ─────────────────────────────
   {
     norad: [40697],
@@ -31,7 +39,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 10,
     daylightOnly: true,
     stac: { collection: 'sentinel-2-l2a', platform: 'sentinel-2a' },
-    blurb: 'Copernicus multispectral imager: 13 bands, 10 m pixels, a 290 km swath.',
+    blurb: 'sentinel2',
   },
   {
     norad: [42063],
@@ -42,7 +50,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 10,
     daylightOnly: true,
     stac: { collection: 'sentinel-2-l2a', platform: 'sentinel-2b' },
-    blurb: 'Copernicus multispectral imager: 13 bands, 10 m pixels, a 290 km swath.',
+    blurb: 'sentinel2',
   },
   {
     norad: [60989],
@@ -53,7 +61,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 10,
     daylightOnly: true,
     stac: { collection: 'sentinel-2-l2a', platform: 'sentinel-2c' },
-    blurb: 'Copernicus multispectral imager: 13 bands, 10 m pixels, a 290 km swath.',
+    blurb: 'sentinel2',
   },
   {
     norad: [39084],
@@ -64,7 +72,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 30,
     daylightOnly: true,
     stac: { collection: 'landsat-c2-l2', platform: 'landsat-8' },
-    blurb: 'Operational Land Imager: 30 m colour and 15 m panchromatic pixels across a 185 km swath.',
+    blurb: 'landsat8',
   },
   {
     norad: [49260],
@@ -75,7 +83,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 30,
     daylightOnly: true,
     stac: { collection: 'landsat-c2-l2', platform: 'landsat-9' },
-    blurb: 'Operational Land Imager 2: 30 m colour and 15 m panchromatic pixels across a 185 km swath.',
+    blurb: 'landsat9',
   },
 
   // ───────────────────────────── weather, polar orbit ─────────────────────────────
@@ -87,7 +95,7 @@ export const PROFILES: readonly SatProfile[] = [
     swathKm: 3040,
     resolutionM: 375,
     gibs: { collection: 'gibs-viirs-noaa20', layer: 'VIIRS_NOAA20_CorrectedReflectance_TrueColor', kind: 'daily' },
-    blurb: 'Its VIIRS imager sweeps a 3,040 km swath, covering the whole planet twice a day.',
+    blurb: 'noaaViirs',
   },
   {
     norad: [54234],
@@ -97,7 +105,7 @@ export const PROFILES: readonly SatProfile[] = [
     swathKm: 3040,
     resolutionM: 375,
     gibs: { collection: 'gibs-viirs-noaa21', layer: 'VIIRS_NOAA21_CorrectedReflectance_TrueColor', kind: 'daily' },
-    blurb: 'Its VIIRS imager sweeps a 3,040 km swath, covering the whole planet twice a day.',
+    blurb: 'noaaViirs',
   },
   {
     norad: [37849],
@@ -107,7 +115,7 @@ export const PROFILES: readonly SatProfile[] = [
     swathKm: 3040,
     resolutionM: 375,
     gibs: { collection: 'gibs-viirs-snpp', layer: 'VIIRS_SNPP_CorrectedReflectance_TrueColor', kind: 'daily' },
-    blurb: 'The first VIIRS imager in orbit, sweeping a 3,040 km swath since 2011.',
+    blurb: 'suomiNpp',
   },
   {
     norad: [25994],
@@ -117,7 +125,7 @@ export const PROFILES: readonly SatProfile[] = [
     swathKm: 2330,
     resolutionM: 250,
     gibs: { collection: 'gibs-modis-terra', layer: 'MODIS_Terra_CorrectedReflectance_TrueColor', kind: 'daily' },
-    blurb: 'Its MODIS imager has watched the whole planet, 2,330 km at a time, since 1999.',
+    blurb: 'terra',
   },
   {
     norad: [27424],
@@ -127,7 +135,7 @@ export const PROFILES: readonly SatProfile[] = [
     swathKm: 2330,
     resolutionM: 250,
     gibs: { collection: 'gibs-modis-aqua', layer: 'MODIS_Aqua_CorrectedReflectance_TrueColor', kind: 'daily' },
-    blurb: 'Its MODIS imager has watched the whole planet, 2,330 km at a time, since 2002.',
+    blurb: 'aqua',
   },
   {
     norad: [38771],
@@ -136,7 +144,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-leo',
     swathKm: 2900,
     resolutionM: 1100,
-    blurb: 'European polar weather satellite; its AVHRR imager covers a 2,900 km swath at 1.1 km.',
+    blurb: 'metop',
   },
   {
     norad: [43689],
@@ -145,7 +153,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-leo',
     swathKm: 2900,
     resolutionM: 1100,
-    blurb: 'European polar weather satellite; its AVHRR imager covers a 2,900 km swath at 1.1 km.',
+    blurb: 'metop',
   },
   {
     norad: [41335],
@@ -154,7 +162,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-leo',
     swathKm: 1270,
     resolutionM: 300,
-    blurb: 'Its OLCI instrument images land and ocean colour in 21 bands across a 1,270 km swath.',
+    blurb: 'sentinel3',
   },
   {
     norad: [43437],
@@ -163,7 +171,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-leo',
     swathKm: 1270,
     resolutionM: 300,
-    blurb: 'Its OLCI instrument images land and ocean colour in 21 bands across a 1,270 km swath.',
+    blurb: 'sentinel3',
   },
   {
     namePattern: '^FENGYUN 3[DFH]$',
@@ -171,14 +179,14 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-leo',
     swathKm: 2900,
     resolutionM: 250,
-    blurb: 'Chinese polar weather satellite; its MERSI imager covers a 2,900 km swath.',
+    blurb: 'fengyun3',
   },
   {
     namePattern: '^FENGYUN 3E$',
     operator: 'CMA',
     category: 'weather-leo',
     swathKm: 2900,
-    blurb: 'Chinese dawn–dusk orbit weather satellite with a low-light MERSI imager.',
+    blurb: 'fengyun3e',
   },
 
   // ───────────────────────────── weather, geostationary ─────────────────────────────
@@ -193,7 +201,7 @@ export const PROFILES: readonly SatProfile[] = [
     gibs: { collection: 'gibs-goes-east', layer: 'GOES-East_ABI_GeoColor', kind: 'subdaily' },
     frames: 'goes-east',
     scan: { from: 'north', minutes: 10 },
-    blurb: 'GOES-East: images the full disk of the Americas every 10 minutes.',
+    blurb: 'goesEast',
   },
   {
     norad: [51850],
@@ -206,7 +214,7 @@ export const PROFILES: readonly SatProfile[] = [
     gibs: { collection: 'gibs-goes-west', layer: 'GOES-West_ABI_GeoColor', kind: 'subdaily' },
     frames: 'goes-west',
     scan: { from: 'north', minutes: 10 },
-    blurb: 'GOES-West: images the full disk of the Pacific and the Americas every 10 minutes.',
+    blurb: 'goesWest',
   },
   {
     norad: [41866],
@@ -215,7 +223,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 10,
-    blurb: 'The former GOES-East, kept in orbit as a standby spare.',
+    blurb: 'goes16',
   },
   {
     norad: [43226],
@@ -224,7 +232,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 10,
-    blurb: 'The former GOES-West, kept in orbit as a standby spare.',
+    blurb: 'goes17',
   },
   {
     norad: [41836],
@@ -237,7 +245,7 @@ export const PROFILES: readonly SatProfile[] = [
     gibs: { collection: 'gibs-himawari', layer: 'Himawari_AHI_Band3_Red_Visible_1km', kind: 'subdaily' },
     frames: 'himawari',
     scan: { from: 'north', minutes: 10 },
-    blurb: 'Japan’s weather satellite: images the full disk of Asia and the Pacific every 10 minutes.',
+    blurb: 'himawari9',
   },
   {
     norad: [40267],
@@ -246,7 +254,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 10,
-    blurb: 'Backup to Himawari-9.',
+    blurb: 'himawari8',
   },
   {
     norad: [54743],
@@ -258,7 +266,7 @@ export const PROFILES: readonly SatProfile[] = [
     cadenceMin: 10,
     frames: 'meteosat-0deg',
     scan: { from: 'south', minutes: 10 },
-    blurb: 'The first third-generation Meteosat (MTG-I1): images Europe and Africa every 10 minutes.',
+    blurb: 'meteosat12',
   },
   {
     norad: [28912],
@@ -270,7 +278,7 @@ export const PROFILES: readonly SatProfile[] = [
     cadenceMin: 15,
     frames: 'meteosat-iodc',
     scan: { from: 'south', minutes: 12.5 },
-    blurb: 'Covers the Indian Ocean region, imaging the full disk every 15 minutes.',
+    blurb: 'meteosat9',
   },
   {
     norad: [38552],
@@ -279,7 +287,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 15,
-    blurb: 'Second-generation Meteosat; not counted here as a full-disk imager of this place.',
+    blurb: 'meteosatSecondGen',
   },
   {
     norad: [40732],
@@ -288,7 +296,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 15,
-    blurb: 'Second-generation Meteosat; not counted here as a full-disk imager of this place.',
+    blurb: 'meteosatSecondGen',
   },
   {
     norad: [100530],
@@ -297,7 +305,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 10,
-    blurb: 'Second third-generation Meteosat imager; not yet the operational service.',
+    blurb: 'mtgI2',
   },
   {
     norad: [43823],
@@ -307,7 +315,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 500,
     operational: true,
     cadenceMin: 10,
-    blurb: 'Korea’s weather satellite: images the full disk every 10 minutes.',
+    blurb: 'geoKompsat2a',
   },
   {
     norad: [48808],
@@ -317,7 +325,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 500,
     operational: true,
     cadenceMin: 15,
-    blurb: 'China’s operational geostationary weather satellite: images the full disk every 15 minutes.',
+    blurb: 'fengyun4b',
   },
   {
     norad: [41882],
@@ -326,7 +334,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 15,
-    blurb: 'Older Chinese geostationary imager, not counted as the primary service.',
+    blurb: 'fengyun4a',
   },
   {
     norad: [67246],
@@ -335,7 +343,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 15,
-    blurb: 'Newest Chinese geostationary imager; not yet the operational service.',
+    blurb: 'fengyun4c',
   },
   {
     norad: [41752],
@@ -345,7 +353,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1000,
     operational: true,
     cadenceMin: 30,
-    blurb: 'Indian weather satellite: images the full disk every 30 minutes.',
+    blurb: 'insat',
   },
   {
     norad: [58990],
@@ -355,7 +363,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1000,
     operational: true,
     cadenceMin: 30,
-    blurb: 'Indian weather satellite: images the full disk every 30 minutes.',
+    blurb: 'insat',
   },
   {
     norad: [39216],
@@ -364,7 +372,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 30,
-    blurb: 'Older Indian weather satellite, not counted as an operational imager.',
+    blurb: 'insat3d',
   },
   {
     norad: [44903],
@@ -374,7 +382,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1000,
     operational: true,
     cadenceMin: 30,
-    blurb: 'Russian geostationary weather satellite: images the full disk every 30 minutes.',
+    blurb: 'elektroL',
   },
   {
     norad: [55506],
@@ -384,7 +392,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1000,
     operational: true,
     cadenceMin: 30,
-    blurb: 'Russian geostationary weather satellite: images the full disk every 30 minutes.',
+    blurb: 'elektroL',
   },
   {
     norad: [41105],
@@ -393,7 +401,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 30,
-    blurb: 'Older Russian geostationary weather satellite, not counted as an operational imager.',
+    blurb: 'elektroL2',
   },
   {
     norad: [67756],
@@ -402,7 +410,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'weather-geo',
     operational: false,
     cadenceMin: 30,
-    blurb: 'Newest Russian geostationary weather satellite; not yet counted as operational.',
+    blurb: 'elektroL5',
   },
 
   // ───────────────────────────── commercial and government high-resolution optical ─────────────────────────────
@@ -414,7 +422,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 40,
     daylightOnly: true,
-    blurb: 'Panchromatic imager with 50 cm pixels that can point well off its ground track.',
+    blurb: 'worldview1',
   },
   {
     norad: [35946],
@@ -424,7 +432,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.46,
     maxOffNadirDeg: 40,
     daylightOnly: true,
-    blurb: 'Eight-band imager with 46 cm panchromatic pixels.',
+    blurb: 'worldview2',
   },
   {
     norad: [40115],
@@ -434,7 +442,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.31,
     maxOffNadirDeg: 40,
     daylightOnly: true,
-    blurb: 'Imager with 31 cm panchromatic pixels and 16 spectral bands.',
+    blurb: 'worldview3',
   },
   {
     norad: [33331],
@@ -444,7 +452,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.41,
     maxOffNadirDeg: 40,
     daylightOnly: true,
-    blurb: 'Imager with 41 cm panchromatic pixels, in orbit since 2008.',
+    blurb: 'geoeye1',
   },
   {
     norad: [59625, 59626, 60452, 60453, 62900, 62901],
@@ -454,7 +462,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.3,
     maxOffNadirDeg: 40,
     daylightOnly: true,
-    blurb: 'One of Maxar’s WorldView Legion imagers, with roughly 30 cm pixels.',
+    blurb: 'worldviewLegion',
   },
   {
     namePattern: '^SKYSAT-',
@@ -463,7 +471,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Agile Planet imager with roughly 50 cm pixels; it is tasked to point at specific targets.',
+    blurb: 'skysat',
   },
   {
     namePattern: '^PELICAN-',
@@ -472,7 +480,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 45,
     daylightOnly: true,
-    blurb: 'Planet’s newer agile high-resolution imager.',
+    blurb: 'pelican',
   },
   {
     namePattern: '^FLOCK ',
@@ -481,7 +489,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 3,
     swathKm: 32,
     daylightOnly: true,
-    blurb: 'A Planet SuperDove cubesat; the fleet images most of Earth’s land every day at about 3 m.',
+    blurb: 'superDove',
   },
   {
     namePattern: '^GLOBAL-\\d+$',
@@ -490,7 +498,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'A BlackSky rapid-revisit imager with roughly 1 m pixels or better.',
+    blurb: 'blacksky',
   },
   {
     norad: [38012],
@@ -500,7 +508,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Agile imager delivering 50 cm panchromatic products.',
+    blurb: 'pleiades',
   },
   {
     norad: [39019],
@@ -510,7 +518,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Agile imager delivering 50 cm panchromatic products.',
+    blurb: 'pleiades',
   },
   {
     norad: [48268, 49070],
@@ -520,7 +528,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.3,
     maxOffNadirDeg: 45,
     daylightOnly: true,
-    blurb: 'Agile imager with 30 cm native pixels.',
+    blurb: 'pleiadesNeo',
   },
   {
     norad: [38755],
@@ -530,7 +538,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Wide-area imager with 1.5 m panchromatic pixels and a 60 km swath.',
+    blurb: 'spot6',
   },
   {
     norad: [40053],
@@ -540,7 +548,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 1.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Twin of SPOT 6, operated by Azerbaijan as Azersky.',
+    blurb: 'spot7',
   },
   {
     norad: [38338],
@@ -550,7 +558,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.7,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Korean imager with 70 cm panchromatic pixels.',
+    blurb: 'kompsat3',
   },
   {
     norad: [40536],
@@ -560,7 +568,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.55,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Korean imager with 55 cm panchromatic pixels and an infrared channel.',
+    blurb: 'kompsat3a',
   },
   {
     namePattern: '^JILIN',
@@ -569,7 +577,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.75,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Part of China’s Jilin-1 commercial constellation, with sub-metre imagers.',
+    blurb: 'jilin1',
   },
   {
     namePattern: '^SUPERVIEW(-1 |\\sNEO-1 |\\sNEO-3 )',
@@ -578,7 +586,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.5,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Chinese commercial imager with roughly 50 cm pixels or better.',
+    blurb: 'superview',
   },
   {
     namePattern: '^GAOFEN-1( 0[2-4])?$',
@@ -587,7 +595,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 2,
     swathKm: 60,
     daylightOnly: true,
-    blurb: 'Chinese government imager with 2 m panchromatic and 16 m wide-field cameras.',
+    blurb: 'gaofenWideField',
   },
   {
     namePattern: '^GAOFEN-6$',
@@ -596,7 +604,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 2,
     swathKm: 90,
     daylightOnly: true,
-    blurb: 'Chinese government imager with 2 m panchromatic and 16 m wide-field cameras.',
+    blurb: 'gaofenWideField',
   },
   {
     namePattern: '^GAOFEN-2$',
@@ -605,7 +613,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.8,
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Chinese government imager with 80 cm panchromatic pixels.',
+    blurb: 'gaofen2',
   },
   {
     namePattern: '^GAOFEN-7$',
@@ -614,7 +622,7 @@ export const PROFILES: readonly SatProfile[] = [
     resolutionM: 0.65,
     swathKm: 20,
     daylightOnly: true,
-    blurb: 'Chinese government stereo-mapping imager with sub-metre pixels.',
+    blurb: 'gaofen7',
   },
   {
     namePattern: '^GAOFEN-(9|11|14) 0\\d$',
@@ -622,7 +630,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'commercial-optical',
     maxOffNadirDeg: 30,
     daylightOnly: true,
-    blurb: 'Chinese government high-resolution optical satellite; its specifications are not published.',
+    blurb: 'gaofenOptical',
   },
 
   // ───────────────────────────── radar (SAR): sees through cloud and at night ─────────────────────────────
@@ -635,7 +643,7 @@ export const PROFILES: readonly SatProfile[] = [
     // Its IW images as published (GRD: 20 × 22 m); the 5 m is single-look range only, never shown here.
     resolutionM: 20,
     maxOffNadirDeg: 40,
-    blurb: 'Copernicus C-band radar that publishes every image: a 250 km swath to one side at 20 m, through cloud, day or night.',
+    blurb: 'sentinel1',
     openArchive: true,
   },
   {
@@ -644,7 +652,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 0.5,
     maxOffNadirDeg: 35,
-    blurb: 'Small X-band radar satellite that can be tasked to image through cloud, day or night.',
+    blurb: 'iceye',
   },
   {
     namePattern: '^CAPELLA-',
@@ -652,7 +660,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 0.5,
     maxOffNadirDeg: 45,
-    blurb: 'X-band radar satellite with roughly 50 cm spotlight imagery, day or night.',
+    blurb: 'capella',
   },
   {
     namePattern: '^UMBRA-',
@@ -660,7 +668,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 0.25,
     maxOffNadirDeg: 45,
-    blurb: 'X-band radar satellite with spotlight imagery down to about 25 cm.',
+    blurb: 'umbra',
   },
   {
     namePattern: '^STRIX-',
@@ -668,7 +676,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'Japanese small X-band radar satellite.',
+    blurb: 'japaneseSmallRadar',
   },
   {
     namePattern: '^QPS-SAR-',
@@ -676,7 +684,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 0.5,
     maxOffNadirDeg: 40,
-    blurb: 'Japanese small X-band radar satellite.',
+    blurb: 'japaneseSmallRadar',
   },
   {
     norad: [39227],
@@ -685,7 +693,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'Korean X-band radar satellite with 1 m spotlight imagery.',
+    blurb: 'kompsat5',
   },
   {
     norad: [31698],
@@ -694,7 +702,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'German X-band radar satellite, imaging since 2007.',
+    blurb: 'terrasarX',
   },
   {
     norad: [36605],
@@ -703,7 +711,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'Flies in close formation with TerraSAR-X to map Earth’s topography by radar.',
+    blurb: 'tandemX',
   },
   {
     namePattern: '^(COSMO-SKYMED|CSG-)\\s?\\d$',
@@ -711,7 +719,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'Italian X-band radar satellite of the COSMO-SkyMed system.',
+    blurb: 'cosmoSkymed',
   },
   {
     norad: [43215],
@@ -720,7 +728,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 40,
-    blurb: 'Spanish X-band radar satellite.',
+    blurb: 'paz',
   },
   {
     norad: [32382],
@@ -729,7 +737,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 45,
-    blurb: 'Canadian C-band radar satellite, imaging since 2007.',
+    blurb: 'radarsat2',
   },
   {
     namePattern: '^RCM-\\d$',
@@ -737,7 +745,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 3,
     maxOffNadirDeg: 40,
-    blurb: 'One of three satellites of the Canadian RADARSAT Constellation Mission.',
+    blurb: 'rcm',
   },
   {
     norad: [43641, 46265],
@@ -746,7 +754,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 10,
     maxOffNadirDeg: 40,
-    blurb: 'Argentine L-band radar satellite that also measures soil moisture.',
+    blurb: 'saocom',
   },
   {
     norad: [39766],
@@ -755,7 +763,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 3,
     maxOffNadirDeg: 40,
-    blurb: 'Japanese L-band radar satellite, imaging since 2014.',
+    blurb: 'alos2',
   },
   {
     norad: [60182],
@@ -764,7 +772,7 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 3,
     maxOffNadirDeg: 40,
-    blurb: 'Japanese L-band radar satellite, successor to ALOS-2.',
+    blurb: 'alos4',
   },
   {
     norad: [65053],
@@ -773,14 +781,14 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     swathKm: 242,
     maxOffNadirDeg: 40,
-    blurb: 'Dual-band radar that maps a 242 km swath to measure how the ground moves.',
+    blurb: 'nisar',
   },
   {
     namePattern: '^SUPERVIEW NEO-2 ',
     operator: 'Siwei',
     category: 'radar',
     maxOffNadirDeg: 40,
-    blurb: 'Chinese commercial X-band radar satellite.',
+    blurb: 'superviewNeo2',
   },
   {
     namePattern: '^GAOFEN-3( 0[23])?$',
@@ -788,14 +796,14 @@ export const PROFILES: readonly SatProfile[] = [
     category: 'radar',
     resolutionM: 1,
     maxOffNadirDeg: 45,
-    blurb: 'Chinese government C-band radar satellite.',
+    blurb: 'gaofen3',
   },
   {
     namePattern: '^GAOFEN-12 0\\d$',
     operator: 'CNSA',
     category: 'radar',
     maxOffNadirDeg: 40,
-    blurb: 'Chinese government radar satellite; its specifications are not published.',
+    blurb: 'gaofen12',
   },
 
   // ───────────────────────────── crewed ─────────────────────────────
@@ -804,14 +812,14 @@ export const PROFILES: readonly SatProfile[] = [
     displayName: 'ISS',
     operator: 'NASA / Roscosmos / ESA / JAXA / CSA',
     category: 'crewed',
-    blurb: 'The International Space Station, continuously crewed since November 2000.',
+    blurb: 'iss',
   },
   {
     norad: [48274],
     displayName: 'Tiangong',
     operator: 'CMSA',
     category: 'crewed',
-    blurb: 'China’s space station, built around the Tianhe core module launched in 2021.',
+    blurb: 'tiangong',
   },
 ]
 
@@ -844,6 +852,15 @@ export function noradForPlatform(platform: string): number | undefined {
 export function noradForGibsCollection(collection: string): number | undefined {
   for (const p of PROFILES) if (p.gibs && p.gibs.collection === collection && p.norad?.length === 1) return p.norad[0]
   return undefined
+}
+
+/**
+ * A profile's blurb in `m`, the 'sats' messages of the language on screen (React: useMsgs(enSats); elsewhere
+ * msgs(enSats), read at call time). '' when there is none (an unprofiled object, a test profile).
+ */
+export function profileBlurb(profile: Pick<SatProfile, 'blurb'> | undefined, m: typeof enSats): string {
+  const key = profile?.blurb
+  return key && Object.prototype.hasOwnProperty.call(m.blurb, key) ? m.blurb[key as SatBlurb] : ''
 }
 
 // ───────────────────────────── display names ─────────────────────────────

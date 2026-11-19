@@ -15,25 +15,38 @@
  *
  * Only the leaves that show time re-render, and only when their text changes (UtcClock and GmstLine
  * every second, SunValue every ~24 s, CatalogAge every minute); the shell renders when the phase, the
- * catalog or the clock mode changes.
+ * catalog or the clock mode changes (and the language: copy is the 'hud' namespace, src/i18n/en/hud.ts).
  */
 import { memo, useLayoutEffect, useRef, type RefObject } from 'react'
+import enHud from '@/i18n/en/hud'
+import { Rich } from '@/i18n/Rich'
+import { currentLocale, useLocale, useMsgs } from '@/i18n/runtime'
 import { timeZoneAt, tzReady } from '@/imagery'
 import { subsolarPoint } from '@/lib/geo'
 import { sceneClock, useSceneFrame } from '@/state/sceneClock'
 import { useApp } from '@/state/store'
-import { Bezel, CornerReadout, Kbd, Reveal, ScrambleOnce, cx, fmtUtc, useWallSecondSync, Wordmark } from '@/ui/system'
+import { Bezel, CornerReadout, Kbd, Reveal, ScrambleOnce, cx, fmtUtcDate, fmtUtcTime, useWallSecondSync, Wordmark } from '@/ui/system'
 // The pure time module, never the lazy '@/ui/results' index (that would pull the results chunk in).
 import { fmtLocalDay, fmtLocalTime, zoneAbbr } from '@/ui/results/lib/time'
 import { useCatalogStatus } from './catalogStatus'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import { useSecondClock, useSecondDerived } from './clock'
-import { fmtAge, fmtGmst, fmtObjects, fmtSource, fmtStampZ, fmtSun, isStale } from './readouts'
+import { fmtCatalogAge, fmtGmst, fmtObjects, fmtSource, fmtStampZ, fmtSun, isStale } from './readouts'
 import s from './Hud.module.css'
 
 export const VERSION = 'v0.1'
 
+/** The brand: the top-left group's name, never translated (docs/I18N.md). */
+const BRAND = 'Watched'
+
 /** Space kept between the top readouts and what the camera frames below them. */
 const TOP_GAP = 8
+
+/**
+ * Least clear space between "How this works · language" and the sun line beside it on a phone. Less, and the sun line
+ * steps aside (useCrowdedSun): at 320 px they overlapped in English, at 360 px German and Polish left 6 px, Turkish 13.
+ */
+const MIN_ROW_GAP = 14
 
 /**
  * After boot, the lines start wiping in this long after the loading screen starts to leave (src/app/bootCurtain.ts:
@@ -53,6 +66,8 @@ const AFTER_BOOT = 300
  * does, and React never re-renders it for time (no 10 Hz store renders).
  */
 function SceneTime() {
+  // Re-renders on a language switch: the layout effect below rewrites the day in the new language.
+  const m = useMsgs(enHud)
   const dayRef = useRef<HTMLSpanElement>(null)
   const timeRef = useRef<HTMLSpanElement>(null)
   const last = useRef({ sec: NaN, key: '', tz: 'UTC', day: '', time: '' })
@@ -62,7 +77,8 @@ function SceneTime() {
     const L = last.current
     const place = st.place
     const ready = tzReady()
-    const key = place ? `${place.lat},${place.lon},${ready ? 1 : 0}` : ''
+    // The language is part of the key: the day's words change with it.
+    const key = `${place ? `${place.lat},${place.lon},${ready ? 1 : 0}` : ''}|${currentLocale()}`
     const sec = Math.floor(ms / 1000)
     if (sec === L.sec && key === L.key) return
     if (key !== L.key) {
@@ -81,7 +97,7 @@ function SceneTime() {
   useSceneFrame(write)
   return (
     <span className={cx(s.line, s.dim)}>
-      Scene
+      {m.scene}
       <span className={s.sceneValue}>
         <span ref={dayRef} className={s.desk} />
         <span ref={timeRef} />
@@ -93,11 +109,10 @@ function SceneTime() {
 /** "2026-11-08 03:31:07 UTC" (the date is dropped on phones). */
 function UtcClock() {
   const now = useSecondClock()
-  const [date, time] = fmtUtc(now).split(' ')
   return (
     <time dateTime={new Date(now).toISOString()} className={s.clock}>
-      <span className={cx(s.dim, s.desk)}>{date} </span>
-      {time} UTC
+      <span className={cx(s.dim, s.desk)}>{fmtUtcDate(now)} </span>
+      {fmtUtcTime(now)} UTC
     </time>
   )
 }
@@ -106,25 +121,27 @@ const sunText = (now: number) => fmtSun(subsolarPoint(now))
 
 /** "SUN 16.6°S 007.1°E" (re-renders when the text changes, ~every 24 s); scrambles once when `scramble` is set. */
 function SunValue({ scramble }: { scramble?: boolean }) {
+  useLocale() // the word before the coordinates follows the language
   const sun = useSecondDerived(sunText)
   return scramble ? <ScrambleOnce text={sun} delay={120} className={s.value} /> : <>{sun}</>
 }
 
 function GmstLine() {
+  const m = useMsgs(enHud)
   const now = useSecondClock()
-  return <>GMST {fmtGmst(now)}</>
+  return <>{m.gmst(fmtGmst(now))}</>
 }
 
 /** "Fetched 2026-11-08 03:34Z · 4 h ago" (warn-coloured once the catalog is stale; re-renders when the age text changes). */
 function CatalogAge({ fetchedAt }: { fetchedAt: string }) {
-  const key = useSecondDerived((now) => `${isStale(fetchedAt, now) ? 1 : 0}${fmtAge(Date.parse(fetchedAt), now)}`)
-  const stale = key[0] === '1'
+  const m = useMsgs(enHud) // also re-renders on a language switch, which re-reads the age below in the new language
+  const stale = useSecondDerived((now) => isStale(fetchedAt, now))
+  const age = useSecondDerived((now) => fmtCatalogAge(Date.parse(fetchedAt), now, isStale(fetchedAt, now)))
   return (
     <span className={stale ? s.warn : undefined}>
-      Fetched {fmtStampZ(fetchedAt)}
+      {m.fetched(fmtStampZ(fetchedAt))}
       <span className={s.sep}>·</span>
-      {stale ? 'Stale, ' : ''}
-      {key.slice(1)} ago
+      {age}
     </span>
   )
 }
@@ -136,6 +153,7 @@ function CatalogAge({ fetchedAt }: { fetchedAt: string }) {
 export const Hud = memo(HudImpl, (a, b) => !!a.onAbout === !!b.onAbout && !!a.onHome === !!b.onHome)
 
 function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => void }) {
+  const m = useMsgs(enHud)
   const aboutRef = useRef(onAbout)
   aboutRef.current = onAbout
   const homeRef = useRef(onHome)
@@ -150,6 +168,7 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
   const topLeft = useRef<HTMLDivElement>(null)
   const topRight = useRef<HTMLDivElement>(null)
   useTopInset(topLeft, topRight)
+  useCrowdedSun(topLeft, topRight)
   // The stacked sun line gives way to the scene time during a replay and comes back after it: its
   // wipe plays with the HUD's first entrance only, never again on its return (one entrance per element).
   // Set during the render that unmounts it, so its `skip` never changes while it is mounted.
@@ -165,7 +184,7 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
     <div ref={rootRef} className={s.hud} data-scene={scene}>
       <Bezel />
 
-      <CornerReadout corner="tl" label="Watched" ref={topLeft}>
+      <CornerReadout corner="tl" label={BRAND} ref={topLeft}>
         <div className={s.line}>
           <span className={s.mark} data-hud-wordmark>
             {onHome ? (
@@ -173,7 +192,7 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
               <a
                 href="/"
                 className={s.home}
-                aria-label="Watched, home"
+                aria-label={m.home}
                 onClick={(e) => {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
                   e.preventDefault()
@@ -187,30 +206,31 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
             )}
           </span>
         </div>
-        {onAbout ? (
-          <Reveal key={`${k}-about`} skip={booting} axis="x" duration={480} delay={at(520)} as="div" className={s.line}>
+        <Reveal key={`${k}-about`} skip={booting} axis="x" duration={480} delay={at(520)} as="div" className={cx(s.line, s.aboutLine)}>
+          {onAbout ? (
             <button type="button" className={s.about} onClick={() => aboutRef.current?.()} aria-keyshortcuts="?">
-              <span className={s.aboutText}>How this works</span>
+              <span className={s.aboutText}>{m.about}</span>
               <Kbd className={s.desk}>?</Kbd>
             </button>
-          </Reveal>
-        ) : null}
+          ) : null}
+          <LanguageSwitcher />
+        </Reveal>
       </CornerReadout>
 
-      <CornerReadout corner="tr" label="Time" ref={topRight}>
+      <CornerReadout corner="tr" label={m.regionTime} ref={topRight}>
         <Reveal key={`${k}-clock`} skip={booting} axis="x" duration={480} delay={at(0)} as="div" className={s.line}>
           <UtcClock />
         </Reveal>
         {live ? null : <SceneTime />}
         {/* stacked: the sun joins the clock (bottom corners are hidden); a replay's scene time takes its place */}
         {live ? (
-          <Reveal key={`${k}-sun`} skip={booting || sunReturns.current} axis="x" duration={480} delay={at(60)} as="div" className={cx(s.line, s.mob)}>
+          <Reveal key={`${k}-sun`} skip={booting || sunReturns.current} axis="x" duration={480} delay={at(60)} as="div" className={cx(s.line, s.mob, s.sunLine)}>
             <SunValue />
           </Reveal>
         ) : null}
       </CornerReadout>
 
-      <CornerReadout corner="bl" label="Orbit catalog" className={s.wideOnly}>
+      <CornerReadout corner="bl" label={m.regionCatalog} className={s.wideOnly}>
         <Reveal key={`${k}-objects`} skip={booting} axis="x" duration={480} delay={at(120)} as="div" className={s.line}>
           {catalog.state === 'ready' ? (
             <>
@@ -219,35 +239,88 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
               {fmtSource(catalog.source)}
             </>
           ) : (
-            <>
-              <span className={s.value}>—</span> Objects
-            </>
+            // One span, so the space beside the placeholder stays (a bare text node at the inline-flex line's edge
+            // dropped it: "—OBJECTS"); each language puts the placeholder where its count goes ("物体数 —").
+            <span>
+              <Rich parts={m.objectsPending('—')} classes={{ num: s.value }} />
+            </span>
           )}
         </Reveal>
         <Reveal key={`${k}-age`} skip={booting} axis="x" duration={480} delay={at(180)} as="div" className={cx(s.line, s.dim)}>
           {catalog.state === 'ready' ? (
             <CatalogAge fetchedAt={catalog.fetchedAt} />
           ) : catalog.state === 'error' ? (
-            <span className={s.warn}>Catalog unavailable</span>
+            <span className={s.warn}>{m.catalogUnavailable}</span>
           ) : (
             <span className={s.pending} data-blink>
-              Loading catalog
+              {m.catalogLoading}
             </span>
           )}
         </Reveal>
       </CornerReadout>
 
-      <CornerReadout corner="br" label="Sun" className={s.wideOnly}>
+      <CornerReadout corner="br" label={m.regionSun} className={s.wideOnly}>
         <Reveal key={`${k}-subsolar`} skip={booting} axis="x" duration={480} delay={at(200)} as="div" className={s.line}>
           <SunValue scramble={!booting} />
         </Reveal>
         <Reveal key={`${k}-gmst`} skip={booting} axis="x" duration={480} delay={at(260)} as="div" className={cx(s.line, s.dim)}>
-          Sub-solar point<span className={s.sep}>·</span>
+          {m.subsolar}
+          <span className={s.sep}>·</span>
           <GmstLine />
         </Reveal>
       </CornerReadout>
     </div>
   )
+}
+
+/**
+ * On a phone the sun joins the top right, on the same line as "How this works" and the language on the left. Where the
+ * two would come closer than MIN_ROW_GAP (narrow phones, longer languages) the sun line is hidden, never the About
+ * link or the language switcher (the sun's readout is the extra one; wide screens show it in its own corner). It is
+ * hidden, not removed: it keeps its box, so it is still measured as the screen or the words change, and nothing in
+ * the corner moves (the top left's two lines set the top inset either way). Written to the DOM, not React state: the
+ * line remounts after a replay and on boot, which the observers below see.
+ */
+function useCrowdedSun(topLeft: RefObject<HTMLDivElement | null>, topRight: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const tl = topLeft.current
+    const tr = topRight.current
+    if (!tl || !tr || typeof ResizeObserver === 'undefined') return
+    const watched = new WeakSet<Element>()
+    const watch = (el: Element) => {
+      if (watched.has(el)) return
+      watched.add(el)
+      ro.observe(el)
+    }
+    const check = () => {
+      const about = tl.querySelector<HTMLElement>(`.${s.aboutLine}`)
+      const sun = tr.querySelector<HTMLElement>(`.${s.sunLine}`)
+      if (!about || !sun) return
+      watch(about)
+      watch(sun)
+      const a = about.getBoundingClientRect()
+      const b = sun.getBoundingClientRect()
+      if (!a.width || !b.width) return // the sun line is not shown here (wide screens, a replay)
+      // Right to left the corners swap: the language line is at the right, the sun at the left.
+      const rtl = getComputedStyle(tr).direction === 'rtl'
+      const gap = rtl ? a.left - b.right : b.left - a.right
+      sun.toggleAttribute('data-crowded', gap < MIN_ROW_GAP)
+    }
+    const ro = new ResizeObserver(check)
+    ro.observe(tl)
+    ro.observe(tr)
+    // A remounted line (the boot entrance, the sun's return after a replay) is a new element.
+    const mo = new MutationObserver(check)
+    mo.observe(tr, { childList: true })
+    mo.observe(tl, { childList: true })
+    window.addEventListener('resize', check)
+    check()
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+      window.removeEventListener('resize', check)
+    }
+  }, [topLeft, topRight])
 }
 
 /** Publish store.uiInsets.top = the lower of the two top readouts' bottoms + TOP_GAP. */

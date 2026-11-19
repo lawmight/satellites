@@ -53,10 +53,50 @@ export interface RenderOptions {
   fonts: SatoriFont[]
 }
 
-export async function renderCardPng(element: ReactElement, { width, height, fonts }: RenderOptions): Promise<Uint8Array> {
+/**
+ * satori's SVG of a card. A card its own fonts draw whole is laid out once. A card with characters they lack (a place
+ * in Japanese or Arabic, an emoji) is laid out twice: the first pass only learns what is missing, by satori's own
+ * script detection (per text node, under the card's `lang`), and the card is then drawn from a font list of its own,
+ * its fonts plus the Noto subsets fetched for those characters (fallbackFonts.ts), with any emoji as pictures.
+ *
+ * Why not hand satori the subsets while it lays the card out (`loadAdditionalAsset` answering with fonts): it adds them
+ * to the font loader it keeps for the card's font list, for the life of the instance, and every card shares one of two
+ * lists (fonts.ts). Each Chinese, Japanese or Korean card left its subsets there for good, each with a HarfBuzz copy in
+ * WebAssembly memory once used; every later card's lookups walked them all, and an English card's Han took the forms
+ * of whichever language's card came first. A list of a card's own is let go (satori keeps the loaders of its last 8
+ * lists, and the subsets' cache is bounded: fallbackFonts.ts), and a card looks the same whatever was drawn before it.
+ * Measured on 1,500 cards that each lacked three new Han characters (stand-in subsets, smaller than Google's): with one
+ * shared list the heap grew 50 MB and the layouts slowed from 3 to 6 ms a card; with a list per card it stays near
+ * 25 MB and 2 ms. The first pass costs ~15–20 ms beside resvg's ~300 ms.
+ */
+export async function cardSvg(element: ReactElement, { width, height, fonts }: RenderOptions): Promise<string> {
   await init()
-  const svg = await satori(element, { width, height, fonts, loadAdditionalAsset: loadFallbackAsset })
-  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: width } })
+  const missing: { code: string; text: string }[] = []
+  const first = await satori(element, {
+    width,
+    height,
+    fonts,
+    loadAdditionalAsset: async (code, text) => {
+      missing.push({ code, text })
+      return [] // nothing is added to the shared list's loader
+    },
+  })
+  if (!missing.length) return first
+  const own: SatoriFont[] = []
+  const graphemeImages: Record<string, string> = {}
+  const assets = await Promise.all(missing.map(({ code, text }) => loadFallbackAsset(code, text)))
+  for (const [i, asset] of assets.entries()) {
+    if (typeof asset === 'string') graphemeImages[missing[i].text] = asset
+    else own.push(...asset)
+  }
+  if (!own.length && !Object.keys(graphemeImages).length) return first // nothing could be loaded: the boxes stay
+  // No loadAdditionalAsset: whatever is still missing (a subset that failed) is drawn as a box, never added to a list.
+  return satori(element, { width, height, fonts: [...fonts, ...own], graphemeImages })
+}
+
+export async function renderCardPng(element: ReactElement, options: RenderOptions): Promise<Uint8Array> {
+  const svg = await cardSvg(element, options)
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: options.width } })
   const image = resvg.render()
   try {
     return image.asPng()

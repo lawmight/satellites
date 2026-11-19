@@ -1,7 +1,14 @@
 /**
  * The share page served at /s/:id: just enough HTML for link unfurlers (Open Graph + Twitter
  * card), then an immediate hand-off to the app at /?s=<id> for people.
+ *
+ * The page is in the card's language (`locale`, from the link's `l=`): <html lang dir> say it, so an unfurler and a
+ * screen reader read the title in the right language, and the one visible line ("Opening Watched") comes from the
+ * card catalog. English pages are byte for byte what they always were.
  */
+import { cardMessages } from './i18n/card/index.js'
+import { DEFAULT_LOCALE, LOCALE_INFO, type Locale } from './i18n/locales.js'
+import { isAccent, plain } from './i18n/parts.js'
 
 /** Escape for HTML text and double-quoted attribute values. */
 export function esc(s: string): string {
@@ -30,6 +37,8 @@ export interface SharePageMeta {
   imageType?: 'image/jpeg' | 'image/png'
   /** Where people are sent (same-origin path, e.g. "/?s=ab3d5f7h") */
   redirect: string
+  /** The page's language (default English) */
+  locale?: Locale
 }
 
 /** The card's media type from its URL: the static default card is a PNG, /api/og answers JPEG. */
@@ -42,8 +51,14 @@ export function sharePageHtml(m: SharePageMeta): string {
   const t = esc(m.title)
   const d = esc(m.description)
   const href = esc(m.redirect)
+  const locale = m.locale ?? DEFAULT_LOCALE
+  const dir = LOCALE_INFO[locale].dir === 'rtl' ? ' dir="rtl"' : ''
+  // The hand-off line: the accent is the link to the app (the brand, never translated), the rest plain text.
+  const opening = cardMessages(locale)
+    .page.opening.map((p) => (isAccent(p) ? `<a href="${href}">${esc(plain(p.accent))}</a>` : esc(plain([p]))))
+    .join('')
   return `<!doctype html>
-<html lang="en">
+<html lang="${locale}"${dir}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -76,7 +91,7 @@ a{color:#FF6A1A;text-decoration:none}
 </style>
 </head>
 <body>
-<p>Opening <a href="${href}">Watched</a></p>
+<p>${opening}</p>
 <script>try{sessionStorage.setItem('watched.via',JSON.stringify({r:document.referrer,q:location.search}))}catch(e){}location.replace(${jsonForScript(m.redirect)})</script>
 </body>
 </html>

@@ -28,6 +28,12 @@ const PLACES: [string, string, string, number][] = [
   ['Reykjavík, Iceland', 'is', '64.1,-21.9', 9],
 ]
 
+/** Each language's share of the tabs that named one (0027): every one of the 16 has a few. */
+const LANGS: [string, number][] = [
+  ['en', 0.58], ['es', 0.085], ['de', 0.062], ['fr', 0.053], ['pt-BR', 0.046], ['ja', 0.038], ['it', 0.025], ['nl', 0.02],
+  ['pl', 0.017], ['tr', 0.015], ['ko', 0.013], ['zh-Hans', 0.012], ['id', 0.01], ['uk', 0.008], ['ar', 0.007], ['zh-Hant', 0.005],
+]
+
 /** What admin_live would say a few minutes after `stats` were computed. */
 export function mockLive(stats: AdminStats, now = Date.now()): LiveCounts | null {
   if (stats.cachedAt == null) return null
@@ -112,6 +118,8 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
       'session.country': [['ca', k(150)], ['us', k(131)], ['gb', k(66)], ['de', k(31)], ['in', k(28)], ['jp', k(19)], ['au', k(15)], ['fr', k(12)]],
       'session.ref': [['t.co', k(140)], ['news.ycombinator.com', k(88)], ['reddit.com', k(41)], ['linkedin.com', k(17)], ['google.com', k(12)], ['bsky.app', k(9)]],
       'session.utm': [['newsletter / email / launch', k(21)], ['x / social', k(8)]],
+      // Most tabs, not all: those from before the app sent its language have none.
+      'session.lang': LANGS.map(([l, f]) => [l, Math.max(1, Math.round(sessions * 0.92 * f))] as [string, number]),
       'pass_open.sat': [['Sentinel-2C', k(120)], ['Landsat 9', k(77)], ['Sentinel-2B', k(70)], ['NOAA-20', k(52)], ['ISS (ZARYA)', k(44)], ['WorldView Legion 4', k(31)], ['Terra', k(22)], ['Sentinel-1C', k(18)]],
       'pass_open.verdict': [['imaged', k(288)], ['likely', k(96)], ['could', k(71)], ['overhead', k(48)]],
       'share_action.sat': [['Sentinel-2C', k(14)], ['Landsat 9', k(9)], ['ISS (ZARYA)', k(5)], ['NOAA-20', k(3)]],
@@ -134,5 +142,7 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
     ],
   }
   for (const [k, rows] of Object.entries(out.top)) out.dimTotals[k] = Math.round(rows.reduce((a, r) => a + r[1], 0) * 1.08)
+  // All 16 languages are listed, so nothing of theirs is cut.
+  out.dimTotals['session.lang'] = out.top['session.lang'].reduce((a, r) => a + r[1], 0)
   return out
 }

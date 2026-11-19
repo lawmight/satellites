@@ -18,9 +18,14 @@
  * cut row. `onBeforeFocus` lets the landing move the field before a touch focuses it (see
  * Landing.tsx: iOS pans to the focused field, so it must already be where it will stay);
  * `onListChange` lets it make room for the list (wide layouts lift the field when it opens).
+ *
+ * Copy: the 'landing' namespace (src/i18n/en/landing.ts). Suggestions are data (geocoder and offline-list names) and
+ * show as they come.
  */
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
-import { isAbortError, searchPlaces } from '@/imagery'
+import enLanding from '@/i18n/en/landing'
+import { useMsgs } from '@/i18n/runtime'
+import { displayLabel, displaySublabel, isAbortError, searchPlaces } from '@/imagery'
 import type { Place } from '@/types'
 import { Field, Glyph, Kbd, cx, fmtLat, fmtLon, useIsMobile } from '@/ui/system'
 import { canSubmitQuery, clampActive, enterTarget, isTypingTarget, stepActive } from './listNav'
@@ -43,10 +48,10 @@ export function SearchBox({
   onListChange,
   onQueryChange,
   liftedBy,
-  placeholder = 'Search a place',
+  placeholder,
 }: {
   onSubmit: (place: Place) => void
-  /** The empty field's prompt ("Search another place" from results) */
+  /** The empty field's prompt ("Search another place" from results); the landing's own by default */
   placeholder?: string
   onFocusChange?: (focused: boolean) => void
   disabled?: boolean
@@ -72,6 +77,7 @@ export function SearchBox({
    */
   liftedBy?: () => number
 }) {
+  const m = useMsgs(enLanding)
   const mobile = useIsMobile()
   const inputRef = useRef<HTMLInputElement>(null)
   const listId = useId()
@@ -156,7 +162,7 @@ export function SearchBox({
   const choose = (place: Place) => {
     ctrl.current?.abort()
     window.clearTimeout(timer.current)
-    setQuery(place.label)
+    setQuery(displayLabel(place))
     setOpen(false)
     setActive(-1)
     // Submit first, then let go of the field: the caller knows it is leaving when the blur arrives,
@@ -212,19 +218,17 @@ export function SearchBox({
   }
 
   const statusText =
-    status === 'searching' ? (
-      'Searching'
-    ) : status === 'error' && fresh ? (
-      'Search unavailable'
-    ) : fresh ? (
-      places.length ? (
-        `${places.length} ${places.length === 1 ? 'match' : 'matches'}`
-      ) : (
-        'No match'
-      )
-    ) : focused && !query ? (
-      'Name, address or lat, lon'
-    ) : undefined
+    status === 'searching'
+      ? m.searching
+      : status === 'error' && fresh
+        ? m.searchUnavailable
+        : fresh
+          ? places.length
+            ? m.matches(places.length)
+            : m.noMatch
+          : focused && !query
+            ? m.searchHint
+            : undefined
 
   // A touch tap on a suggestion is chosen when the finger lifts, not on its click: iOS Safari moves focus off the
   // field first (pointerdown's preventDefault doesn't stop that on touch), the blur closes the list, and the click
@@ -353,7 +357,7 @@ export function SearchBox({
             <span aria-hidden>
               <span className={s.idx}>01</span> /{' '}
             </span>
-            Place
+            {m.placeLabel}
           </>
         }
         status={statusOverride ?? statusText}
@@ -369,7 +373,7 @@ export function SearchBox({
               <button
                 type="button"
                 className={s.clear}
-                aria-label="Clear search"
+                aria-label={m.clearSearch}
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={() => {
                   ctrl.current?.abort()
@@ -386,7 +390,7 @@ export function SearchBox({
               <button
                 type="button"
                 className={s.go}
-                aria-label="Show what passed over this place"
+                aria-label={m.go}
                 onPointerDown={(e) => e.preventDefault()}
                 onClick={submit}
                 disabled={disabled}
@@ -398,7 +402,7 @@ export function SearchBox({
             ) : null}
           </>
         }
-        placeholder={placeholder}
+        placeholder={placeholder ?? m.searchPlaceholder}
         value={query}
         disabled={disabled}
         autoFocus={autoFocus}
@@ -449,12 +453,12 @@ export function SearchBox({
       <div ref={listRef} className={cx(s.list, showList && s.listOpen)} onScroll={markOverflow} data-suggestions>
         {/* Messages sit outside the listbox: only options belong in it. The field's status announces them. */}
         {showList && status === 'error' ? (
-          <p className={s.empty}>The place search isn’t answering. Coordinates such as 43.47, −80.54 still work.</p>
+          <p className={s.empty}>{m.searchDown}</p>
         ) : null}
         {showList && status !== 'error' && !places.length ? (
-          <p className={s.empty}>Nothing matches “{result?.q}”. Try a city, a landmark, or coordinates.</p>
+          <p className={s.empty}>{m.nothingMatches(result?.q ?? '')}</p>
         ) : null}
-        <div id={listId} role="listbox" aria-label="Places">
+        <div id={listId} role="listbox" aria-label={m.suggestions}>
           {showList
             ? places.map((p, i) => (
                 <div
@@ -491,8 +495,9 @@ export function SearchBox({
                   }}
                 >
                   <span className={s.optText}>
-                    <span className={s.optLabel}>{p.label}</span>
-                    {p.sublabel ? <span className={s.optSub}>{p.sublabel}</span> : null}
+                    {/* The name and the "where" line in the visitor's language (the Place keeps the English ones). */}
+                    <span className={s.optLabel}>{displayLabel(p)}</span>
+                    {p.sublabel ? <span className={s.optSub}>{displaySublabel(p)}</span> : null}
                   </span>
                   {/* a place named by its own coordinates (open sea, geocoder offline) doesn't repeat them */}
                   {p.label.includes('°') ? null : (

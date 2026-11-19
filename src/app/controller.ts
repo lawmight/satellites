@@ -29,10 +29,13 @@ import { useApp } from '@/state/store'
 import type { Capture, Place, ProgressEvent, Report } from '@/types'
 import type { EngineReport } from '@/engine/report'
 import { isCatalogLoadError, loadCatalog, loadCatalogNames } from '@/engine/catalog'
+import enPlaces from '@/i18n/en/places'
+import { msgs } from '@/i18n/runtime'
 import { ensureTz } from '@/imagery'
 import { getShare, recordLookup, type Share } from '@/lib/backend'
 import { createLateShareGate } from './lateShare'
-import { passLinkOpts, sharedGeoItem, pickPreselect, readUrlTarget, type RunOpts } from './links'
+import { linkPlaceIn, passLinkOpts, placeSearch, sharedGeoItem, pickPreselect, readUrlTarget, type RunOpts } from './links'
+import { CATALOG_FAULT, COMPUTE_FAULT, PROGRESS_CATALOG, PROGRESS_DONE } from './messageRefs'
 import { isSettled, raceTimeout, settleWaitMs, sleep } from './timing'
 
 export type { RunOpts } from './links'
@@ -69,6 +72,14 @@ const SHARP_MAP_WAIT_MS = 1200
 const LOGO_MIN_MS = 650
 /** The three faces the first screens use; loading them explicitly makes fonts.ready wait for them (no fallback flash). */
 const FIRST_FONTS = ['500 16px "Instrument Sans Variable"', '400 16px "Martian Mono Variable"', 'italic 400 16px "Instrument Serif"']
+/**
+ * …and a script's own faces (src/styles/scripts.css), asked for with a letter of that script: their unicode-range
+ * would never be fetched for the space a bare load() measures, and the hero would swap fonts after boot.
+ */
+const SCRIPT_FONTS: Record<string, [font: string, text: string][]> = {
+  cyrillic: [['560 16px "Watched Cyrillic"', 'щ'], ['italic 400 16px "Watched Cyrillic Serif"', 'т']],
+  arabic: [['600 16px "Watched Arabic"', 'ب'], ['italic 400 16px "Watched Arabic Serif"', 'أ']],
+}
 /** Boot never waits longer than this for the faces (system fallbacks are fine on a very slow link). */
 const FONTS_CAP_MS = 4000
 /** Results never land sooner than this after a search (the readout needs a beat to read). */
@@ -106,8 +117,6 @@ const ARCHIVE_RETRY_MS = 8000
 
 /** Why the last catalog load failed (its cause, for the stats); undefined while none has. */
 let catalogFault: string | undefined
-const CATALOG_ERROR = 'Could not load the orbit catalog. Check your connection and try again.'
-const COMPUTE_ERROR = 'Something went wrong computing passes for this place. Try again in a moment.'
 /**
  * With the catalog's notice up and nothing to re-run, the catalog is asked for again this long after the notice
  * appeared, and whenever the browser says it is back online: a phone that opened the page with no signal gets its
@@ -134,7 +143,7 @@ function startCatalog() {
 
 /** The catalog's notice in place of the landing (no search to re-run), and the quiet re-asks behind it. */
 function showCatalogFault() {
-  useApp.getState().setPhase('error', CATALOG_ERROR, catalogFault)
+  useApp.getState().setPhase('error', CATALOG_FAULT, catalogFault)
   const again = () => void retryCatalog()
   const timers = CATALOG_RECHECK_MS.map((ms) => setTimeout(again, ms))
   addEventListener('online', again)
@@ -183,7 +192,8 @@ export async function boot() {
 
   // Resolve the URL target while the boot log is still up.
   let run: { place: Place; opts: RunOpts; share?: Share } | null = null
-  if (target?.kind === 'q') run = { place: target.place, opts: target.opts }
+  // A link to a curated place shows its name in the reader's language (its English name stays the link's).
+  if (target?.kind === 'q') run = { place: linkPlaceIn(target.place, msgs(enPlaces)), opts: target.opts }
   else if (shareP) {
     const share = await raceTimeout(shareP, Math.max(SHARE_MIN_AFTER_LIGHT_MS, SHARE_CAP_MS - (performance.now() - bootStart)))
     if (share) run = shareRun(share)
@@ -224,7 +234,11 @@ async function loadFirstFonts(): Promise<void> {
   const fonts = (document as Document & { fonts?: FontFaceSet }).fonts
   if (!fonts) return
   try {
-    await Promise.all(FIRST_FONTS.map((f) => fonts.load(f)))
+    const own = SCRIPT_FONTS[document.documentElement.getAttribute('data-script') ?? ''] ?? []
+    // With the page's own words (the tab title is the hero line in the visitor's language: src/i18n/bootText.ts), so a
+    // latin-ext face (Polish ł, Turkish ş) is fetched before the hero shows, not swapped in under its wipe.
+    const words = `${document.title} `
+    await Promise.all([...FIRST_FONTS.map((f) => fonts.load(f, words)), ...own.map(([f, text]) => fonts.load(f, text))])
     await fonts.ready
   } catch {
     /* system fallbacks */
@@ -374,7 +388,7 @@ export async function runReport(place: Place, opts: RunOpts = {}) {
   s.setPlace(place)
   const end = opts.now ?? Date.now()
   s.setPendingWindow([end - 7 * DAY, end])
-  s.setProgress({ stage: 'catalog', message: 'Loading orbital elements' })
+  s.setProgress({ stage: 'catalog', message: PROGRESS_CATALOG })
   // The camera flight this search starts is the first one with an id above this.
   const flightBefore = s.cameraFlight.id
   s.setPhase('computing')
@@ -577,7 +591,7 @@ export async function runReport(place: Place, opts: RunOpts = {}) {
     } else await showFirst(report)
     if (inflight !== ctrl) return
     progress.cancel()
-    useApp.getState().setProgress({ stage: 'done', message: 'Report ready' })
+    useApp.getState().setProgress({ stage: 'done', message: PROGRESS_DONE })
     // Deep links never idle on the landing: fetch the hover names after the results entrance instead.
     afterLandingEntrance(loadNamesWhenIdle)
     if (report.archiveFailed) scheduleArchiveRetry(place, opts, ctrl)
@@ -588,7 +602,7 @@ export async function runReport(place: Place, opts: RunOpts = {}) {
     // The place stays in the store, so "Try again" needs no input. Say what actually failed: the catalog only
     // when its own load did (the HUD says "catalog unavailable" too). Anything else that fails while the catalog
     // is still on its way (the engine's chunk, a worker) is not the catalog's fault and not the connection's.
-    useApp.getState().setPhase('error', isCatalogLoadError(e) ? CATALOG_ERROR : COMPUTE_ERROR, causeOf(e))
+    useApp.getState().setPhase('error', isCatalogLoadError(e) ? CATALOG_FAULT : COMPUTE_FAULT, causeOf(e))
   }
 }
 
@@ -838,17 +852,10 @@ export function resetToLanding() {
 /** Address-bar writes so far: a deferred write is skipped when a newer one has happened since (R2K3). */
 let urlWrites = 0
 
-/**
- * Address-bar state. Coordinates are rounded to 3 decimals (~110 m): people copy the address bar far more
- * often than they press Share, and it must not leak a precise location (the share card promises ~1 km).
- */
+/** Address-bar state (links.ts placeSearch: rounded coordinates, a curated place's English name). */
 export function writeUrl(place: Place, passId?: string) {
   urlWrites++
-  const p = new URLSearchParams()
-  p.set('q', `${place.lat.toFixed(3)},${place.lon.toFixed(3)}`)
-  p.set('n', place.label)
-  if (passId) p.set('p', passId)
-  history.replaceState(history.state, '', `${location.pathname}?${p.toString()}`)
+  history.replaceState(history.state, '', `${location.pathname}?${placeSearch(place, passId)}`)
 }
 
 // ───────────────────────────── helpers ─────────────────────────────

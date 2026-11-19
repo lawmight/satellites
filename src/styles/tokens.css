@@ -50,6 +50,29 @@
 
   --track-label: 0.08em;
   --track-display: -0.02em;
+  /* Per-script multipliers (src/styles/scripts.css), 1 for Latin: display/heading leading, display size, serif accent
+     size. Han, kana, hangul and Arabic need more leading than the condensed Latin's 0.92, and a CJK line set as tall
+     as the Latin one reads heavier, so each script scales these instead of every component special-casing it. */
+  --lh-k: 1;
+  --display-k: 1;
+  --accent-k: 1;
+  /* Running text (the landing's sub, prose): CJK reads best at 1.75 where Latin sets 1.5. */
+  --lh-text-k: 1;
+  /* The condensed display width. Cyrillic narrows further (its fallback face condenses on its own axis; Instrument's
+     stops at 75%, so Latin and digits never change). */
+  --stretch-display: 75%;
+  /* Weights by role. System CJK fonts round any weight from 501 to 599 up to Semibold or Bold, which would erase the
+     difference between a headline and its strong phrase: scripts.css moves those roles to 500 / 600 there. */
+  --w-display: 560;
+  --w-panel-h: 540;
+  --w-strong: 560;
+  --w-panel-sub: 500;
+  --w-serif: 400;
+  /* OpenType features of the hero and the results headline (CJK: proportional punctuation, 'palt'). */
+  --feat-display: normal;
+  --feat-heading: normal;
+  /* The static serif accents (the hero's "you", the About title): a script may add a subset face for them alone. */
+  --font-accent: var(--font-serif);
 
   /* space (4px base) */
   --s-1: 4px;
@@ -80,6 +103,22 @@
   --z-panel: 20;
   --z-overlay: 40;
   --z-toast: 60;
+
+  /* The sign of "forward" along the reading: a translateX that means "deeper, next, in" multiplies by it
+     (docs/I18N.md, Right to left). */
+  --dir-x: 1;
+  /* The safe areas (notch, rounded corners) on the reading's start and end sides, for a logical inset that adds
+     them: `inset-inline-start: calc(… + var(--safe-start))` is the left one in a left-to-right page. */
+  --safe-start: env(safe-area-inset-left, 0px);
+  --safe-end: env(safe-area-inset-right, 0px);
+  /* A gradient toward the reading's end (a scroll row's "more" fade): `linear-gradient(var(--to-inline-end), …)`. */
+  --to-inline-end: to right;
+}
+:root[dir='rtl'] {
+  --dir-x: -1;
+  --safe-start: env(safe-area-inset-right, 0px);
+  --safe-end: env(safe-area-inset-left, 0px);
+  --to-inline-end: to left;
 }
 
 /* Phone spacing and the phone type floor stay on width (not the stacked query): a portrait tablet keeps

@@ -11,6 +11,8 @@
 import { Canvas } from '@react-three/fiber'
 import { Component, lazy, Suspense, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import { Color, WebGLRenderer } from 'three'
+import enGlobe from '@/i18n/en/globe'
+import { useMsgs } from '@/i18n/runtime'
 import { STACKED_QUERY } from '@/lib/layout'
 import type { Place } from '@/types'
 import { useApp } from '@/state/store'
@@ -170,6 +172,7 @@ const NOTE_TOP: CSSProperties = { ...NOTE, top: 'calc(var(--bezel-inset) + 64px)
 const NOTE_LINE: CSSProperties = { display: 'block', whiteSpace: 'nowrap' }
 
 function GlobeFallback() {
+  const m = useMsgs(enGlobe).noGl
   const top = useMediaQuery(STACKED_QUERY)
   // Meridians at 0°, ±30°, ±60° from the central one project to a line and two ellipses.
   const meridians = [30, 60]
@@ -192,8 +195,8 @@ function GlobeFallback() {
       </svg>
       {/* GL-1: two centred lines, each short enough for a 375 px phone (one line ran off both edges at 390 px). */}
       <p className={cx('t-label', s.fallbackNote)} style={top ? NOTE_TOP : NOTE}>
-        <span style={NOTE_LINE}>3D view unavailable</span>
-        <span style={NOTE_LINE}>WebGL 2 is off in this browser</span>
+        <span style={NOTE_LINE}>{m.title}</span>
+        <span style={NOTE_LINE}>{m.reason}</span>
       </p>
     </div>
   )

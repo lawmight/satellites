@@ -8,6 +8,10 @@
  * R2R7: the whole model is a pure function of the report (`buildResultsModel`), cached per Report object.
  * The controller calls `prewarmResultsModel(report)` in idle time before the handoff, so the render that shows
  * the results only reads the cache.
+ *
+ * Language: the cached parts hold no words (numbers, instants, kinds), so a language switch never rebuilds the model
+ * (which would hand the gallery a new photo list, and photos never reload). What is worded is worded when read: the
+ * zone label (`tzLabel`, "· at sea") is a getter, and a pass's local time strings (`times`) are cached per locale.
  */
 import { timeZoneAt } from '@/imagery'
 import type { Pass, Report } from '@/types'
@@ -17,11 +21,15 @@ import { groupPasses, type PassGroup } from './lib/groups'
 import { orderPhotos, type CoverKind, type Photo } from './lib/photos'
 import type { MetaFn, Verdict } from './lib/meta'
 import { dayBoundaries, hourMarks, indexLanes, sunSamples, type DayMark, type LaneIndex } from './lib/timeline'
-import { fmtLocalDay, fmtLocalTime, zoneAbbr, zoneLabel } from './lib/time'
+import enTime from '@/i18n/en/time'
+import { currentLocale, msgs } from '@/i18n/runtime'
+import { fmtLocalDay, fmtLocalTime, localParts, zoneAbbr, zoneLabel, type DateFields } from './lib/time'
 import { satMeta } from './sats'
 
-/** Local time strings of one pass at the place, formatted once. */
+/** Local time strings of one pass at the place, formatted once per language. */
 export interface PassTimes {
+  /** The closest moment's local fields at the place (numbers): for a message that writes the day itself */
+  parts: DateFields
   /** "Sun 1 Nov" */
   day: string
   /** "11:21" */
@@ -45,8 +53,8 @@ export interface ReportClock {
 export interface ResultsModel {
   report: Report
   tz: string
-  /** "America/Toronto", or "UTC−9 · at sea" for nautical zones */
-  tzLabel: string
+  /** "America/Toronto", or "UTC−9 · at sea" for nautical zones (worded in the active language when read) */
+  readonly tzLabel: string
   meta: MetaFn
   passById: Map<string, Pass>
   lanes: Record<Verdict, LaneIndex>
@@ -61,7 +69,7 @@ export interface ResultsModel {
   hours: { t: number; hour: number }[]
   /** window length in days (usually 7) */
   windowDays: number
-  /** Local time strings for a pass (cached) */
+  /** Local time strings for a pass, in the active language (cached per language) */
   times: (p: Pass) => PassTimes
   clock: ReportClock
   /** Every photo, in the one gallery order (owner B1 + D1): the cover, then newest first */
@@ -78,7 +86,8 @@ export interface ResultsModel {
 
 interface PlaceModel {
   tz: string
-  tzLabel: string
+  /** The window's end: the instant the zone label is read at */
+  tzAt: number
   sun: Float32Array
   sunMax: number
   days: DayMark[]
@@ -93,7 +102,7 @@ function placeModel(lat: number, lon: number, t0: number, t1: number): PlaceMode
   for (let i = 0; i < sun.length; i++) if (sun[i] > sunMax) sunMax = sun[i]
   return {
     tz,
-    tzLabel: zoneLabel(t1, tz),
+    tzAt: t1,
     sun,
     sunMax,
     days: dayBoundaries(t0, t1, tz),
@@ -136,23 +145,31 @@ export function buildResultsModel(report: Report, place = cachedPlace(report.pla
   const cache = new Map<string, PassTimes>()
   const tz = place.tz
   const times = (p: Pass): PassTimes => {
-    let v = cache.get(p.id)
+    // Keyed by the language: the day words are its own, and a switch re-renders every row with them.
+    const key = `${currentLocale()}|${p.id}`
+    let v = cache.get(key)
     if (!v) {
-      const day = fmtLocalDay(p.tClosest, tz)
-      const timeS = fmtLocalTime(p.tClosest, tz, true)
+      const t = p.tClosest
+      const lp = localParts(t, tz)
+      const day = fmtLocalDay(t, tz, lp)
+      const timeS = fmtLocalTime(t, tz, true)
       const time = timeS.slice(0, 5)
-      const zone = zoneAbbr(p.tClosest, tz)
-      v = { day, time, timeS, zone, stamp: `${day} · ${time} ${zone}` }
-      cache.set(p.id, v)
+      const zone = zoneAbbr(t, tz)
+      v = { parts: lp, day, time, timeS, zone, stamp: msgs(enTime).stamp(t, tz, lp, time, zone) }
+      cache.set(key, v)
     }
     return v
   }
   const set = orderPhotos(report)
   const photoByPass = new Map<string, string>()
   for (const ph of set.photos) if (ph.pass) photoByPass.set(ph.pass.id, ph.key)
+  const { tzAt, ...placeParts } = place
   return {
     report,
-    ...place,
+    ...placeParts,
+    get tzLabel() {
+      return zoneLabel(tzAt, tz)
+    },
     meta: satMeta,
     passById: new Map(report.passes.map((p) => [p.id, p])),
     lanes: indexLanes(report.passes),

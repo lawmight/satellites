@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import type { Pass } from '@/types'
-import { passLinkOpts, pickPreselect, readUrlTarget } from './links'
+import { afterEach, describe, expect, it } from 'vitest'
+import enPlaces from '@/i18n/en/places'
+import { msgs, setBundleForTests } from '@/i18n/runtime'
+import type { Pass, Place } from '@/types'
+import { localizedPlace } from '@/ui/landing/curated'
+import { EXAMPLE_PLACES } from '@/ui/landing/places'
+import { linkPlaceIn, passLinkOpts, pickPreselect, placeSearch, readUrlTarget } from './links'
 import { isSettled, raceTimeout, settleWaitMs } from './timing'
 
 const DAY = 86_400_000
@@ -61,6 +65,50 @@ describe('readUrlTarget', () => {
       const target = readUrlTarget(`?q=43.47,-80.54&n=Waterloo&p=60989-29892501${bad}`, NOW)
       expect(target?.kind === 'q' && target.opts, bad).toEqual({ selectPassId: '60989-29892501' })
     }
+  })
+})
+
+describe('a place link in any language', () => {
+  afterEach(() => setBundleForTests('en', null))
+  const giza = EXAMPLE_PLACES.find((p) => p.label === 'Pyramids of Giza')!
+  const FRENCH = { places: { ...enPlaces, giza: { chip: 'Gizeh', label: 'Pyramides de Gizeh', sublabel: 'Gizeh, Égypte' } } }
+  const opened = (search: string) => {
+    const t = readUrlTarget(`?${search}`, NOW)
+    return t?.kind === 'q' ? linkPlaceIn(t.place, msgs(enPlaces)) : undefined
+  }
+
+  it('writes what the address bar always held', () => {
+    expect(placeSearch({ label: 'Waterloo', lat: 43.47234, lon: -80.54491, source: 'search' }, '60989-29892501')).toBe('q=43.472%2C-80.545&n=Waterloo&p=60989-29892501')
+    expect(placeSearch(giza)).toBe('q=29.979%2C31.134&n=Pyramids+of+Giza')
+  })
+
+  it("names a curated place in English whatever language it was shown in, and shows it in the reader's", () => {
+    setBundleForTests('fr', FRENCH)
+    const shown = localizedPlace(giza)
+    expect(shown.label).toBe('Pyramides de Gizeh')
+    const search = placeSearch(shown)
+    expect(search).toBe(placeSearch(giza))
+    // A French reader sees it in French, still a link's place (what the stats record does not change)…
+    const french = opened(search)
+    expect(french).toEqual({ label: 'Pyramides de Gizeh', canonicalLabel: 'Pyramids of Giza', lat: 29.979, lon: 31.134, source: 'url' })
+    // …and the next address-bar write is the same link.
+    expect(placeSearch(french!)).toBe(search)
+    // An English reader gets exactly the place a link always gave.
+    setBundleForTests('en', null)
+    expect(opened(search)).toEqual({ label: 'Pyramids of Giza', lat: 29.979, lon: 31.134, source: 'url' })
+  })
+
+  it('leaves every other link as it came', () => {
+    setBundleForTests('fr', FRENCH)
+    // The curated name somewhere else, or another name at the curated spot.
+    expect(opened('q=48.858,2.294&n=Pyramids+of+Giza')?.label).toBe('Pyramids of Giza')
+    expect(opened('q=29.979,31.134&n=Giza')?.label).toBe('Giza')
+    // A translation that lacks the place shows the English name.
+    setBundleForTests('fr', { places: { ...enPlaces, giza: undefined } } as unknown as Record<string, object>)
+    expect(opened('q=29.979,31.134&n=Pyramids+of+Giza')?.label).toBe('Pyramids of Giza')
+    // Only a link's place: a geocoded search keeps its own name.
+    const typed: Place = { label: 'Pyramids of Giza', lat: 29.979, lon: 31.134, source: 'search' }
+    expect(linkPlaceIn(typed, FRENCH.places)).toBe(typed)
   })
 })
 

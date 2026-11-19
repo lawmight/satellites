@@ -23,10 +23,16 @@
  * Waterloo this week.", description "12 images were made public. …", as the results headline says it.
  *
  * Cards from /api/og are JPEG (og:image:type image/jpeg, R2SH4); the static default card is a PNG.
+ *
+ * Language (`l=<locale>`, written by the app only when the sharer's language is not English): the page's title,
+ * description, image alt and <html lang dir> are in it, and so is every card URL it writes (the card carries the
+ * same `l`). An unknown or missing `l` reads English, and an English page is exactly what it always was (the static
+ * default card included). The people the page hands on are not given `l`: the app speaks their browser's language.
  */
 import { siteOrigin } from './_lib/env.js'
-import { DEFAULT_CARD_ALT } from './_lib/cardSpec.js'
 import { sharePageHtml } from './_lib/html.js'
+import { cardMessages } from './_lib/i18n/card/index.js'
+import { DEFAULT_LOCALE, type Locale } from './_lib/i18n/locales.js'
 import {
   DEEP_LINK_PASS_KEYS,
   SHARE_ID_RE,
@@ -34,10 +40,12 @@ import {
   description,
   fetchShare,
   headline,
+  linkLocale,
   shareFromDeepLink,
   placeDescription,
   placeFromParams,
   placeTitle,
+  summaryAlt,
   summaryDescription,
   summaryFromParams,
   summaryTitle,
@@ -50,9 +58,22 @@ import {
  */
 export const CARD_VERSION = '5'
 
-const GENERIC = {
-  title: 'Something watched you this week.',
-  description: 'Enter any place on Earth. See every satellite that passed over it in the last 7 days, and the actual pictures they took.',
+/** `l=<locale>` for a URL this page writes: nothing for English, so English URLs never change. */
+function withLocale(p: URLSearchParams, locale: Locale): URLSearchParams {
+  if (locale !== DEFAULT_LOCALE) p.set('l', locale)
+  return p
+}
+const localeQuery = (locale: Locale, sep: '?' | '&') => (locale !== DEFAULT_LOCALE ? `${sep}l=${encodeURIComponent(locale)}` : '')
+
+/** The generic page (the root link, a missing share): its words, and the default card in the page's language. */
+function generic(origin: string, locale: Locale) {
+  const m = cardMessages(locale)
+  // English has the default card baked (public/og-default.png); another language renders it (/api/og, cached a week).
+  const image =
+    locale === DEFAULT_LOCALE
+      ? { image: `${origin}/og-default.png`, imageType: 'image/png' as const }
+      : { image: `${origin}/api/og?${new URLSearchParams({ v: CARD_VERSION, l: locale }).toString()}`, imageType: 'image/jpeg' as const }
+  return { title: m.page.title, description: m.page.description, imageAlt: m.defaultAlt, locale, ...image }
 }
 
 function html(body: string, status: number, cacheControl: string): Response {
@@ -69,10 +90,11 @@ function html(body: string, status: number, cacheControl: string): Response {
 
 /** An address-bar link (`/?q=lat,lon&n=label[&p=passId]`) seen by a link unfurler. */
 function placePage(q: URLSearchParams, origin: string): Response {
+  const locale = linkLocale(q)
   const place = placeFromParams(q)
   if (!place) {
     return html(
-      sharePageHtml({ ...GENERIC, canonical: `${origin}/`, image: `${origin}/og-default.png`, imageType: 'image/png', imageAlt: DEFAULT_CARD_ALT, redirect: '/' }),
+      sharePageHtml({ ...generic(origin, locale), canonical: `${origin}/`, redirect: '/' }),
       200,
       'public, max-age=300, s-maxage=3600',
     )
@@ -88,36 +110,41 @@ function placePage(q: URLSearchParams, origin: string): Response {
   if (share) {
     const passKeys = DEEP_LINK_PASS_KEYS.flatMap((k) => (q.get(k) !== null ? [[k, q.get(k)!] as [string, string]] : []))
     for (const [k, v] of passKeys) app.set(k, v)
-    const card = new URLSearchParams([['place', share.placeLabel], ['lat', share.lat.toFixed(2)], ['lon', share.lon.toFixed(2)], ...passKeys, ['v', CARD_VERSION]])
-    const title = headline(share)
+    const card = withLocale(new URLSearchParams([['place', share.placeLabel], ['lat', share.lat.toFixed(2)], ['lon', share.lon.toFixed(2)], ...passKeys, ['v', CARD_VERSION]]), locale)
+    const title = headline(share, locale)
     return html(
       sharePageHtml({
         title,
-        description: description(share),
-        canonical: `${origin}/?${app.toString()}`,
+        description: description(share, locale),
+        canonical: `${origin}/?${withLocale(new URLSearchParams(app), locale).toString()}`,
         image: `${origin}/api/og?${card.toString()}`,
         imageType: 'image/jpeg',
         imageAlt: title,
         redirect: `/?${app.toString()}`,
+        locale,
       }),
       200,
       'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
     )
   }
-  const card = new URLSearchParams(
-    summary
-      ? { kind: 'summary', q: coords, n: place.label, ...Object.fromEntries(SUMMARY_KEYS.flatMap((k) => (q.get(k) ? [[k, q.get(k)!]] : []))), v: CARD_VERSION }
-      : { kind: 'place', place: place.label, lat: place.lat.toFixed(2), lon: place.lon.toFixed(2), v: CARD_VERSION },
+  const card = withLocale(
+    new URLSearchParams(
+      summary
+        ? { kind: 'summary', q: coords, n: place.label, ...Object.fromEntries(SUMMARY_KEYS.flatMap((k) => (q.get(k) ? [[k, q.get(k)!]] : []))), v: CARD_VERSION }
+        : { kind: 'place', place: place.label, lat: place.lat.toFixed(2), lon: place.lon.toFixed(2), v: CARD_VERSION },
+    ),
+    locale,
   )
   return html(
     sharePageHtml({
-      title: summary ? summaryTitle(summary) : placeTitle(place),
-      description: summary ? summaryDescription(summary) : placeDescription(place),
-      canonical: `${origin}/?${app.toString()}`,
+      title: summary ? summaryTitle(summary, locale) : placeTitle(place, locale),
+      description: summary ? summaryDescription(summary, locale) : placeDescription(place, locale),
+      canonical: `${origin}/?${withLocale(new URLSearchParams(app), locale).toString()}`,
       image: `${origin}/api/og?${card.toString()}`,
       imageType: 'image/jpeg',
-      imageAlt: summary ? `${summaryTitle(summary)} ${summary.best ? `The share card, with the week’s closest photo, from ${summary.best.satName}.` : 'The share card.'}` : DEFAULT_CARD_ALT,
+      imageAlt: summary ? summaryAlt(summary, locale) : cardMessages(locale).defaultAlt,
       redirect: `/?${app.toString()}`,
+      locale,
     }),
     200,
     'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
@@ -132,37 +159,39 @@ export async function handleSharePage(request: Request): Promise<Response> {
 
   if (!raw && url.searchParams.has('q')) return placePage(url.searchParams, origin)
 
+  const locale = linkLocale(url.searchParams)
   if (!SHARE_ID_RE.test(id)) {
     return html(
-      sharePageHtml({ ...GENERIC, canonical: `${origin}/`, image: `${origin}/og-default.png`, imageType: 'image/png', imageAlt: DEFAULT_CARD_ALT, redirect: '/' }),
+      sharePageHtml({ ...generic(origin, locale), canonical: `${origin}/`, redirect: '/' }),
       404,
       'public, max-age=300, s-maxage=3600',
     )
   }
 
-  const canonical = `${origin}/s/${id}`
+  const canonical = `${origin}/s/${id}${localeQuery(locale, '?')}`
   const redirect = `/?s=${id}`
-  const card = `${origin}/api/og?id=${id}&v=${CARD_VERSION}`
+  const card = `${origin}/api/og?id=${id}&v=${CARD_VERSION}${localeQuery(locale, '&')}`
   const r = await fetchShare(id)
 
   if (r.status === 'found') {
-    const title = headline(r.share)
+    const title = headline(r.share, locale)
     return html(
-      sharePageHtml({ title, description: description(r.share), canonical, image: card, imageType: 'image/jpeg', imageAlt: title, redirect }),
+      sharePageHtml({ title, description: description(r.share, locale), canonical, image: card, imageType: 'image/jpeg', imageAlt: title, redirect, locale }),
       200,
       'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
     )
   }
   if (r.status === 'missing') {
     return html(
-      sharePageHtml({ ...GENERIC, canonical: `${origin}/`, image: `${origin}/og-default.png`, imageType: 'image/png', imageAlt: DEFAULT_CARD_ALT, redirect: '/' }),
+      sharePageHtml({ ...generic(origin, locale), canonical: `${origin}/`, redirect: '/' }),
       404,
       'public, max-age=60, s-maxage=600',
     )
   }
   // Couldn't reach the database: don't 404 a link that may well be valid.
+  const g = generic(origin, locale)
   return html(
-    sharePageHtml({ ...GENERIC, canonical, image: card, imageType: 'image/jpeg', imageAlt: GENERIC.title, redirect }),
+    sharePageHtml({ ...g, canonical, image: card, imageType: 'image/jpeg', imageAlt: g.title, redirect }),
     200,
     'public, max-age=60, s-maxage=60',
   )

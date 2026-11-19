@@ -13,8 +13,8 @@
  * is coarsened in src/lib/telemetry.ts (city-level labels, 0.1° cells, no URLs or coordinates in messages).
  */
 import type { AppState } from '@/state/store'
-import type { Report } from '@/types'
-import { cellOf, flush, regionLabel, scrubMessage, setArrival, setEnricher, startTelemetry, track, type Props } from '@/lib/telemetry'
+import type { MessageRef, Report } from '@/types'
+import { cellOf, flush, regionLabel, scrubMessage, setArrival, setEnricher, setLanguage, startTelemetry, track, type Props } from '@/lib/telemetry'
 import type * as Deps from './telemetryDeps'
 
 /** Handed in by src/main.tsx (src/app/telemetryDeps.ts): this chunk imports no app module itself, so adding it
@@ -71,12 +71,13 @@ function passProps(st: AppState): Props {
 }
 
 /**
- * A fault notice as the stats keep it: the sentence the visitor read, then what failed in brackets. The sentence
+ * A fault notice as the stats keep it: the sentence the visitor read, in English whatever language they read it in
+ * (`english`: telemetryDeps.englishOf; an unknown ref logs its id), then what failed in brackets. The sentence
  * alone could not tell a dropped connection from a server error or a broken file (2026-11-18: 187 tabs said "Could
  * not load the orbit catalog" in two hours, and nothing recorded why).
  */
-export function phaseErrorMsg(st: Pick<AppState, 'error' | 'errorCause'>): string | undefined {
-  const said = st.error ?? 'error'
+export function phaseErrorMsg(st: Pick<AppState, 'error' | 'errorCause'>, english: (ref: MessageRef) => string | undefined): string | undefined {
+  const said = st.error ? (english(st.error) ?? st.error.id) : 'error'
   // The cause is scrubbed on its own first: a masked URL would otherwise swallow the closing bracket.
   const cause = scrubMessage(st.errorCause)
   return scrubMessage(cause ? `${said} (${cause})` : said)
@@ -84,10 +85,13 @@ export function phaseErrorMsg(st: Pick<AppState, 'error' | 'errorCause'>): strin
 
 let installed = false
 
-export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: TelemetryDeps): void {
+export function initTelemetry({ useApp, getSatInfo, canonicalPlace, cityLevelLabel, englishOf, currentLocale, arrival }: TelemetryDeps): void {
   setArrival(arrival)
   if (installed || !startTelemetry()) return
   installed = true
+
+  // Every batch names the language the app shows when it is sent (a switch included), for the admin page's Languages.
+  setLanguage(currentLocale)
 
   setEnricher((_type, p) => {
     if (typeof p.norad === 'number' && !p.sat) {
@@ -112,7 +116,8 @@ export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: T
     search = { place, t0, catchUp, first: false }
     track('search', {
       source: retry ? 'retry' : searchSource(st),
-      label: regionLabel(place, cityLevelLabel, { shared: !!st.shared }),
+      // A curated place (example chip, Surprise me) by its English name, whatever language it was shown in.
+      label: regionLabel(canonicalPlace(place), cityLevelLabel, { shared: !!st.shared }),
       cell: cellOf(place.lat, place.lon),
       country: /^[a-z]{2}$/i.test(place.countryCode ?? '') ? place.countryCode!.toLowerCase() : undefined,
     })
@@ -137,7 +142,7 @@ export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: T
     if (st.selectedPassId && st.selectedPassId !== prev.selectedPassId && st.report === prev.report && st.phase === prev.phase && st.phase === 'results')
       track('pass_open', passProps(st))
     if (st.aboutOpen && !prev.aboutOpen) track('about_open')
-    if (st.phase === 'error' && prev.phase !== 'error') track('error', { where: 'phase', msg: phaseErrorMsg(st) })
+    if (st.phase === 'error' && prev.phase !== 'error') track('error', { where: 'phase', msg: phaseErrorMsg(st, englishOf) })
   }
 
   // Whatever happened before this module loaded (a deep link computes during boot).
@@ -146,7 +151,7 @@ export function initTelemetry({ useApp, getSatInfo, cityLevelLabel, arrival }: T
     // Timed by the controller's marks only if the results were already up; a search still computing is timed live.
     onSearch(now, lastMark('run-report'), now.phase === 'results')
     onReport(now)
-  } else if (now.phase === 'error') track('error', { where: 'phase', msg: phaseErrorMsg(now) })
+  } else if (now.phase === 'error') track('error', { where: 'phase', msg: phaseErrorMsg(now, englishOf) })
   useApp.subscribe(onChange)
 
   // ── overlays: the lightbox ──────────────────────────────────────────────────────────────

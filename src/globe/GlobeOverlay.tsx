@@ -18,11 +18,20 @@
  * Departing labels stay mounted for 240 ms at opacity 0, so they fade instead of popping (M11).
  *
  * Acquisition sequence (owner request C, rt.acq): at the capture of an imaged pass a mono line snaps in under the
- * coordinates ("ACQUIRED 11:21:13 EST · 10 M"; straight away on a quiet selection), and while a live sequence runs a
+ * coordinates ("ACQUIRED 11:21:13 EST · 10 m"; straight away on a quiet selection), and while a live sequence runs a
  * countdown readout sits top-right under the HUD clock ("T−00:01:12" → "ACQUIRED"), written per frame from the
  * scene clock, never through React.
+ *
+ * Words come from the 'globe' namespace (src/i18n/en/globe.ts), each line one message with its slots (the clock, the
+ * zone, the resolution, the values), so a language orders them its own way; the per-frame writers read the messages
+ * at write time. Coordinates, clocks, zones, NORAD numbers and the countdown are international notation, as they are.
  */
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { fmt } from '../../api/_lib/i18n/format'
+import { isNum, num, plain, type Part, type Rich } from '../../api/_lib/i18n/parts'
+import enGlobe from '@/i18n/en/globe'
+import { withUnits } from '@/i18n/Rich'
+import { currentLocale, msgs, useMsgs } from '@/i18n/runtime'
 import { ensureTz, timeZoneAt, tzReady } from '@/imagery'
 import { isStacked } from '@/lib/layout'
 import { selectSelectedPass, useApp } from '@/state/store'
@@ -66,7 +75,14 @@ function settleOpacity(d: HTMLElement, st: { op: string; want: string; wantAt: n
   return st.op
 }
 
+/** "13:05" in UTC (a geostationary scan's time before the zone table is in). */
+const utcClock = (ms: number) => {
+  const d = new Date(ms)
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+}
+
 export function GlobeOverlay({ runtime }: { runtime: GlobeRuntime }) {
+  const m = useMsgs(enGlobe)
   const place = useApp((st) => st.report?.place ?? st.place)
   const hovered = useApp((st) => st.hoveredNorad)
   const pass = useApp(selectSelectedPass)
@@ -90,22 +106,33 @@ export function GlobeOverlay({ runtime }: { runtime: GlobeRuntime }) {
   const hovers = useDeparting(hoverItem, (h) => `h${h.norad}`)
   const selected = useDeparting(pass, (p) => p.id)
   const tzLoaded = useTzReady()
-  /** "IMAGED 11:21:13 EST": the place's local time, as the pass header says it (UTC until the zone table is in). */
-  const imagedAt = (t: number) => {
+  /**
+   * When a pass imaged the place: its local time there, as the pass header says it ("11:21:13", "EST"; UTC until the
+   * zone table is in). A geostationary scan's crossing is known to about a minute (engine geostationary.ts): no seconds.
+   */
+  const imagedTime = (t: number, about: boolean): { clock: string; zone: string } => {
     if (place && tzLoaded) {
       const tz = timeZoneAt(place.lat, place.lon)
-      return `IMAGED ${fmtLocalTime(t, tz, true)} ${zoneAbbr(t, tz)}`
+      return { clock: fmtLocalTime(t, tz, !about), zone: zoneAbbr(t, tz) }
     }
-    return `IMAGED ${fmtUtcTime(t)} UTC`
+    return { clock: about ? utcClock(t) : fmtUtcTime(t), zone: 'UTC' }
+  }
+  /** "IMAGED 11:21:13 EST", or "IMAGED ≈ 11:21 EST" for a geostationary scan. */
+  const imagedAt = (p: { tClosest: number; geostationary?: boolean }) => {
+    const { clock, zone } = imagedTime(p.tClosest, !!p.geostationary)
+    return p.geostationary ? m.imagedAbout(clock, zone) : m.imaged(clock, zone)
   }
 
-  // The capture line under the coordinates: the image's local time and its ground resolution.
+  // The capture line under the coordinates: the image's local time and its ground resolution (a geostationary
+  // frame's pixel is in km).
   const report = useApp((st) => st.report)
   const cap = pass && pass.verdict === 'imaged' ? captureOf(report, pass) : undefined
-  // A geostationary scan's crossing is known to about a minute (engine geostationary.ts), and its pixel is in km.
-  const acqAt = pass ? imagedAt(pass.tClosest).replace(/^IMAGED /, '') : ''
-  const acqLine =
-    pass && cap ? `ACQUIRED ${pass.geostationary ? `≈ ${acqAt.replace(/^(\d\d:\d\d):\d\d/, '$1')}` : acqAt} · ${cap.gsdM >= 1000 ? `${Math.round(cap.gsdM / 1000)} KM` : `${Math.round(cap.gsdM)} M`}` : undefined
+  let acqLine: string | undefined
+  if (pass && cap) {
+    const { clock, zone } = imagedTime(pass.tClosest, !!pass.geostationary)
+    const resolution = cap.gsdM >= 1000 ? m.resolutionKm(Math.round(cap.gsdM / 1000)) : m.resolutionM(Math.round(cap.gsdM))
+    acqLine = pass.geostationary ? m.acquiredAbout(clock, zone, resolution) : m.acquired(clock, zone, resolution)
+  }
 
   return (
     <div ref={root} className={s.overlay} aria-hidden>
@@ -143,7 +170,7 @@ export function GlobeOverlay({ runtime }: { runtime: GlobeRuntime }) {
           id={passAnchorId(item.id)}
           norad={item.norad}
           tone={item.verdict === 'imaged' ? 'signal' : 'bone'}
-          detail={item.verdict === 'imaged' ? (item.geostationary ? imagedAt(item.tClosest).replace(/^IMAGED (\d\d:\d\d):\d\d/, 'IMAGED ≈ $1') : imagedAt(item.tClosest)) : undefined}
+          detail={item.verdict === 'imaged' ? imagedAt(item) : undefined}
           ready={catalogReady}
           leaving={leaving}
         />
@@ -243,7 +270,7 @@ function PlaceLabel({
   lat: number
   lon: number
   leaving: boolean
-  /** "ACQUIRED 11:21:13 EST · 10 M" for the selected imaged pass */
+  /** "ACQUIRED 11:21:13 EST · 10 m" for the selected imaged pass */
   acq?: string
   passId?: string
 }) {
@@ -316,7 +343,7 @@ function PlaceLabel({
       <div ref={label} className={s.coord}>
         {fmtLat(lat, digits)} {fmtLon(lon, digits)}
         <div ref={acqEl} className={s.coordAcq} hidden>
-          {acq}
+          {acq ? withUnits(acq) : null}
         </div>
       </div>
     </div>
@@ -420,7 +447,7 @@ function SatLabel({
       const now = performance.now()
       if (altEl.current && now - st.altAt > 250) {
         st.altAt = now
-        altEl.current.textContent = a.altKm !== null ? Math.round(a.altKm).toLocaleString('en-US') : '—'
+        altEl.current.textContent = a.altKm !== null ? fmt(currentLocale()).int(a.altKm) : '—'
       }
     }
     const shown = settleOpacity(d, st, show ? '1' : '0', leaving) === '1'
@@ -444,9 +471,11 @@ function SatLabel({
     },
     [id, runtime],
   )
+  const m = useMsgs(enGlobe)
   const info = ready ? getSatInfo(norad) : undefined
-  const name = info?.displayName ?? info?.name ?? `NORAD ${fmtNorad(norad)}`
+  const name = info?.displayName ?? info?.name ?? m.noradName(fmtNorad(norad))
   const stroke = tone === 'signal' ? 'var(--signal)' : 'var(--bone-2)'
+  const noradPart = num(fmtNorad(norad))
   return (
     <div
       ref={el}
@@ -459,28 +488,40 @@ function SatLabel({
       </svg>
       <div ref={box} className={s.calloutBox}>
         <span className={s.calloutName}>{name}</span>
-        {compact ? (
-          <span className={s.calloutMeta}>
-            {'· '}
-            <b ref={altEl}>—</b> KM
-          </span>
-        ) : (
-          <span className={s.calloutMeta}>
-            NORAD <b>{fmtNorad(norad)}</b> · <b ref={altEl}>—</b> KM
-            {detail ? <> · {detail}</> : null}
-          </span>
-        )}
+        <span className={s.calloutMeta}>
+          <MetaLine
+            parts={compact ? m.calloutMetaCompact(ALTITUDE) : detail ? m.calloutMetaImaged(noradPart, ALTITUDE, detail) : m.calloutMeta(noradPart, ALTITUDE)}
+            altRef={altEl}
+          />
+        </span>
       </div>
     </div>
   )
 }
 
 /**
+ * The altitude's slot in a callout's meta line: the messages place this very part, and MetaLine renders it as the <b>
+ * the frame loop writes the altitude into (found by identity, wherever a language puts it).
+ */
+const ALTITUDE = num('—')
+
+/**
+ * A callout's meta line: text as it is, each value in a <b> (the altitude's with the frame loop's ref). The unit after
+ * a value (" km") keeps its case in the line's capitals.
+ */
+function MetaLine({ parts, altRef }: { parts: Rich; altRef: RefObject<HTMLElement | null> }): ReactNode {
+  return parts.map((p: Part, i) => {
+    if (!isNum(p)) return <Fragment key={i}>{withUnits(plain([p]), i > 0 && isNum(parts[i - 1]))}</Fragment>
+    return p === ALTITUDE ? <b key={i} ref={altRef}>{p.n}</b> : <b key={i}>{p.n}</b>
+  })
+}
+
+/**
  * The acquisition countdown, top-right under the HUD clock band (the top-right corner of the free area: the HUD's scrim
- * would dim it inside the band), right-aligned: "ACQUISITION · SENTINEL-2C" over
- * "T−00:01:12", snapping to "ACQUIRED" at the capture; for passes without an image "CLOSEST APPROACH". Visible while
- * a live sequence runs and for a moment after its capture. Written every frame from the runtime (text only when it
- * changes), never through React state. While it shows, callouts keep below it.
+ * would dim it inside the band), right-aligned; right to left, where the clock is top left, top-left and left-aligned.
+ * "ACQUISITION · SENTINEL-2C" over "T−00:01:12", snapping to "ACQUIRED" at the capture; for passes without an image
+ * "CLOSEST APPROACH". Visible while a live sequence runs and for a moment after its capture. Written every frame from
+ * the runtime (text only when it changes), never through React state. While it shows, callouts keep below it.
  */
 const READOUT_HOLD_MS = 2600
 /** The readout's height before its first measurement (desktop type scale; phones measure taller). */
@@ -541,7 +582,8 @@ function AcqReadout({
     const stacked = isStacked(W, H)
     runtime.readoutBottom = show ? ins.top + 8 + height.current : 0
     if (!show) return
-    const text = captured ? (imaged ? 'ACQUIRED' : 'CLOSEST APPROACH') : fmtCountdown(runtime.simTime, q.tc)
+    // Read at write time: a language switch repaints on the next frame (the text differs from the one written).
+    const text = captured ? (imaged ? msgs(enGlobe).acquiredNow : msgs(enGlobe).closestApproachNow) : fmtCountdown(runtime.simTime, q.tc)
     if (text !== st.text) {
       st.text = text
       v.textContent = text
@@ -550,28 +592,31 @@ function AcqReadout({
       st.done = captured
       d.classList.toggle(s.acqDone, captured)
     }
-    const x = Math.round(ins.right + edgeFor(stacked))
+    // Right to left the HUD's clock is top left and the results dock on the left (docs/I18N.md "Right to left"): the
+    // readout mirrors to the free area's top-left corner, measured from the left inset.
+    const rtl = document.documentElement.dir === 'rtl'
+    const x = Math.round((rtl ? ins.left : ins.right) + edgeFor(stacked))
     const y = Math.round(ins.top + 8)
     // Never wider than the globe's free band beside a side panel (a short landscape phone's pass view is ~240 px):
-    // the label wraps instead of running off the screen's left edge.
-    const maxW = Math.max(120, Math.round(W - x - ins.left - edgeFor(stacked)))
+    // the label wraps instead of running off the screen's far edge.
+    const maxW = Math.max(120, Math.round(W - x - (rtl ? ins.right : ins.left) - edgeFor(stacked)))
     if (maxW !== st.maxW) {
       st.maxW = maxW
       d.style.maxWidth = `${maxW}px`
     }
-    if (x !== st.x || y !== st.y) {
-      st.x = x
+    const tx = rtl ? x : -x // from the right edge, or right to left from the left one (CSS)
+    if (tx !== st.x || y !== st.y) {
+      st.x = tx
       st.y = y
-      d.style.transform = `translate3d(${-x}px, ${y}px, 0)`
+      d.style.transform = `translate3d(${tx}px, ${y}px, 0)`
     }
   })
+  const m = useMsgs(enGlobe)
   const info = ready ? getSatInfo(norad) : undefined
-  const name = info?.displayName ?? info?.name ?? `NORAD ${fmtNorad(norad)}`
+  const name = info?.displayName ?? info?.name ?? m.noradName(fmtNorad(norad))
   return (
     <div ref={el} className={s.acqReadout} style={{ opacity: 0 }}>
-      <div className={s.acqLabel}>
-        {imaged ? 'ACQUISITION' : 'CLOSEST APPROACH'} · {name}
-      </div>
+      <div className={s.acqLabel}>{imaged ? m.acquisitionOf(name) : m.closestApproachOf(name)}</div>
       <div ref={value} className={s.acqValue}>
         T{'\u2212'}00:00:00
       </div>

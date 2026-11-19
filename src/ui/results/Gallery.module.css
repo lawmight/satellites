@@ -50,16 +50,27 @@
 }
 .counter {
   color: var(--bone-2);
-  margin-right: 6px;
+  margin-inline-end: 6px;
   /* a stable width: the nav never shifts as the number changes (A1), the longest form included ("28 this week", the
      counter on a last clear look; U-2: 7.5ch let it grow 42 px when the final report landed) */
   min-width: calc(12 * (1ch + var(--track-label, 0.08em)));
-  text-align: right;
+  text-align: end;
 }
 /* No last clear look in the list: the counter only ever says "3 / 29", so the filter keeps that room (its four
    segments, with Radar, need it in the 382 px dock). */
 .counterShort {
   min-width: calc(7.5 * (1ch + var(--track-label, 0.08em)));
+}
+/* The counter shares one grid cell with hidden copies of its language's widest forms (Gallery.tsx `sizers`): the
+   min-widths above are English's room, and a language whose words run longer takes theirs. */
+.counterBox {
+  display: inline-grid;
+}
+.counterBox > * {
+  grid-area: 1 / 1;
+}
+.counterSizer {
+  visibility: hidden;
 }
 .filter {
   display: inline-flex;
@@ -81,7 +92,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 .seg + .seg {
-  border-left: 1px solid var(--line-strong);
+  border-inline-start: 1px solid var(--line-strong);
 }
 /* Touch (U-6): "All" is 35 px of text; every segment at least a 44 px wide target. */
 @media (pointer: coarse) {
@@ -176,7 +187,7 @@
     width: 28px;
   }
   .counter {
-    margin-right: 2px;
+    margin-inline-end: 2px;
   }
 }
 @container gallery (max-width: 360px) {
@@ -204,6 +215,17 @@
   .counter {
     min-width: 0;
     font-size: 10px;
+  }
+  /* here the counter takes only what it says, as it always has */
+  .counterSizer {
+    display: none;
+  }
+}
+/* Chinese, Japanese and Korean labels are two or three full-width characters with no side bearing to speak of: at the
+   narrow bars' 3–4 px they touched their dividers ("全部|精细|气象"). Half a character each side, in every bar. */
+@container gallery (max-width: 400px) {
+  :root[data-script='cjk'] .seg {
+    padding-inline: 0.5em;
   }
 }
 @media (pointer: coarse) {
@@ -395,7 +417,7 @@
   display: inline-block;
   width: 6px;
   height: 11px;
-  margin-left: 6px;
+  margin-inline-start: 6px;
   background: var(--bone-2);
   animation: blink 1s steps(1, end) infinite;
 }
@@ -691,17 +713,30 @@ b.warn,
   margin-top: 8px;
   min-width: 0;
 }
-/* A narrow card (the 400 px panel at 1024, the short-landscape dock's half column; PH-14 / LAP-09): the replay control
-   is its glyph and the status leaves the second line, so both lines keep the time whole instead of truncating it. */
-.capTimeB {
-  display: none;
+/*
+ * The time ends the first line when that line holds it whole, else it opens the second, where the relative age and
+ * then the status give way (Gallery.tsx useClockFit writes the attributes). A piece set aside stays measurable: out
+ * of flow, unpainted, unspoken. Phones always set the time on the second line.
+ */
+.mobile .mLines {
+  --clock-below: 1;
 }
+.mLines:not([data-below]) [data-fit='clock2'],
+.mLines[data-below] [data-fit='clock1'],
+.mLines[data-no-ago] [data-fit='ago'],
+.mLines[data-no-status] [data-fit='status'] {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+/* A narrow card (the 400 px panel at 1024, the short-landscape dock's half column; PH-14 / LAP-09): the replay control
+   is its glyph, the status leaves the second line and the time opens it. */
 @container card (max-width: 360px) {
-  .gallery:not(.mobile) .capTimeA {
-    display: none;
-  }
-  .gallery:not(.mobile) .capTimeB {
-    display: inline;
+  .gallery:not(.mobile) .mLines {
+    --clock-below: 1;
   }
   .gallery:not(.mobile) .mReplayText {
     display: none;
@@ -709,7 +744,7 @@ b.warn,
   .gallery:not(.mobile) .mReplay {
     justify-content: center;
     width: 44px;
-    padding-left: 0;
+    padding-inline-start: 0;
   }
   .gallery:not(.mobile) .mStatus {
     display: none;
@@ -728,6 +763,8 @@ b.warn,
   gap: 3px;
 }
 .mLine {
+  /* holds the pieces set aside (above), clipped with the line */
+  position: relative;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
   font-size: var(--fs-label);
@@ -745,14 +782,14 @@ b.warn,
   align-items: center;
   gap: 6px;
   min-height: 44px;
-  padding-left: 12px;
+  padding-inline-start: 12px;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
   font-size: var(--fs-label);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--signal);
-  border-left: 1px solid var(--line);
+  border-inline-start: 1px solid var(--line);
   -webkit-tap-highlight-color: transparent;
 }
 /* The narrowest phones: the replay control is its glyph (a 44 px square, labelled), so the two caption lines never truncate. */
@@ -763,7 +800,7 @@ b.warn,
   .mReplay {
     justify-content: center;
     width: 44px;
-    padding-left: 0;
+    padding-inline-start: 0;
   }
 }
 .mReplay:active,
@@ -777,9 +814,9 @@ b.warn,
   justify-content: center;
   width: 40px;
   min-height: 40px;
-  margin-left: -8px;
+  margin-inline-start: -8px;
   color: var(--bone-2);
-  border-left: 1px solid var(--line);
+  border-inline-start: 1px solid var(--line);
   transition: color var(--d-hover) var(--ease-out);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -932,7 +969,7 @@ b.warn,
     height: 44px;
     min-height: 44px;
     padding: 0 12px;
-    border-left: 0;
+    border-inline-start: 0;
     background: var(--signal);
     color: var(--ink-0);
   }
@@ -949,5 +986,68 @@ b.warn,
   .mShare {
     width: 44px;
     min-height: 44px;
+  }
+}
+
+/*
+ * Right to left (docs/I18N.md). The photos are a sequence, like a time axis: the track, its rail and the < > keep
+ * running left to right (the first photo on the left, the next one peeking at the right, ← steps back), and so does
+ * the scroll arithmetic above, which reads scrollLeft as a forward distance. What is text follows the reading: the
+ * bar's filter starts on the right, the counter sits beside it with the < > at the outer edge, the captions mirror.
+ * Chips that are words (a cover's tag, a note, the sensor) are the frame's labels, not the ground's: they move to the
+ * reading's corner, and the expand control trades corners with them. What is drawn on the ground stays where the
+ * picture puts it, as in the viewer: the scale bar (its label at its own left end), the north arrow, the crosshair.
+ */
+:root[dir='rtl'] .nav {
+  direction: ltr;
+}
+:root[dir='rtl'] .counterBox {
+  order: 1;
+  direction: rtl;
+}
+:root[dir='rtl'] .viewport {
+  direction: ltr;
+}
+:root[dir='rtl'] .slide {
+  direction: rtl;
+}
+:root[dir='rtl'] .tl {
+  left: auto;
+  right: 8px;
+}
+:root[dir='rtl'] .noteChip {
+  left: auto;
+  right: 8px;
+}
+:root[dir='rtl'] .expand {
+  right: auto;
+  left: 0;
+}
+/* the corner arrows point into the corner they now sit in */
+:root[dir='rtl'] .expand svg {
+  transform: scaleX(-1);
+}
+/* the reveal's LINE counter: bottom right with the note in the summary (PushbroomReveal), bottom centre here */
+:root[dir='rtl'] .detail [data-scan-chip] {
+  left: 50%;
+  right: auto;
+}
+:root[dir='rtl'] .br,
+:root[dir='rtl'] .scale {
+  direction: ltr;
+}
+:root[dir='rtl'] .scaleText {
+  direction: rtl;
+}
+/* The archive's credit is English: it ends (and is cut) on the right, set flush with the Arabic plate. */
+:root[dir='rtl'] .credit {
+  direction: ltr;
+  text-align: right;
+}
+/* Short landscape phones: the square sits at the reading's start, on the right; its rail rides along it. */
+@media (min-width: 761px) and (orientation: landscape) and (max-height: 540px) {
+  :root[dir='rtl'] .detail:not(.mobile) .rail {
+    left: auto;
+    right: 0;
   }
 }

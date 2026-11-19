@@ -97,7 +97,7 @@ export default function GlobeSandbox() {
     setStatus(`COMPUTING ${p.label.toUpperCase()}…`)
     try {
       const t0 = performance.now()
-      const report = await computeReport(p, { signal: c.signal, onProgress: (e) => setStatus(e.message.toUpperCase()) })
+      const report = await computeReport(p, { signal: c.signal, onProgress: (e) => setStatus((typeof e.message === 'string' ? e.message : e.message.id).toUpperCase()) })
       if (c.signal.aborted) return
       const pass = pickPass(report)
       const s = useApp.getState()

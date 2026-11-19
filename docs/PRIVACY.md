@@ -9,7 +9,7 @@ The orbit maths runs in your browser. The site counts how it is used; it does no
 |:--|:--|
 | Lookup | A cell about 10 km across (0.1°), and that place's country and town. |
 | Share | The town-level place name, a point rounded to about 1 km (0.01°), the pass and its photos, and a view count. |
-| Visit | What happened (searches, results, passes and photos opened, shares, errors, page speed), tied to a random ID that lives only as long as the browser tab, with the device class, your country (from the host's edge), the referring site, any UTM tags and the app version. |
+| Visit | What happened (searches, results, passes and photos opened, shares, errors, page speed), tied to a random ID that lives only as long as the browser tab, with the device class, your country (from the host's edge), the referring site, any UTM tags, the app version and the language the app is shown in. |
 
 Raw events, visits and single lookups are deleted after 48 hours. What stays is counts: usage per hour and per day,
 and lookups per cell. Shares are kept.

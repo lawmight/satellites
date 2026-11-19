@@ -5,6 +5,9 @@ import esS2 from './__fixtures__/es-s2-waterloo.json'
 import clearS2 from './__fixtures__/pc-clear-sentinel-2-l2a-waterloo.json'
 import clearLs from './__fixtures__/pc-clear-landsat-c2-l2-waterloo.json'
 import { pcCropUrl } from './pcCrop'
+import enEngine from '@/i18n/en/engine'
+import { refText } from '@/i18n/messageRef'
+import type { MessageRef } from '@/types'
 import {
   dedupeCandidates,
   earthSearchItemToCandidate,
@@ -28,6 +31,8 @@ import {
 } from './stac'
 
 const WATERLOO = { lat: 43.4723, lon: -80.5449 }
+/** The search's degraded notes as the English sentences they render to (refs into the 'engine' namespace). */
+const english = (notes: readonly MessageRef[] = []) => notes.map((n) => refText(n, { engine: enEngine }, { english: true }) ?? '')
 const s2Items = (pcS2 as unknown as StacItemCollection).features
 const lsItems = (pcLandsat as unknown as StacItemCollection).features
 const esItems = (esS2 as unknown as StacItemCollection).features
@@ -325,7 +330,7 @@ describe('search', () => {
     const providers = new Set(r.captures.map((c) => c.provider))
     expect(providers).toEqual(new Set(['earth-search', 'planetary-computer']))
     expect(r.captures.filter((c) => c.collection === 'sentinel-2-l2a')).toHaveLength(esItems.length)
-    expect(r.degraded.join(' ')).toMatch(/Earth Search/)
+    expect(english(r.degraded).join(' ')).toMatch(/Earth Search/)
   })
 
   it('hands Sentinel-2’s scenes over the moment that archive answers, before Landsat’s (the lead photo’s crop starts then)', async () => {
@@ -375,7 +380,7 @@ describe('search', () => {
       // Well inside the report's 20 s: the scenes that did answer are used, with a note about the other archive.
       expect(r?.captures.length).toBeGreaterThan(0)
       expect(r?.captures.every((c) => c.collection === 'sentinel-2-l2a')).toBe(true)
-      expect(r?.degraded.join(' ')).toMatch(/Landsat archive unreachable/)
+      expect(english(r?.degraded).join(' ')).toMatch(/Landsat archive unreachable/)
       expect(asked.filter((c) => c === 'landsat-c2-l2')).toHaveLength(1) // not asked again
     } finally {
       vi.useRealTimers()
@@ -401,7 +406,7 @@ describe('search', () => {
       expect(earthSearchAt).toBeGreaterThanOrEqual(8_000)
       expect(earthSearchAt).toBeLessThan(8_100)
       expect(r?.captures).toHaveLength(esItems.length)
-      expect(r?.degraded.join(' ')).toMatch(/Earth Search/)
+      expect(english(r?.degraded).join(' ')).toMatch(/Earth Search/)
     } finally {
       vi.useRealTimers()
     }

@@ -8,6 +8,9 @@
  *
  * `onBeforeEnter` runs after the new content is in the DOM and before it becomes visible (e.g. restore
  * a scroll position so it never shows at the wrong place). The first mount does not animate.
+ *
+ * Forward travels along the reading: in a right-to-left page (`<html dir="rtl">`) it moves right, so the
+ * deeper view still arrives from where the reader is heading (docs/I18N.md, Right to left).
  */
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { DUR, EASE } from '@/lib/ease'
@@ -20,6 +23,11 @@ const TRAVEL_PX = 12
 const OUT_MS = 160
 const IN_DELAY_MS = 80
 
+/** 1, or −1 in a right-to-left page: the sign of "forward" on screen (the attribute, not a style read). */
+function readingSign(): number {
+  return typeof document !== 'undefined' && document.documentElement.dir === 'rtl' ? -1 : 1
+}
+
 export function Swap({
   k,
   dir = 1,
@@ -28,7 +36,7 @@ export function Swap({
   onBeforeEnter,
 }: {
   k: string
-  /** +1: forward (content moves left), −1: back */
+  /** +1: forward (content moves left; right in a right-to-left page), −1: back */
   dir?: number
   children: ReactNode
   className?: string
@@ -76,7 +84,7 @@ function SwapItem({
         /* cosmetic */
       }
       const reduced = prefersReducedMotion()
-      const d = dirRef.current
+      const d = dirRef.current * readingSign()
       node.animate(
         reduced
           ? [{ opacity: 0 }, { opacity: 1 }]
@@ -103,7 +111,7 @@ function SwapItem({
         c.style.zIndex = '1'
       })
       const reduced = prefersReducedMotion()
-      const d = dirRef.current
+      const d = dirRef.current * readingSign()
       animateOut(
         clone,
         reduced

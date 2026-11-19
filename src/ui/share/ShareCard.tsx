@@ -12,14 +12,25 @@
  * The picture is always the results' decoded photo (loadPhoto), shown by its element's own `src`: for Sentinel-2 /
  * Landsat that is the toned photo (a blob: URL of the bytes the pixels worker toned), so the preview shows exactly
  * the pixels of the pass view and of the downloaded PNG, never the raw archive render.
+ *
+ * The words are the spec's, in its language (spec.locale, the app's when it was built): the headline's parts are set
+ * as blocks in the order the language gives them, as the PNG and the server card set them; CSS uppercases the mono
+ * rows in the page's language, except their units ("10 m", "1 km": [data-unit] spans, as the PNG and the server card
+ * keep them).
  */
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { withUnits } from '@/i18n/Rich'
 import { cx, Wordmark } from '@/ui/system'
+import { cardMessages } from '../../../api/_lib/i18n/card/index'
+import { LOCALE_INFO, type Locale } from '../../../api/_lib/i18n/locales'
+import { isAccent, plain } from '../../../api/_lib/i18n/parts'
 import { decodedPhoto, loadPhoto } from '../results/images'
 import {
   CARD_COLOR,
   CARD_FS,
   HEAD,
+  HEAD_CJK,
+  headTracking,
   PANEL,
   TONE_COLOR,
   hatchPath,
@@ -29,10 +40,13 @@ import {
   type Prim,
   type ScaleBar,
 } from '../../../api/_lib/cardSpec'
+import { isolateSpec } from './bidi'
 import { CARD_H, CARD_W, PLATE, type CardSpec } from './card'
 import s from './ShareCard.module.css'
 
-export function ShareCard({ spec }: { spec: CardSpec }) {
+export function ShareCard({ spec: given }: { spec: CardSpec }) {
+  // Right to left, the words with their clocks, percentages and Latin names isolated, as the PNG draws them (bidi.ts)
+  const spec = useMemo(() => (LOCALE_INFO[given.locale].dir === 'rtl' ? isolateSpec(given) : given), [given])
   const wrapRef = useRef<HTMLDivElement>(null)
   const [k, setK] = useState(0.5)
   useLayoutEffect(() => {
@@ -49,29 +63,43 @@ export function ShareCard({ spec }: { spec: CardSpec }) {
   const S = spec.size
   const P = S * HEAD.placeScale
   const colW = PANEL.w / spec.readouts.length
+  // Between two blocks of the headline: the place's clear space above it (or below it, when the place comes first).
+  const blockGap = (i: number) => (i ? P * HEAD.placeGap : undefined)
+  const track = headTracking(spec.locale)
 
   return (
     // The wrap's height is CSS (aspect-ratio 1200 : 630 on its content box), so layout never waits on `k`: only the
     // card's scale (a transform) does.
     <div ref={wrapRef} className={s.wrap}>
       <div className={s.card} style={{ width: CARD_W, height: CARD_H, transform: `scale(${k})` }} aria-hidden>
-        {spec.plate.kind === 'image' ? <ImagePlateView plate={spec.plate} /> : <PlanView plan={spec.plate} />}
+        {spec.plate.kind === 'image' ? <ImagePlateView plate={spec.plate} locale={spec.locale} /> : <PlanView plan={spec.plate} locale={spec.locale} />}
         <div className={s.divider} style={{ left: PLATE }} />
 
         <Row box={PANEL.top}>
           <Wordmark height={20} className={s.lockupMark} />
-          {spec.stamp ? <span className={s.row} style={{ color: CARD_COLOR.bone2 }}>{spec.stamp}</span> : null}
+          {spec.stamp ? <span className={s.row} style={{ color: CARD_COLOR.bone2 }}>{withUnits(spec.stamp)}</span> : null}
         </Row>
         <Hair y={PANEL.rule1} />
 
         <div className={s.head} style={{ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.headBottom - PANEL.headTop }}>
-          <div className={s.lead} style={{ fontSize: S, lineHeight: HEAD.leadLH, letterSpacing: -0.02 * S }}>
-            {spec.lead}
-          </div>
-          <div className={s.place} style={{ fontSize: P, lineHeight: HEAD.placeLH, marginTop: P * HEAD.placeGap, letterSpacing: -0.01 * P }}>
-            {spec.place}
-            {spec.tail}
-          </div>
+          {spec.head.map((part, i) =>
+            isAccent(part) ? (
+              <div key={i} className={s.place} style={{ fontSize: P, lineHeight: (spec.cjk ? HEAD_CJK : HEAD).placeLH, marginTop: blockGap(i), letterSpacing: track.place * P }}>
+                {part.accent.map((q, j) => (
+                  <Fragment key={j}>{plain([q])}</Fragment>
+                ))}
+              </div>
+            ) : (
+              // Chinese, Japanese, Korean: each text part one phrase on one line, at their leading (HEAD_CJK)
+              <div
+                key={i}
+                className={s.lead}
+                style={{ fontSize: S, lineHeight: (spec.cjk ? HEAD_CJK : HEAD).leadLH, letterSpacing: track.lead * S, marginTop: blockGap(i), whiteSpace: spec.cjk ? 'nowrap' : undefined }}
+              >
+                {plain([part])}
+              </div>
+            ),
+          )}
           {spec.sub ? (
             <div className={s.sub} style={{ fontSize: CARD_FS.sub, lineHeight: HEAD.subLH, marginTop: HEAD.subGap }}>
               {spec.sub}
@@ -84,7 +112,7 @@ export function ShareCard({ spec }: { spec: CardSpec }) {
           <div key={r.label}>
             {i ? <div className={s.vrule} style={{ left: PANEL.x + i * colW, top: PANEL.roLabel[0], height: PANEL.roValue[0] + PANEL.roValue[1] - PANEL.roLabel[0] }} /> : null}
             <div className={cx(s.cell, s.row)} style={{ left: PANEL.x + i * colW + (i ? 22 : 0), top: PANEL.roLabel[0], height: PANEL.roLabel[1], color: CARD_COLOR.bone3 }}>
-              {r.label}
+              {withUnits(r.label)}
             </div>
             <div className={s.value} style={{ left: PANEL.x + i * colW + (i ? 22 : 0), top: PANEL.roValue[0], height: PANEL.roValue[1] }}>
               <span className={s.valueNum} style={spec.readoutSize ? { fontSize: spec.readoutSize } : undefined}>
@@ -98,7 +126,7 @@ export function ShareCard({ spec }: { spec: CardSpec }) {
         <Hair y={PANEL.rule3} />
         <Row box={PANEL.foot}>
           <span className={s.row} style={{ color: CARD_COLOR.bone2 }}>
-            {spec.footLeft}
+            {withUnits(spec.footLeft)}
           </span>
           {spec.host ? <span className={s.host}>{spec.host}</span> : null}
         </Row>
@@ -117,11 +145,13 @@ function Row({ box, children }: { box: readonly [number, number]; children: Reac
 
 const Hair = ({ y }: { y: number }) => <div className={s.hair} style={{ left: PANEL.x, top: y, width: PANEL.w }} />
 
-function PlanView({ plan, loading, leaving }: { plan: PlanPlate; loading?: boolean; leaving?: boolean }) {
+function PlanView({ plan, locale, loading, leaving }: { plan: PlanPlate; locale: Locale; loading?: boolean; leaving?: boolean }) {
   // While the picture loads, its geometry plate stands in, with the note chip saying so. Once the picture
   // starts to fade in over it (`leaving`), the stand-in's chips step out quickly, so the two layers' chips
   // (which share corners) never read doubled mid-fade.
-  const chips = loading ? plan.chips.map((c, i) => (i === plan.chips.length - 1 ? { ...c, segs: [{ text: 'Acquiring…', tone: 'bone2' as const }] } : c)) : plan.chips
+  const chips = loading
+    ? plan.chips.map((c, i) => (i === plan.chips.length - 1 ? { ...c, segs: [{ text: cardMessages(locale).acquiring, tone: 'bone2' as const }] } : c))
+    : plan.chips
   return (
     <div className={s.plate}>
       <Svg size={PLATE} prims={plan.prims} />
@@ -138,7 +168,7 @@ function PlanView({ plan, loading, leaving }: { plan: PlanPlate; loading?: boole
 type ImgState = 'loading' | 'ok' | 'err'
 
 /** The picture plate: the decoded pass-view crop cut to the card's square, or the card's own crop. */
-function ImagePlateView({ plate }: { plate: ImagePlate }) {
+function ImagePlateView({ plate, locale }: { plate: ImagePlate; locale: Locale }) {
   // Candidates in order: the pass view's picture (a cache hit, normally), then the card's own crop.
   const urls = [plate.source?.url, plate.imageUrl].filter((u, i, a): u is string => !!u && a.indexOf(u) === i)
   const key = urls.join('|')
@@ -183,7 +213,7 @@ function ImagePlateView({ plate }: { plate: ImagePlate }) {
   }
 
   // Nothing could be fetched: draw what the PNG and the OG card draw in that case (the pass geometry).
-  if (img.state === 'err' || !url) return <PlanView plan={plate.fallback} />
+  if (img.state === 'err' || !url) return <PlanView plan={plate.fallback} locale={locale} />
 
   const style: CSSProperties | undefined = rect
     ? {
@@ -195,7 +225,7 @@ function ImagePlateView({ plate }: { plate: ImagePlate }) {
     : undefined
   return (
     <div className={s.plate}>
-      {img.settled ? null : <PlanView plan={plate.fallback} loading leaving={img.state === 'ok'} />}
+      {img.settled ? null : <PlanView plan={plate.fallback} locale={locale} loading leaving={img.state === 'ok'} />}
       <div className={cx(s.picture, img.state === 'ok' && (img.instant ? s.pictureNow : s.pictureOn))} onTransitionEnd={onFaded}>
         {src ? (
           <img
@@ -227,12 +257,13 @@ function ImagePlateView({ plate }: { plate: ImagePlate }) {
   )
 }
 
+/** lang="en" on the licence credit (Chip.lang): English in every language, so text-transform cases it as English. */
 function ChipView({ chip }: { chip: Chip }) {
   return (
-    <span className={s.chip} style={{ ...chip.pos, fontSize: chip.size } as CSSProperties}>
+    <span className={s.chip} lang={chip.lang} style={{ ...chip.pos, fontSize: chip.size } as CSSProperties}>
       {chip.segs.map((seg, i) => (
         <span key={i} style={{ color: TONE_COLOR[seg.tone] }}>
-          {seg.text}
+          {withUnits(seg.text)}
         </span>
       ))}
     </span>
@@ -244,7 +275,7 @@ function Scale({ bar }: { bar: ScaleBar }) {
   return (
     <span className={s.chip} style={{ right: 24, top: 24, fontSize: CARD_FS.chip }}>
       <span className={s.bar} style={{ width: bar.px }} />
-      <span>{bar.label}</span>
+      <span>{withUnits(bar.label)}</span>
     </span>
   )
 }

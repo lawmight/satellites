@@ -33,19 +33,20 @@
 }
 .tl,
 .bl {
-  left: calc(var(--bezel-inset) + var(--margin) + env(safe-area-inset-left, 0px));
+  inset-inline-start: calc(var(--bezel-inset) + var(--margin) + var(--safe-start));
   justify-items: start;
-  text-align: left;
+  text-align: start;
 }
 /* Right corners hold a fixed box (their widest allowed measure) and align their lines to its right
    edge: a line that grows, appears or goes (the scene time during a replay) then never moves the box's
-   left edge, so nothing shifts (CLS) and the other lines stay exactly where they were. */
+   left edge, so nothing shifts (CLS) and the other lines stay exactly where they were.
+   Logical sides: right to left, the corners swap (tl is the top right), as an Arabic reader starts there. */
 .tr,
 .br {
-  right: calc(var(--bezel-inset) + var(--margin) + env(safe-area-inset-right, 0px));
+  inset-inline-end: calc(var(--bezel-inset) + var(--margin) + var(--safe-end));
   width: calc(50vw - var(--bezel-inset) - var(--margin) - 12px);
   justify-items: end;
-  text-align: right;
+  text-align: end;
 }
 
 /* Narrow phones (375): "HOW THIS WORKS" and "SUN 16.9°S 030.7°E" / "SCENE 12:06:47 CET" ran into each other at the

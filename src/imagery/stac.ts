@@ -13,7 +13,9 @@
  * archive 16:14:21, SGP4 closest approach 16:21:14). Match captures to passes by NORAD id and
  * orbit (|Δt| ≲ 15 min) and display the pass time, not `Capture.datetime`.
  */
-import type { Capture, LatLon } from '@/types'
+import type { Capture, LatLon, MessageRef } from '@/types'
+import type enEngine from '@/i18n/en/engine'
+import { refMaker } from '@/i18n/messageRef'
 import { ES_STAC_SEARCH, PC_STAC_SEARCH, type CropOpts, type StacCollection } from './endpoints'
 import { pcCropUrl } from './pcCrop'
 import { fetchJson, HttpError, isAbortError, throwIfAborted, type RetryOptions } from './net'
@@ -487,12 +489,16 @@ async function searchEarthSearchS2(place: LatLon, start: number, end: number, si
 export interface CaptureSearchResult {
   captures: Capture[]
   /**
-   * Plain-language notes on anything that went wrong but didn't stop the search, e.g. an archive
-   * that was unreachable. Empty when every archive answered. Show these as footnotes: an absent
-   * Landsat image means something different when Landsat's archive didn't answer.
+   * Notes on anything that went wrong but didn't stop the search, e.g. an archive that was unreachable, as
+   * 'engine.note.*' refs (src/i18n/en/engine.ts; render with src/i18n/messageRef.ts). Empty when every archive
+   * answered. Show these as footnotes: an absent Landsat image means something different when Landsat's archive
+   * didn't answer.
    */
-  degraded: string[]
+  degraded: MessageRef[]
 }
+
+/** The report's footnotes are the engine's copy: refs into its namespace, rendered in the language on screen. */
+const note = refMaker<typeof enEngine>('engine')
 
 /**
  * Like `searchCaptures`, but also reports partial failures. Throws only if every archive failed. `onSentinel2`, when
@@ -508,7 +514,7 @@ export async function searchCapturesDetailed(
 ): Promise<CaptureSearchResult> {
   throwIfAborted(signal)
   if (!(end > start) || !Number.isFinite(place.lat) || !Number.isFinite(place.lon)) return { captures: [], degraded: [] }
-  const degraded: string[] = []
+  const degraded: MessageRef[] = []
   const early = (cands: Candidate[]) => {
     if (!onSentinel2 || !cands.length || signal?.aborted) return
     try {
@@ -528,9 +534,7 @@ export async function searchCapturesDetailed(
       const es = await searchEarthSearchS2(place, start, end, signal)
       early(es)
       degraded.push(
-        es.some((c) => c.capture.provider === 'earth-search' && !isPcS2ItemId(c.capture.itemId))
-          ? 'Sentinel-2 listed via Earth Search; some scenes show a full-scene thumbnail, not a crop.'
-          : 'Sentinel-2 listed via Earth Search (Planetary Computer search unavailable).',
+        es.some((c) => c.capture.provider === 'earth-search' && !isPcS2ItemId(c.capture.itemId)) ? note('note.sentinel2Thumbnails') : note('note.sentinel2EarthSearch'),
       )
       return es
     }
@@ -542,8 +546,8 @@ export async function searchCapturesDetailed(
   if (a.status === 'rejected' && b.status === 'rejected') {
     throw new Error('Sentinel-2 and Landsat archives are unreachable right now.', { cause: a.reason })
   }
-  if (a.status === 'rejected') degraded.push('Sentinel-2 archive unreachable; Sentinel-2 images may be missing.')
-  if (b.status === 'rejected') degraded.push('Landsat archive unreachable; Landsat images may be missing.')
+  if (a.status === 'rejected') degraded.push(note('note.sentinel2Down'))
+  if (b.status === 'rejected') degraded.push(note('note.landsatDown'))
   const cands = [...(a.status === 'fulfilled' ? a.value : []), ...(b.status === 'fulfilled' ? b.value : [])]
   return { captures: dedupeCandidates(cands, place).map((c) => c.capture), degraded }
 }

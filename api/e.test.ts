@@ -1,6 +1,8 @@
 /** The events relay (api/e.ts).  npx vitest run --config scripts/backend-vitest.config.ts */
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleEvents, relayBody } from './e.js'
+import { LOCALES } from './_lib/i18n/locales.js'
 
 const SID = 'sid_abcdefghijklmnop'
 const batch = (over: Record<string, unknown> = {}) => JSON.stringify({ sid: SID, ctx: { device: 'phone', country: 'zz' }, events: [{ type: 'view', p: { entry: 'landing' } }], ...over })
@@ -12,6 +14,14 @@ describe('relayBody', () => {
     expect(JSON.parse(relayBody(batch(), 'XX')!).batch.ctx).toEqual({ device: 'phone' })
   })
   it('drops extra top-level keys', () => expect(JSON.parse(relayBody(batch({ ip: '1.2.3.4' }), null)!).batch).not.toHaveProperty('ip'))
+  it('passes the tab\'s language on, and the database takes exactly the app\'s languages (0027)', () => {
+    const body = batch({ ctx: { device: 'phone', lang: 'zh-Hant' } })
+    expect(JSON.parse(relayBody(body, 'TW')!).batch.ctx).toEqual({ device: 'phone', lang: 'zh-Hant', country: 'tw' })
+    // log_events stores ctx.lang only when it is one of these, letter for letter: a locale added to the app needs a migration.
+    const sql = readFileSync(new URL('../supabase/migrations/0027_tab_language.sql', import.meta.url), 'utf8')
+    const list = /v_langs\s+constant text\[\] := array\[([^\]]*)\]/.exec(sql)?.[1]
+    expect(list?.split(',').map((s) => s.trim().replace(/^'|'$/g, ''))).toEqual([...LOCALES])
+  })
   it('rejects junk', () => {
     expect(relayBody('nope', null)).toBeNull()
     expect(relayBody('[]', null)).toBeNull()

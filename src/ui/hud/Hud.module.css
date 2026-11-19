@@ -89,7 +89,7 @@
   display: inline-block;
   width: 0.62em;
   height: 1em;
-  margin-left: 0.5em;
+  margin-inline-start: 0.5em;
   vertical-align: -0.12em;
   background: var(--bone-3-mark, rgb(236 232 224 / 0.4));
   animation: hard-blink 1s steps(1, end) infinite;
@@ -115,8 +115,10 @@
   position: relative;
   z-index: 1;
   display: inline-flex;
-  padding: 12px 8px 3px 0;
-  margin: -12px -8px -3px 0;
+  padding: 12px 0 3px;
+  padding-inline-end: 8px;
+  margin: -12px 0 -3px;
+  margin-inline-end: -8px;
   border-radius: 1px;
   transition: opacity var(--d-hover) var(--ease-out);
 }
@@ -186,7 +188,7 @@
   color: var(--bone);
 }
 .sceneValue {
-  margin-left: 0.7em;
+  margin-inline-start: 0.7em;
   color: var(--bone);
 }
 @keyframes hard-blink {
@@ -201,6 +203,14 @@
      .mob                 the sun line that joins the TR block when the bottom corners are gone */
 .mob {
   display: none !important;
+}
+/* The About line, which the phone's sun line keeps clear of (Hud.tsx useCrowdedSun reads its box by this class). */
+.aboutLine {
+  min-width: 0;
+}
+/* The phone's sun line, where it would crowd "How this works" (Hud.tsx useCrowdedSun): kept in place, unseen. */
+.sunLine[data-crowded] {
+  visibility: hidden;
 }
 
 @media (max-width: 760px) {

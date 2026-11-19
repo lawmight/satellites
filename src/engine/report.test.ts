@@ -1,5 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Capture, LatLon, Pass, Place } from '@/types'
+import type { Capture, LatLon, MessageRef, Pass, Place } from '@/types'
+import enEngine from '@/i18n/en/engine'
+import { refText } from '@/i18n/messageRef'
 
 // The imagery module is mocked: these tests exercise orchestration and matching, not the network.
 const imagery = vi.hoisted(() => ({
@@ -28,6 +30,9 @@ import { findPassesForSat, passTargetFor } from './passes'
 import { computeReport, OCEAN_NOTE } from './report'
 import { _resetClearCoverCache } from './clearCover'
 import { loadTestCatalog, TOKYO, WATERLOO } from './testing'
+
+/** A report's notes as the English sentences they render to (they are refs into the 'engine' namespace). */
+const english = (notes: readonly (string | MessageRef)[]) => notes.map((n) => refText(n, { engine: enEngine }, { english: true }) ?? '')
 
 let now: number
 const waterloo: Place = { label: 'Waterloo', ...WATERLOO, source: 'demo' }
@@ -200,7 +205,7 @@ describe('computeReport', () => {
     // Nobody listens for late patches (no onUpdate): the stragglers are aborted at the budget.
     expect(aborted.length).toBeGreaterThan(0)
     expect(report.notes).toHaveLength(1)
-    expect(report.notes[0]).toMatch(new RegExp(`did not return ${aborted.length} of \\d+ weather-satellite images in time`))
+    expect(english(report.notes)[0]).toMatch(new RegExp(`did not return ${aborted.length} of \\d+ weather-satellite images in time`))
     // Never sooner than 1.2 s after the first probe, and not much later.
     expect(elapsed).toBeLessThan(report.timings.passesMs + 2500)
     expect(report.counts.imaged).toBe(report.passes.filter((p) => p.verdict === 'imaged').length)
@@ -231,8 +236,8 @@ describe('computeReport', () => {
     const ruleDays = imaged.map((p) => day(p.tClosest)).filter((d) => d !== latest)
     expect(ruleDays.length).toBeGreaterThan(0)
     for (const p of imaged) expect(Date.now() - p.tClosest > 86_400_000 || day(p.tClosest) === latest).toBe(true)
-    expect(report.notes.some((n) => /slow to confirm .*VIIRS/.test(n))).toBe(true)
-    expect(report.notes.some((n) => /shown as likely/.test(n))).toBe(true) // Terra, Suomi NPP
+    expect(english(report.notes).some((n) => /slow to confirm .*VIIRS/.test(n))).toBe(true)
+    expect(english(report.notes).some((n) => /shown as likely/.test(n))).toBe(true) // Terra, Suomi NPP
   })
 
   it('patches the report upward when a straggler answers after the budget', async () => {
@@ -251,7 +256,7 @@ describe('computeReport', () => {
       now,
       budgetMs: 200,
       signal: ctl.signal,
-      onUpdate: (r) => updates.push({ imaged: r.counts.imaged, notes: r.notes, late: r.lateChecks }),
+      onUpdate: (r) => updates.push({ imaged: r.counts.imaged, notes: english(r.notes), late: r.lateChecks }),
     })
     const before = report.counts.imaged
     const terraBefore = report.passes.filter((p) => p.norad === 25994 && p.verdict === 'imaged').length
@@ -639,7 +644,7 @@ describe('computeReport', () => {
     expect(report.counts.imaged).toBe(0)
     expect(report.captures).toEqual([])
     expect(report.notes.length).toBe(2)
-    expect(report.notes[1]).toMatch(/^NASA GIBS could not be reached/)
+    expect(english(report.notes)[1]).toMatch(/^NASA GIBS could not be reached/)
     expect(report.archiveFailed).toBe(true)
     // An outage is not "the open ocean": the plan question is never asked then.
     expect(imagery.sentinel2PlanCovers).not.toHaveBeenCalled()

@@ -23,6 +23,21 @@ export interface Place extends LatLon {
   source: 'search' | 'geolocation' | 'url' | 'demo' | 'surprise' | 'pin'
   /** The label names a street, a building or an address (set by the geocoder): usage stats save its city instead */
   streetLevel?: boolean
+  /**
+   * A curated place (an example chip, a Surprise me pick) shows its label in the visitor's language; this is its
+   * English label, the one usage stats and record_lookup keep, so counts never split by language.
+   */
+  canonicalLabel?: string
+}
+
+/**
+ * A message the UI renders in the visitor's language: `id` names a message in a catalog namespace (src/i18n/en/*),
+ * `params` fill its slots. Engines and the controller emit these instead of English sentences, so a language switch
+ * re-renders them and usage stats can log their English text (docs/I18N.md).
+ */
+export interface MessageRef {
+  id: string
+  params?: Record<string, string | number | boolean>
 }
 
 /**
@@ -270,8 +285,11 @@ export interface Report {
   passes: Pass[]
   captures: Capture[]
   geo: GeoWatcher[]
-  /** Plain sentences about degraded data (archive outages etc.), shown as bone-3 footnotes */
-  notes?: string[]
+  /**
+   * About degraded data (archive outages etc.), shown as bone-3 footnotes: messages (MessageRef), or plain English
+   * sentences from reports made before notes were messages
+   */
+  notes?: (string | MessageRef)[]
   /** True while archive/GIBS verification is still streaming in */
   partial?: boolean
   /**
@@ -298,10 +316,10 @@ export interface Report {
   }
 }
 
-/** Progress messages from long computations, shown verbatim in the HUD (mono, uppercase). */
+/** Progress messages from long computations, shown in the HUD (mono, uppercase), in the visitor's language. */
 export interface ProgressEvent {
   stage: 'catalog' | 'propagate' | 'archive' | 'match' | 'done'
-  message: string
+  message: string | MessageRef
   /** 0..1 or undefined for indeterminate */
   fraction?: number
 }

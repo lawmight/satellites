@@ -22,3 +22,11 @@ export function h(type: string, props: Props | null, ...children: (Child | Child
 export function box(style: CSSProperties, ...children: (Child | Child[])[]): ReactElement {
   return h('div', { style: { display: 'flex', ...style } }, ...children)
 }
+
+/** Every word an element tree prints (its text children, joined by spaces): what its fonts must be able to draw. */
+export function textOf(node: Child | Child[]): string {
+  if (node === null || node === undefined || node === false) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(textOf).join(' ')
+  return textOf((node.props as { children?: Child | Child[] }).children)
+}

@@ -8,6 +8,15 @@
  * Instrument style (docs/DESIGN.md): near-black ink, warm bone type, one sodium-orange signal,
  * hairlines, Martian Mono numerics, condensed Instrument Sans display, one Instrument Serif phrase.
  * Line art is ≥ 2px wherever it carries meaning, so it survives X's ~600px timeline render.
+ *
+ * The words are the spec's, in its language (spec.locale): mono rows are uppercased here in that language, their units
+ * kept as they are ("10 m": satori's own text-transform knows no language, Turkish i must become İ, and would
+ * uppercase the units), and the headline's blocks are set in the order the language's message gives them. The default
+ * card takes its words from the card catalog in the same way.
+ *
+ * Every role names its face and then the face the web gives Cyrillic (fonts.ts FAMILY), so Ukrainian and Cyrillic
+ * place names are set as the app sets them; a Chinese, Japanese or Korean card carries its language (`lang`), so its
+ * Han characters take that language's forms.
  */
 import type { CSSProperties, ReactElement } from 'react'
 import { readFile } from 'node:fs/promises'
@@ -21,6 +30,8 @@ import {
   CHIP_BOX,
   DEFAULT_CARD_ALT,
   HEAD,
+  HEAD_CJK,
+  headTracking,
   PANEL,
   PLATE,
   TONE_COLOR,
@@ -39,8 +50,12 @@ import {
   type ScaleBar,
   type Tone,
 } from './cardSpec.js'
+import { cardMessages } from './i18n/card/index.js'
+import { DEFAULT_LOCALE, LOCALE_INFO, type Locale, type Script } from './i18n/locales.js'
+import { isAccent, plain, type Rich } from './i18n/parts.js'
+import { capsExceptUnits } from './i18n/units.js'
 import { bundled } from './bundled.js'
-import { FONT } from './fonts.js'
+import { FAMILY } from './fonts.js'
 import { WORDMARK_ASPECT, wordmarkSvg } from './wordmark.js'
 import { box, h, type Child } from './h.js'
 
@@ -48,24 +63,30 @@ export { CARD_H, CARD_W, PLATE, niceLength }
 
 // ── Type primitives ─────────────────────────────────────────────────────────────────────────
 
-/** Mono caps text: tracking +0.08em, as `.label` in primitives.module.css. */
-function mono(text: string, size: number, color: string, style: CSSProperties = {}): ReactElement {
+/**
+ * Mono caps text: tracking +0.08em, as `.label` in primitives.module.css. Uppercased here in the card's language,
+ * except its units ("10 m", "1 km": ./i18n/units.ts), so satori's own text-transform is off: it would uppercase the
+ * units too, and in no language's rules (Turkish i must become İ). `textTransform: 'none'` from a caller keeps the
+ * text as it is (the host, a readout's unit).
+ */
+function mono(locale: Locale, text: string, size: number, color: string, style: CSSProperties = {}): ReactElement {
+  const shown = style.textTransform === 'none' ? text : capsExceptUnits(text, LOCALE_INFO[locale].intl)
   return h(
     'div',
     {
       style: {
         display: 'flex',
-        fontFamily: FONT.mono,
+        fontFamily: FAMILY.mono,
         fontSize: size,
         letterSpacing: size * TRACK.label,
-        textTransform: 'uppercase',
+        textTransform: 'none',
         color,
         lineHeight: 1.3,
         whiteSpace: 'nowrap',
         ...style,
       },
     },
-    text,
+    shown,
   )
 }
 
@@ -116,7 +137,7 @@ function svgPrims(prims: Prim[], size: number, idPrefix: string): ReactElement {
 }
 
 /** Flat ink chip for text over imagery (no blur, no shadow: DESIGN §1). */
-function chip(c: Chip): ReactElement {
+function chip(locale: Locale, c: Chip): ReactElement {
   return abs(
     {
       ...c.pos,
@@ -126,12 +147,13 @@ function chip(c: Chip): ReactElement {
       background: C.chip,
       border: `1px solid ${C.lineStrong}`,
     },
-    c.segs.map((s) => mono(s.text, c.size, TONE_COLOR[s.tone])),
+    // The licence credit is English in every language, so it is uppercased as English (Chip.lang).
+    c.segs.map((s) => mono(c.lang ?? locale, s.text, c.size, TONE_COLOR[s.tone])),
   )
 }
 
-/** Scale bar sized to a round ground distance: ├── 1 KM ──┤, top right of the plate. */
-function scaleBar(s: ScaleBar): ReactElement | null {
+/** Scale bar sized to a round ground distance: ├── 1 km ──┤, top right of the plate. */
+function scaleBar(locale: Locale, s: ScaleBar): ReactElement | null {
   if (s.px <= 0) return null
   return abs(
     {
@@ -144,7 +166,7 @@ function scaleBar(s: ScaleBar): ReactElement | null {
       border: `1px solid ${C.lineStrong}`,
     },
     box({ width: s.px, height: 10, borderLeft: `2px solid ${C.bone}`, borderRight: `2px solid ${C.bone}`, alignItems: 'center' }, box({ height: 2, width: '100%', background: C.bone })),
-    mono(s.label, CARD_FS.chip, C.bone),
+    mono(locale, s.label, CARD_FS.chip, C.bone),
   )
 }
 
@@ -152,67 +174,94 @@ function scaleBar(s: ScaleBar): ReactElement | null {
 
 const CENTRE = PLATE / 2
 
-function imagePlate(p: ImagePlate, dataUri: string): ReactElement {
+function imagePlate(locale: Locale, p: ImagePlate, dataUri: string): ReactElement {
   return abs(
     { left: 0, top: 0, width: PLATE, height: PLATE, background: C.ink1, overflow: 'hidden' },
     h('img', { src: dataUri, width: PLATE, height: PLATE, style: { position: 'absolute', left: 0, top: 0, width: PLATE, height: PLATE } }),
     p.clouded ? abs({ left: 0, top: 0, width: PLATE, height: PLATE, background: C.veil }) : null,
     p.clouded ? svgPrims([{ t: 'path', d: hatch(), stroke: C.hatch, width: 1 }], PLATE, 'h') : null,
     svgPrims(p.overlay, PLATE, 'i'),
-    chip(p.chip),
-    scaleBar(p.scale),
-    p.clouded ? chip(p.clouded) : null,
-    chip(p.credit),
+    chip(locale, p.chip),
+    scaleBar(locale, p.scale),
+    p.clouded ? chip(locale, p.clouded) : null,
+    chip(locale, p.credit),
   )
 }
 
 let hatchD: string | null = null
 const hatch = () => (hatchD ??= hatchPath(PLATE))
 
-function plate(p: Plate, dataUri: string | null): ReactElement {
-  if (p.kind === 'image' && dataUri) return imagePlate(p, dataUri)
+function plate(locale: Locale, p: Plate, dataUri: string | null): ReactElement {
+  if (p.kind === 'image' && dataUri) return imagePlate(locale, p, dataUri)
   const plan = p.kind === 'image' ? p.fallback : p
   return abs(
     { left: 0, top: 0, width: PLATE, height: PLATE, background: C.ink1, overflow: 'hidden' },
     svgPrims(plan.prims, PLATE, 'p'),
-    plan.chips.map(chip),
-    scaleBar(plan.scale),
+    plan.chips.map((c) => chip(locale, c)),
+    scaleBar(locale, plan.scale),
   )
 }
 
 // ── The panel ───────────────────────────────────────────────────────────────────────────────
 
-/** The headline block, centred in its band (PANEL.headTop … headBottom): condensed lead, serif place, optional sub-line. */
-function headline(spec: Pick<CardSpec, 'lead' | 'place' | 'tail' | 'sub' | 'size'>): ReactElement {
+/**
+ * The headline block, centred in its band (PANEL.headTop … headBottom): the headline's parts as blocks in their order
+ * (text in the condensed display face, the accent, the place, in the serif, P × placeGap between two blocks), then
+ * the optional sub-line. The display text is tracked by script (headTracking), as the app's own preview and PNG of
+ * this card are (src/ui/share/ShareCard.tsx and card.ts): the unfurl shows what the sharer saw.
+ */
+function headline(spec: Pick<CardSpec, 'head' | 'sub' | 'size' | 'cjk' | 'locale'>): ReactElement {
   const S = spec.size
   const P = S * HEAD.placeScale
+  const gap = P * HEAD.placeGap
+  // Chinese, Japanese and Korean: their leading, and each text part one phrase on one line (HEAD_CJK).
+  const lh = spec.cjk ? HEAD_CJK : HEAD
+  const track = headTracking(spec.locale)
+  const blocks = spec.head.map((part, i) =>
+    isAccent(part)
+      ? h(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              fontFamily: FAMILY.serif,
+              fontStyle: 'italic',
+              fontSize: P,
+              lineHeight: lh.placeLH,
+              // Korean breaks only between words, as the page (scripts.css keep-all) and the canvas do: 종로 / 구 otherwise
+              ...(spec.locale === 'ko' ? { wordBreak: 'keep-all' as const } : {}),
+              ...(i ? { marginTop: gap } : {}),
+              letterSpacing: track.place * P,
+              color: C.bone,
+            },
+          },
+          plain(part.accent),
+        )
+      : h(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              fontFamily: FAMILY.display,
+              fontWeight: 600,
+              fontSize: S,
+              lineHeight: lh.leadLH,
+              ...(spec.cjk ? { whiteSpace: 'nowrap' as const } : {}),
+              ...(i ? { marginTop: gap } : {}),
+              letterSpacing: track.lead * S,
+              color: C.bone,
+            },
+          },
+          plain([part]),
+        ),
+  )
   return abs(
     { left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.headBottom - PANEL.headTop, flexDirection: 'column', justifyContent: 'center' },
-    h(
-      'div',
-      { style: { display: 'flex', fontFamily: FONT.display, fontWeight: 600, fontSize: S, lineHeight: HEAD.leadLH, letterSpacing: -0.02 * S, color: C.bone } },
-      spec.lead,
-    ),
-    h(
-      'div',
-      {
-        style: {
-          display: 'flex',
-          fontFamily: FONT.serif,
-          fontStyle: 'italic',
-          fontSize: P,
-          lineHeight: HEAD.placeLH,
-          marginTop: P * HEAD.placeGap,
-          letterSpacing: -0.01 * P,
-          color: C.bone,
-        },
-      },
-      `${spec.place}${spec.tail}`,
-    ),
+    ...blocks,
     spec.sub
       ? h(
           'div',
-          { style: { display: 'flex', fontFamily: FONT.sans, fontSize: CARD_FS.sub, lineHeight: HEAD.subLH, marginTop: HEAD.subGap, color: C.bone2 } },
+          { style: { display: 'flex', fontFamily: FAMILY.sans, fontSize: CARD_FS.sub, lineHeight: HEAD.subLH, marginTop: HEAD.subGap, color: C.bone2 } },
           spec.sub,
         )
       : null,
@@ -222,6 +271,7 @@ function headline(spec: Pick<CardSpec, 'lead' | 'place' | 'tail' | 'sub' | 'size
 const tone = (t: Tone) => TONE_COLOR[t]
 
 function readouts(spec: CardSpec): ReactElement[] {
+  const l = spec.locale
   const n = spec.readouts.length
   const colW = PANEL.w / n
   const size = spec.readoutSize ?? CARD_FS.readout
@@ -229,26 +279,43 @@ function readouts(spec: CardSpec): ReactElement[] {
     const x = PANEL.x + i * colW + (i ? 22 : 0)
     const out: ReactElement[] = []
     if (i) out.push(abs({ left: PANEL.x + i * colW, top: PANEL.roLabel[0], width: 1, height: PANEL.roValue[0] + PANEL.roValue[1] - PANEL.roLabel[0], background: C.line }))
-    out.push(abs({ left: x, top: PANEL.roLabel[0], height: PANEL.roLabel[1], alignItems: 'center' }, mono(r.label, CARD_FS.row, C.bone3)))
+    out.push(abs({ left: x, top: PANEL.roLabel[0], height: PANEL.roLabel[1], alignItems: 'center' }, mono(l, r.label, CARD_FS.row, C.bone3)))
     out.push(
       abs(
         { left: x, top: PANEL.roValue[0], height: PANEL.roValue[1], alignItems: 'baseline', gap: r.unit ? 8 : 0 },
-        h('div', { style: { display: 'flex', fontFamily: FONT.mono, fontSize: size, letterSpacing: TRACK.readout * size, color: C.bone, lineHeight: 1 } }, r.value),
-        r.unit ? mono(r.unit, CARD_FS.readoutUnit, C.bone3, { lineHeight: 1 }) : null,
+        h('div', { style: { display: 'flex', fontFamily: FAMILY.mono, fontSize: size, letterSpacing: TRACK.readout * size, color: C.bone, lineHeight: 1 } }, r.value),
+        // A readout's unit is a unit symbol ("km", "m", "km/s"): it keeps its case.
+        r.unit ? mono(l, r.unit, CARD_FS.readoutUnit, C.bone3, { lineHeight: 1, textTransform: 'none' }) : null,
       ),
     )
     return out
   })
 }
 
-function footer(left: string, host: string): ReactElement[] {
+function footer(locale: Locale, left: string, host: string): ReactElement[] {
   return [
     rule(PANEL.rule3),
-    row(PANEL.foot, mono(left, CARD_FS.row, C.bone2), host ? mono(host, CARD_FS.row, C.bone2, { textTransform: 'none', letterSpacing: 0.5 }) : undefined),
+    row(PANEL.foot, mono(locale, left, CARD_FS.row, C.bone2), host ? mono(locale, host, CARD_FS.row, C.bone2, { textTransform: 'none', letterSpacing: 0.5 }) : undefined),
   ]
 }
 
 // ── Cards ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * satori's code for a language that gives Han characters forms of its own, set as the card's `lang`: satori then draws
+ * Han from the Noto it loaded for that language (fallbackFonts.ts) rather than from whichever it loaded first, as the
+ * web's per-language stacks do. Only these four: satori matches `lang` by prefix against its own codes (German `de`
+ * would read as Devanagari), and no other language has forms to choose. (Korean's rare Han still take Japanese forms:
+ * satori asks for a Korean font only for hangul.)
+ */
+const HAN_LANG: Partial<Record<Locale, string>> = { ja: 'ja-JP', ko: 'ko-KR', 'zh-Hans': 'zh-CN', 'zh-Hant': 'zh-TW' }
+
+/** The 1200×630 card itself, in its language. */
+function cardRoot(locale: Locale, ...children: (Child | Child[])[]): ReactElement {
+  const lang = HAN_LANG[locale]
+  const style: CSSProperties = { display: 'flex', position: 'relative', width: CARD_W, height: CARD_H, background: C.ink0, fontFamily: FAMILY.sans, color: C.bone }
+  return h('div', lang ? { lang, style } : { style }, ...children)
+}
 
 export interface ShareCardInput {
   spec: CardSpec
@@ -257,16 +324,16 @@ export interface ShareCardInput {
 }
 
 export function shareCard({ spec, image }: ShareCardInput): ReactElement {
-  return box(
-    { position: 'relative', width: CARD_W, height: CARD_H, background: C.ink0, fontFamily: FONT.sans, color: C.bone },
-    plate(spec.plate, image?.dataUri ?? null),
+  return cardRoot(
+    spec.locale,
+    plate(spec.locale, spec.plate, image?.dataUri ?? null),
     abs({ left: PLATE, top: 0, width: 1, height: CARD_H, background: C.lineStrong }),
-    row(PANEL.top, lockup(), spec.stamp ? mono(spec.stamp, CARD_FS.row, C.bone2) : undefined),
+    row(PANEL.top, lockup(), spec.stamp ? mono(spec.locale, spec.stamp, CARD_FS.row, C.bone2) : undefined),
     rule(PANEL.rule1),
     headline(spec),
     rule(PANEL.rule2),
     ...readouts(spec),
-    ...footer(spec.footLeft, spec.host),
+    ...footer(spec.locale, spec.footLeft, spec.host),
   )
 }
 
@@ -284,9 +351,12 @@ export const DEFAULT_PLATE = {
   datetime: Date.UTC(2026, 10, 3, 6, 50, 31),
   lat: 25.1206,
   lon: 55.132,
-  place: 'Palm Jumeirah, Dubai',
-  /** The plate names the place (the card has no place row: owner removed the ◆ row and the coordinates) */
-  chip: 'Palm Jumeirah · Sentinel-2C · 10 m',
+  /**
+   * The plate's chip names the place (the card catalog's `defaultPlace`), then this satellite and pixel: the card has
+   * no place row (owner removed the ◆ row and the coordinates).
+   */
+  satName: 'Sentinel-2C',
+  gsdM: 10,
 } as const
 
 export { DEFAULT_CARD_ALT }
@@ -312,60 +382,82 @@ export function defaultPlateDataUri(): Promise<string | null> {
 }
 
 /**
- * The hero, set in explicit lines (satori has no inline formatting, and a free wrap left "week." as a
- * widow): "Something / photographed / *you* this week." The last line is the widest (≈ 445 of the
- * 466px column at 88px); it never wraps, so the phrase always stays whole.
+ * The landing hero's tracking per script, in em (--track-display in src/styles/tokens.css, overridden in scripts.css):
+ * Cyrillic lowercase is a denser picket fence than Latin, Han and kana denser again. Arabic is tracked as Latin until
+ * the right-to-left card gives it the web's (none: tracking breaks its joins).
  */
-function heroLines(size: number): ReactElement {
-  const w = (s: string, serif = false) =>
+const HERO_TRACK: Record<Script, number> = { latin: -0.02, cyrillic: -0.015, cjk: -0.01, arabic: -0.02 }
+
+/**
+ * The hero, set in explicit lines (satori has no inline formatting, and a free wrap left "week." as a
+ * widow): "Something / watched *you* / this week." The last line is the widest (≈ 445 of the
+ * 466px column at 88px); it never wraps, so the phrase always stays whole.
+ *
+ * Each line is the catalog's parts, each its own span: a part boundary with a space at it gets the word gap (0.2em,
+ * a flex gap: satori has no inline spacing), so "watched" and the serif "you" stay two words while parts written
+ * without a space between them (Chinese, Japanese) touch. The display words are tracked as the landing hero's are in
+ * the card's language (HERO_TRACK).
+ */
+function heroLines(locale: Locale, size: number, lines: Rich[]): ReactElement {
+  const track = HERO_TRACK[LOCALE_INFO[locale].script]
+  const w = (s: string, serif = false, style: CSSProperties = {}) =>
     h(
       'span',
       {
         style: {
-          fontFamily: serif ? FONT.serif : FONT.display,
+          fontFamily: serif ? FAMILY.serif : FAMILY.display,
           fontStyle: serif ? 'italic' : 'normal',
           fontWeight: serif ? 400 : 600,
           // Instrument Serif sits smaller than the condensed sans at the same size: match cap height.
           fontSize: serif ? size * 1.12 : size,
-          letterSpacing: serif ? 0 : -0.02 * size,
+          letterSpacing: serif ? 0 : track * size,
           lineHeight: 0.94,
           whiteSpace: 'nowrap',
           // "you" (the serif accent) in signal, as on the landing hero.
           color: serif ? C.signal : C.bone,
+          ...style,
         },
       },
       s,
     )
-  const line = (...words: ReactElement[]) => box({ alignItems: 'baseline', gap: size * 0.2, flexWrap: 'nowrap' }, ...words)
-  return box({ flexDirection: 'column', width: '100%' }, line(w('Something')), line(w('watched'), w('you', true)), line(w('this week.')))
+  const line = (parts: Rich) => {
+    const words = parts.map((p) => ({ text: isAccent(p) ? plain(p.accent) : plain([p]), serif: isAccent(p) }))
+    const spaced = words.slice(1).map((x, k) => /\s$/.test(words[k].text) || /^\s/.test(x.text))
+    const gap = size * 0.2
+    // Every boundary a word space (English): one flex gap. Otherwise the gap goes only where a space was written.
+    if (spaced.every(Boolean)) return box({ alignItems: 'baseline', gap, flexWrap: 'nowrap' }, ...words.map((x) => w(x.text.trim(), x.serif)))
+    return box({ alignItems: 'baseline', gap: 0, flexWrap: 'nowrap' }, ...words.map((x, k) => w(x.text.trim(), x.serif, k && spaced[k - 1] ? { marginLeft: gap } : {})))
+  }
+  return box({ flexDirection: 'column', width: '100%' }, ...lines.map(line))
 }
 
-/** The homepage card: a real photograph on the left, the hero line on the right. */
-export function defaultCard({ host, plateDataUri }: { host: string; plateDataUri?: string | null }): ReactElement {
+/** The homepage card: a real photograph on the left, the hero line on the right, in `locale` (English by default). */
+export function defaultCard({ host, plateDataUri, locale = DEFAULT_LOCALE }: { host: string; plateDataUri?: string | null; locale?: Locale }): ReactElement {
   const P = DEFAULT_PLATE
-  const source: Chip = { segs: [{ text: P.chip, tone: 'bone' }], size: CARD_FS.chipLead, pos: { left: 24, top: 24 } }
-  const credit: Chip = { segs: [{ text: creditFor({ collection: P.collection, datetime: P.datetime }), tone: 'bone2' }], size: CARD_FS.micro, pos: { left: 24, bottom: 24 } }
-  const scale: ScaleBar = { px: 100, label: '1 km' }
+  const m = cardMessages(locale)
+  const source: Chip = { segs: [{ text: [m.defaultPlace, P.satName, m.pixelSize(P.gsdM)].join(' · '), tone: 'bone' }], size: CARD_FS.chipLead, pos: { left: 24, top: 24 } }
+  const credit: Chip = { segs: [{ text: creditFor({ collection: P.collection, datetime: P.datetime }), tone: 'bone2' }], size: CARD_FS.micro, pos: { left: 24, bottom: 24 }, lang: 'en' }
+  const scale: ScaleBar = { px: 100, label: m.scale(1) }
   const left = plateDataUri
     ? abs(
         { left: 0, top: 0, width: PLATE, height: PLATE, background: C.ink1, overflow: 'hidden' },
         h('img', { src: plateDataUri, width: PLATE, height: PLATE, style: { position: 'absolute', left: 0, top: 0, width: PLATE, height: PLATE } }),
         svgPrims(imageOverlay([source, credit], scale), PLATE, 'd'),
-        chip(source),
-        scaleBar(scale),
-        chip(credit),
+        chip(locale, source),
+        scaleBar(locale, scale),
+        chip(locale, credit),
       )
     : abs({ left: 0, top: 0, width: PLATE, height: PLATE, background: C.ink1 }, svgPrims([...plateFrame([], undefined, C.bone3Mark), ...reticlePrims(CENTRE, CENTRE)], PLATE, 'd'))
 
-  return box(
-    { position: 'relative', width: CARD_W, height: CARD_H, background: C.ink0, fontFamily: FONT.sans, color: C.bone },
+  return cardRoot(
+    locale,
     left,
     abs({ left: PLATE, top: 0, width: 1, height: CARD_H, background: C.lineStrong }),
-    row(PANEL.top, lockup(), mono('Last 7 days', CARD_FS.row, C.bone2)),
+    row(PANEL.top, lockup(), mono(locale, m.lastWeek, CARD_FS.row, C.bone2)),
     rule(PANEL.rule1),
     // The hero is centred between the top rule and the footer rule, lifted as the pass headline is (owner: even spacing).
-    abs({ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.rule3 - 12 - PANEL.headTop, flexDirection: 'column', justifyContent: 'center' }, heroLines(88)),
+    abs({ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.rule3 - 12 - PANEL.headTop, flexDirection: 'column', justifyContent: 'center' }, heroLines(locale, 88, m.hero)),
     rule(PANEL.rule3),
-    row(PANEL.foot, mono('Enter any place on Earth', 15, C.bone), host ? mono(host, CARD_FS.row, C.bone2, { textTransform: 'none', letterSpacing: 0.5 }) : undefined),
+    row(PANEL.foot, mono(locale, m.enterAnyPlace, 15, C.bone), host ? mono(locale, host, CARD_FS.row, C.bone2, { textTransform: 'none', letterSpacing: 0.5 }) : undefined),
   )
 }

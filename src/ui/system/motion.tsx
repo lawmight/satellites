@@ -11,6 +11,8 @@
  * initial and final values.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { fmt as fmtFor } from '../../../api/_lib/i18n/format'
+import { currentLocale } from '@/i18n/runtime'
 import { DUR, EASE, easeInOut, easeOut } from '@/lib/ease'
 import { legDone, retarget, sampleLeg, type CountLeg } from './count'
 import s from './motion.module.css'
@@ -48,7 +50,8 @@ export function useOnce(key: string): boolean {
 
 // ── Num ──────────────────────────────────────────────────────────────────────────────────
 
-const intFmt = (n: number) => Math.round(n).toLocaleString('en-US')
+/** Counts in the visitor's language ("1,715" / "1.715" / "1 715"), read at call time. */
+const intFmt = (n: number) => fmtFor(currentLocale()).int(n)
 
 export interface NumProps {
   value: number
@@ -208,6 +211,13 @@ export function Num({ value, duration = DUR.count, format = intFmt, delay = 0, f
 
 const GLYPHS = '0123456789ABCDEFGHJKLMNPRSTUVWXYZ/-.:°'
 
+/**
+ * Letters of other scripts never scramble: a Han, kana, hangul, Cyrillic or Arabic word (a translated label beside a
+ * number) stays as it is, rather than flickering through Latin glyphs it never contains. Everything else scrambles as
+ * it always has (spaces excepted), so an English readout's animation is unchanged.
+ */
+const stays = (ch: string) => ch === ' ' || (/\p{L}/u.test(ch) && !/\p{Script=Latin}/u.test(ch))
+
 /** One frame of a scramble: characters before the settle point are final, the rest are random glyphs. */
 export function scrambleFrame(text: string, t: number): string {
   if (t >= 1) return text
@@ -215,7 +225,7 @@ export function scrambleFrame(text: string, t: number): string {
   let out = ''
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    out += i < settled || ch === ' ' ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0]
+    out += i < settled || stays(ch) ? ch : GLYPHS[(Math.random() * GLYPHS.length) | 0]
   }
   return out
 }

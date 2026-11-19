@@ -2,12 +2,21 @@
  * What the UI needs to know about a satellite. Resolved from the engine's catalog + profiles at
  * runtime (see ../sats.ts); kept as a plain interface here so the pure helpers stay testable.
  *
- * Also the ONE vocabulary table for verdicts (DESIGN §7): every word the product uses for a verdict
- * (summary readouts, lane labels, list groups, tooltips, About, share renderers) comes from
- * VERDICT_META. Never spell a verdict name anywhere else.
+ * Also the way to the ONE verdict vocabulary (DESIGN §7): every word the product uses for a verdict
+ * (summary readouts, lane labels, list groups, tooltips, About, share renderers) comes from the
+ * 'verdicts' namespace (src/i18n/en/verdicts.ts). Never spell a verdict name anywhere else.
+ *
+ * Read it in the active language, at call time: React components `useMsgs(enVerdicts)[v]` (which re-renders them on
+ * a language switch), other code `verdictWords(v)`. VERDICT_META, VERDICT_TITLE and VERDICT_TAG keep their old shape
+ * for existing callers: each entry is a getter over the active language's namespace, so it is read when it is used,
+ * never frozen at load (a component reading them must still subscribe to the language, through any useMsgs).
  */
 import type { Pass, SatCategory, SatProfile } from '@/types'
 import type { GlyphName } from '@/ui/system/Glyph'
+import enVerdicts, { type VerdictWords } from '@/i18n/en/verdicts'
+import { msgs } from '@/i18n/runtime'
+
+export type { VerdictWords }
 
 export interface SatMeta {
   norad: number
@@ -22,72 +31,29 @@ export type MetaFn = (norad: number) => SatMeta
 export type Verdict = Pass['verdict']
 export const VERDICTS: readonly Verdict[] = ['imaged', 'likely', 'could', 'overhead']
 
-export interface VerdictWords {
-  /** Display name: group titles, readout labels, tooltips */
-  title: string
-  /** Lane label (mono caps) */
-  short: string
-  /** Count unit after a number ("31 passes"; every verdict counts passes, so the four tiles read alike) */
-  unit: string
-  /** One sentence for title= / aria-describedby / About */
-  definition: string
-  /** Prose verb ("Sentinel-2C watched Waterloo"; owner, latest: user-facing copy says watched, never photographed) */
-  verb: string
+/** A verdict's words in the active language (read at call time). */
+export const verdictWords = (v: Verdict): VerdictWords => msgs(enVerdicts)[v]
+
+/** A record by verdict whose entries are read from the active language each time they are used. */
+function live<T>(pick: (w: VerdictWords) => T): Readonly<Record<Verdict, T>> {
+  const out = {} as Record<Verdict, T>
+  for (const v of VERDICTS) Object.defineProperty(out, v, { enumerable: true, get: () => pick(verdictWords(v)) })
+  return out
 }
 
-/** The only definition of the verdict vocabulary. Mono labels uppercase these with CSS. */
-export const VERDICT_META: Record<Verdict, VerdictWords> = {
-  imaged: {
-    title: 'Watched',
-    short: 'Photo',
-    unit: 'passes',
-    definition: 'A real image of this place exists in a public archive.',
-    verb: 'watched',
-  },
-  likely: {
-    title: 'Likely watched',
-    short: 'Likely',
-    unit: 'passes',
-    definition: 'A fixed camera’s swath covered this place. No picture of it is published.',
-    verb: 'swept over',
-  },
-  could: {
-    title: 'Could have pointed here',
-    short: 'Could',
-    unit: 'passes',
-    definition: 'A steerable or private camera was in range. Its operator doesn’t say whether it looked.',
-    verb: 'passed within view',
-  },
-  overhead: {
-    title: 'Passed overhead',
-    short: 'Overhead',
-    unit: 'passes',
-    definition: 'Crossed your sky. Stations and everything else.',
-    verb: 'passed overhead',
-  },
-}
+/** Every verdict's words, in the active language (getters: see the header). */
+export const VERDICT_META: Readonly<Record<Verdict, VerdictWords>> = live((w) => w)
 
-/** Count unit, singular-aware: "1 pass", "31 passes". */
+/** Count unit in the form the count takes, in the active language: "1 pass", "31 passes". */
 export function verdictUnit(v: Verdict, n: number): string {
-  const u = VERDICT_META[v].unit
-  return n === 1 ? u.replace(/(image|pass)(e?s)$/, '$1') : u
+  return verdictWords(v).unit(n)
 }
 
 /** Group titles in the pass list (derived; kept as a record for existing call sites). */
-export const VERDICT_TITLE: Record<Verdict, string> = {
-  imaged: VERDICT_META.imaged.title,
-  likely: VERDICT_META.likely.title,
-  could: VERDICT_META.could.title,
-  overhead: VERDICT_META.overhead.title,
-}
+export const VERDICT_TITLE: Readonly<Record<Verdict, string>> = live((w) => w.title)
 
 /** Short words for tags and lane labels (derived). */
-export const VERDICT_TAG: Record<Verdict, string> = {
-  imaged: VERDICT_META.imaged.short,
-  likely: VERDICT_META.likely.short,
-  could: VERDICT_META.could.short,
-  overhead: VERDICT_META.overhead.short,
-}
+export const VERDICT_TAG: Readonly<Record<Verdict, string>> = live((w) => w.short)
 
 /** Mark names: the system glyphs plus 'mosaic' (drawn locally by ../Mark.tsx until the shell adds it). */
 export type MarkName = GlyphName | 'mosaic' | 'chevron-left' | 'chevron-right' | 'expand'

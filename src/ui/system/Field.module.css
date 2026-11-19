@@ -134,7 +134,7 @@
 
 .mirror {
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 0;
   visibility: hidden;
   white-space: pre;
@@ -169,8 +169,17 @@
     opacity: 0;
   }
 }
+/* Right to left, the native caret. Where a caret sits in a line that mixes Arabic with a Latin name or digits is
+   the browser's bidi to resolve (a prefix's width says nothing about it), and a block over joined Arabic letters
+   would invert half a letterform. Arabic readers type with a bar caret everywhere else. */
+:root[dir='rtl'] .caret {
+  display: none;
+}
+:root[dir='rtl'] .input {
+  caret-color: var(--bone);
+}
 
-/* Baseline: 1px hairline; on focus a 2px bone line wipes in from the left over it. */
+/* Baseline: 1px hairline; on focus a 2px bone line wipes in from the left over it (from the right, right to left). */
 .line,
 .lineFocus,
 .scan {
@@ -194,6 +203,12 @@
 .focused .lineFocus {
   clip-path: inset(0 0 0 0);
 }
+:root[dir='rtl'] .lineFocus {
+  clip-path: inset(0 0 0 100%);
+}
+:root[dir='rtl'] .focused .lineFocus {
+  clip-path: inset(0 0 0 0);
+}
 .invalid .line,
 .invalid .lineFocus {
   background: var(--warn);
@@ -215,10 +230,11 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
+  inset-inline-start: 0;
   width: 22%;
   background: var(--bone-2);
-  transform: translateX(-100%);
+  /* it travels along the reading */
+  transform: translateX(calc(-100% * var(--dir-x)));
 }
 /* Only a wait you would notice shows it: a quick answer never flashes the segment in and out. */
 .field[data-busy='true'] .scan {
@@ -230,7 +246,7 @@
 }
 @keyframes scan {
   to {
-    transform: translateX(460%);
+    transform: translateX(calc(460% * var(--dir-x)));
   }
 }
 

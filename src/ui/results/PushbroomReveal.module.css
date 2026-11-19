@@ -136,7 +136,7 @@
   display: inline-block;
   width: 6px;
   height: 11px;
-  margin-left: 4px;
+  margin-inline-start: 4px;
   background: var(--bone-2);
   animation: blink 1s steps(1, end) infinite;
 }
@@ -235,4 +235,16 @@
 /* R3-3: neutral (no countdown) while the replay clock is not on this pass. */
 .awaitChip b:empty {
   display: none;
+}
+
+/* Right to left (docs/I18N.md): the LINE counter is words, so it moves to the reading's corner with the summary's
+   other chips (Gallery.module.css); the countdown stays centred. The scan itself is drawn on the ground and never
+   mirrors. */
+:root[dir='rtl'] .scanChip {
+  left: auto;
+  right: 8px;
+}
+:root[dir='rtl'] .awaitChip {
+  left: 50%;
+  right: auto;
 }

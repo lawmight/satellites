@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import namesRaw from '../../public/data/catalog-names.json?raw'
-import { PROFILES, displayNameFor, noradForGibsCollection, noradForPlatform, resolveProfile } from './profiles'
+import { PROFILES, displayNameFor, noradForGibsCollection, noradForPlatform, profileBlurb, resolveProfile } from './profiles'
+import enSats from '@/i18n/en/sats'
 import { compactCatalog, featuredSats, getRow, getSatInfo, ingestCatalog, installCatalog, loadCatalogNames } from './catalog'
 import { satrecFor } from './sgp4'
 import { buildElementBuffer } from './elements'
@@ -158,11 +159,19 @@ describe('profiles', () => {
 
   it('has a one-sentence blurb on every profile', () => {
     for (const p of PROFILES) {
-      expect(p.blurb.length).toBeGreaterThan(10)
-      expect(p.blurb.length).toBeLessThan(120)
-      expect(p.blurb.trim().endsWith('.')).toBe(true)
-      expect((p.blurb.match(/\. /g) ?? []).length).toBe(0)
+      // A profile names its blurb by key; the English sentence is in the 'sats' namespace.
+      const blurb = profileBlurb(p, enSats)
+      expect(blurb.length).toBeGreaterThan(10)
+      expect(blurb.length).toBeLessThan(120)
+      expect(blurb.trim().endsWith('.')).toBe(true)
+      expect((blurb.match(/\. /g) ?? []).length).toBe(0)
     }
+  })
+
+  it('uses every blurb in the sats namespace, and only those', () => {
+    expect(new Set(PROFILES.map((p) => p.blurb))).toEqual(new Set(Object.keys(enSats.blurb)))
+    expect(profileBlurb(undefined, enSats)).toBe('')
+    expect(profileBlurb({ blurb: 'no such key' }, enSats)).toBe('')
   })
 
   it('logs how many catalog objects each profile matches', () => {

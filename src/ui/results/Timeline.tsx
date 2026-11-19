@@ -14,8 +14,16 @@
  * the playhead are DOM.
  * The playhead moves every frame from the scene clock as a transform (R20): replay never re-renders
  * the strip.
+ *
+ * Words: the 'results' namespace (timeline) and the 'verdicts' vocabulary, read at render, and the day labels written
+ * from each midnight's local fields (the model's day marks hold no words), so a language switch rewords the strip.
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { fmt } from '../../../api/_lib/i18n/format'
+import { Rich, withUnits } from '@/i18n/Rich'
+import enResults from '@/i18n/en/results'
+import enVerdicts from '@/i18n/en/verdicts'
+import { useLocale, useMsgs } from '@/i18n/runtime'
 import { sceneClock } from '@/state/sceneClock'
 import { useAfterSceneFrame } from './capture'
 import { useApp } from '@/state/store'
@@ -23,10 +31,9 @@ import type { Pass } from '@/types'
 import { Glyph, cx, palette, useReducedMotion } from '@/ui/system'
 import { Mark } from './Mark'
 import { isDailyMosaic, isRadar } from './lib/captures'
-import { int } from './lib/copy'
-import { glyphForPass, markColorVar, VERDICT_GLYPH, VERDICT_META, VERDICT_TAG, type Verdict } from './lib/meta'
-import { daylight, hitTest, SUN_SAMPLE_MS } from './lib/timeline'
-import { fmtLocalDay, fmtLocalTime, zoneAbbr } from './lib/time'
+import { glyphForPass, markColorVar, VERDICT_GLYPH, type Verdict } from './lib/meta'
+import { daylight, hitTest, SUN_SAMPLE_MS, type DayMark } from './lib/timeline'
+import { fmtDayCompact, fmtLocalDay, fmtLocalStamp, fmtLocalTime, localDateKey, localParts, zoneAbbr } from './lib/time'
 import type { ResultsModel } from './model'
 import s from './Timeline.module.css'
 
@@ -56,6 +63,8 @@ interface Layout {
 
 /** Lane height shares: photographs read first (decision #7). */
 const SHARES_FULL = [0.4, 0.2, 0.2, 0.2]
+/** The geostationary lane's word (hidden on narrower screens, as the verdict lanes' words are) */
+const LANE_WORD = { strong: s.laneWord }
 const SHARES_COMPACT = [0.55, 0.45]
 
 function layoutFor(w: number, h: number, compact: boolean, hasGeo: boolean): Layout {
@@ -92,9 +101,9 @@ function layoutFor(w: number, h: number, compact: boolean, hasGeo: boolean): Lay
 }
 
 /** Day label format for every day, from the narrowest day's width (no collisions, no mixed formats). */
-function dayLabel(d: { weekday: string; day: number; label: string }, dayW: number): string {
-  if (dayW >= 92) return d.label
-  if (dayW >= 48) return `${d.weekday.slice(0, 2)} ${d.day}`
+function dayLabel(d: DayMark, tz: string, dayW: number): string {
+  if (dayW >= 92) return fmtLocalDay(d.t, tz, d.p)
+  if (dayW >= 48) return fmtDayCompact(d.t, tz, d.p)
   return String(d.day)
 }
 
@@ -104,6 +113,9 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   const t1 = report.windowEnd
   const span = t1 - t0
   const reduced = useReducedMotion()
+  const m = useMsgs(enResults).timeline
+  const vm = useMsgs(enVerdicts)
+  const int = fmt(useLocale()).int
   const plotRef = useRef<HTMLDivElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -131,9 +143,12 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   // Not a canvas: a 2D canvas allocates its backing store on its first draw, and on a phone that waits on the GPU
   // process (busy drawing the globe): 30–200 ms of main thread at 4× CPU when the results land. ~20 path elements,
   // rasterized off the main thread, with the same geometry, colours and device-pixel snapping as the canvas had.
-  const summary = `Timeline, ${Math.round(span / 86_400_000)} days: ${(['imaged', 'likely', 'could', 'overhead'] as const)
-    .map((v) => `${int(lanes[v].passes.length)} ${VERDICT_META[v].title.toLowerCase()}`)
-    .join(', ')}.`
+  // The verdicts' names come from the one vocabulary ('verdicts'), never from words of the timeline's own.
+  const summary = m.summary(
+    Math.round(span / 86_400_000),
+    { imaged: lanes.imaged.passes.length, likely: lanes.likely.passes.length, could: lanes.could.passes.length, overhead: lanes.overhead.passes.length },
+    { imaged: vm.imaged.title, likely: vm.likely.title, could: vm.could.title, overhead: vm.overhead.title },
+  )
   const staticLayer = useMemo(() => {
     if (!L.w || !L.h) return null
     const dpr = Math.min(2, window.devicePixelRatio || 1)
@@ -351,36 +366,42 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   const nowish = Math.abs(Date.now() - t1) < 3_600_000
   const zoneA = zoneAbbr(t0, tz)
   const zoneB = zoneAbbr(t1, tz)
-  const tzLabel = zoneA === zoneB ? zoneA : `${zoneA} → ${zoneB}`
+  const tzLabel = zoneA === zoneB ? zoneA : m.zoneChange(zoneA, zoneB)
   const geoNames = report.geo.slice(0, 3).map((g) => g.name)
   const daysN = Math.round(span / 86_400_000)
 
   const laneCount = (v: Verdict) => lanes[v].passes.length
   const dayW = (86_400_000 / span) * size.w
   // The window's first (partial) day gets a label at the left edge too, when it fits.
-  const startParts = { t: t0, label: fmtLocalDay(t0, tz), day: Number(fmtLocalDay(t0, tz).split(' ')[1]), weekday: fmtLocalDay(t0, tz).slice(0, 3) }
-  const axisDays = days.length && ((days[0].t - t0) / span) * size.w < 40 ? days : [startParts, ...days]
+  const startParts = localParts(t0, tz)
+  const startDay: DayMark = { t: t0, day: startParts.day, p: startParts }
+  const axisDays = days.length && ((days[0].t - t0) / span) * size.w < 40 ? days : [startDay, ...days]
   // An older window (a shared pass) ends on a date, not a clock time (unless the last day label
   // already shows that date: then the time it ends).
   const lastDay = days.length ? days[days.length - 1] : undefined
-  const endLabel = nowish ? 'Now' : compact ? '' : lastDay && lastDay.label === fmtLocalDay(t1, tz) ? `${fmtLocalTime(t1, tz)} ${zoneAbbr(t1, tz)}` : fmtLocalDay(t1, tz)
+  const endLabel = nowish
+    ? m.now
+    : compact
+      ? ''
+      : lastDay && localDateKey(lastDay.t, tz) === localDateKey(t1, tz)
+        ? `${fmtLocalTime(t1, tz)} ${zoneAbbr(t1, tz)}`
+        : fmtLocalDay(t1, tz)
   const charW = compact ? 6.2 : 6.6
   const endRoom = endLabel ? endLabel.length * charW + 14 : 0
 
   return (
-    <div className={cx(s.timeline, compact && s.compact, className)} role="group" aria-label={`${summary} Use the left and right arrow keys to step through passes.`}>
+    <div className={cx(s.timeline, compact && s.compact, className)} role="group" aria-label={m.keysHint(summary)}>
       {!compact ? (
         <div className={s.head}>
           <span className={s.title}>
             <span className={s.idx}>{index}</span>
-            <span className={s.sep}>/</span>Timeline
-            <span className={s.meta}>
-              {daysN} days · {model.tzLabel} · {tzLabel}
-            </span>
+            <span className={s.sep}>/</span>
+            {m.title}
+            <span className={s.meta}>{m.meta(daysN, model.tzLabel, tzLabel)}</span>
           </span>
           <span className={s.legend} aria-hidden>
             <span className={s.dayKey}>
-              <i /> Daylight here
+              <i /> {m.daylight}
             </span>
           </span>
         </div>
@@ -392,22 +413,32 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
             {/* U-2: the labels are placed from the plot's measured height, so they appear once it is known (never
                 first at 0 and then jumping to their lanes). The column keeps its width meanwhile. */}
             {size.h && L.geoH ? (
-              <span className={s.laneLabel} style={{ top: 0, height: L.geoH }} title={geoNames.join(', ')}>
+              <span className={s.laneLabel} style={{ top: 0, height: L.geoH }} title={m.geoNames(geoNames)}>
                 <span className={s.geoLabel}>
-                  <Glyph name="weather-geo" size={9} /> <span className={s.laneWord}>Geo · </span>
-                  {report.geo.length}
+                  <Glyph name="weather-geo" size={9} /> <Rich parts={m.geoLane(report.geo.length)} classes={LANE_WORD} strongAs="span" />
                 </span>
               </span>
             ) : null}
+            {/* Hidden copies of the four labels, in the flow: the column takes the widest one's room ("VERMUTLICH 210",
+                "POSSIBILE 1.565" squeezed their glyph to a dot in English's 124 px), and keeps at least that. */}
+            <span className={s.laneSizer}>
+              {(['imaged', 'likely', 'could', 'overhead'] as const).map((v) => (
+                <span key={v} className={s.laneLabel}>
+                  <Glyph name={VERDICT_GLYPH[v]} size={10} />
+                  <span className={s.laneWord}>{vm[v].short}</span>
+                  <span className={s.laneCount}>{int(laneCount(v))}</span>
+                </span>
+              ))}
+            </span>
             {(size.h ? (['imaged', 'likely', 'could', 'overhead'] as const) : []).map((v) => (
               <span
                 key={v}
                 className={cx(s.laneLabel, laneCount(v) === 0 && s.laneEmpty, v === 'imaged' && s.laneLead)}
                 style={{ top: L.laneY(v) - 8, height: 16 }}
-                title={VERDICT_META[v].definition}
+                title={vm[v].definition}
               >
                 <Glyph name={VERDICT_GLYPH[v]} size={10} color={v === 'imaged' ? 'var(--signal)' : undefined} />
-                <span className={s.laneWord}>{VERDICT_TAG[v]}</span>
+                <span className={s.laneWord}>{vm[v].short}</span>
                 <span className={s.laneCount}>{int(laneCount(v))}</span>
               </span>
             ))}
@@ -455,7 +486,7 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
               const next = axisDays[i + 1]?.t ?? t1
               const x = ((d.t - t0) / span) * size.w
               const limit = Math.min(((next - t0) / span) * size.w, size.w - endRoom)
-              const text = dayLabel(d, dayW)
+              const text = dayLabel(d, tz, dayW)
               const fits = x + text.length * charW + 8 <= limit
               return (
                 <span key={d.t} className={cx(s.day, d.t === t0 && s.dayStart)} style={{ left: `${(((d.t - t0) / span) * 100).toFixed(3)}%` }}>
@@ -473,43 +504,34 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   )
 }
 
-/** What the mark form means, in words (the legend lives here now). */
-function markWords(pass: Pass, model: ResultsModel): string {
-  const m = model.meta(pass.norad)
+/** What the mark form means, in words (the legend lives here now), in the active language. */
+function markWords(pass: Pass, model: ResultsModel, m: TimelineMessages, title: string): string {
+  const meta = model.meta(pass.norad)
   const capture = pass.captureId ? model.report.captures.find((c) => c.id === pass.captureId) : undefined
   if (pass.verdict === 'imaged')
-    return capture && isDailyMosaic(capture)
-      ? `Daily mosaic, ${Math.round(capture.gsdM)} m · ●`
-      : capture && isRadar(capture)
-        ? `Radar image, ${Math.round(capture.gsdM)} m · ◆`
-        : `${VERDICT_META.imaged.title} · ◆`
-  const kind: Record<string, string> = {
-    'open-optical': 'open imager · ◇',
-    'commercial-optical': 'commercial · □',
-    radar: 'radar · ▣',
-    'weather-leo': 'weather · ○',
-    crewed: 'crewed · ✛',
-  }
-  return `${VERDICT_META[pass.verdict].title} · ${kind[m.category] ?? 'other'}`
+    return capture && isDailyMosaic(capture) ? m.markMosaic(Math.round(capture.gsdM)) : capture && isRadar(capture) ? m.markRadar(Math.round(capture.gsdM)) : m.markImaged(title)
+  return m.markKind(title, meta.category)
 }
 
+type TimelineMessages = (typeof enResults)['timeline']
+
 function Tooltip({ pass, x, w, model }: { pass: Pass; x: number; w: number; model: ResultsModel }) {
-  const m = model.meta(pass.norad)
+  const meta = model.meta(pass.norad)
+  const m = useMsgs(enResults).timeline
+  const title = useMsgs(enVerdicts)[pass.verdict].title
   // Keep the box inside the strip: anchor left/right near the edges.
   const anchor = x < 140 ? 'left' : x > w - 140 ? 'right' : 'center'
   return (
     <div className={cx(s.tip, s[`tip_${anchor}`])} style={{ left: x }} role="tooltip">
       <div className={s.tipName}>
-        <Mark name={glyphForPass(pass.verdict, m.category)} size={11} color={markColorVar(pass.verdict, m.category)} />
-        {m.name}
+        <Mark name={glyphForPass(pass.verdict, meta.category)} size={11} color={markColorVar(pass.verdict, meta.category)} />
+        {meta.name}
       </div>
-      <div className={s.tipLine}>
-        {fmtLocalDay(pass.tClosest, model.tz)} · {fmtLocalTime(pass.tClosest, model.tz, true)} {zoneAbbr(pass.tClosest, model.tz)}
+      <div className={s.tipLine}>{fmtLocalStamp(pass.tClosest, model.tz, true)}</div>
+      <div className={s.tipLine}>{withUnits(m.geometry(pass.offNadirDeg, pass.groundDistanceKm))}</div>
+      <div className={cx(s.tipLine, pass.verdict === 'imaged' && markColorVar(pass.verdict, meta.category) === 'var(--signal)' && s.signal)}>
+        {withUnits(markWords(pass, model, m, title))}
       </div>
-      <div className={s.tipLine}>
-        {pass.offNadirDeg.toFixed(1)}° off-nadir · {int(pass.groundDistanceKm)} km
-      </div>
-      <div className={cx(s.tipLine, pass.verdict === 'imaged' && markColorVar(pass.verdict, m.category) === 'var(--signal)' && s.signal)}>{markWords(pass, model)}</div>
     </div>
   )
 }

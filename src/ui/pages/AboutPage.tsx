@@ -11,34 +11,47 @@
  * First frame: the sections lay out only as they come near the viewport (content-visibility, in the
  * stylesheet), so opening costs the intro, not the whole page. A jump from the index re-aims once the
  * scroll settles, since sections it passed may have grown or shrunk from their placeholder height.
+ *
+ * Copy: the 'about' namespace (src/i18n/en/about.ts). Paragraphs with a link or a mono number are rich parts, rendered
+ * here (AboutText) into the same elements the page always had. The data licences' attribution lines stay in English
+ * on purpose (docs/I18N.md), as do product names, the maker's handle and key symbols.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
+import { isAccent, isNum, isStrong, numText } from '../../../api/_lib/i18n/parts'
+import { Rich } from '@/i18n/Rich'
+import enAbout, { type AboutPart, type LinkPart } from '@/i18n/en/about'
+import enVerdicts from '@/i18n/en/verdicts'
+import { useLocale, useMsgs } from '@/i18n/runtime'
 import { useBackLayer } from '@/lib/backStack'
 import { DUR, EASE } from '@/lib/ease'
 import { useApp } from '@/state/store'
-import { Bezel, Glyph, Kbd, Reveal, cx, fmtInt, useExitClone, Wordmark } from '@/ui/system'
+import { Bezel, Glyph, Kbd, Reveal, cx, useExitClone, Wordmark } from '@/ui/system'
 // Only the vocabulary table (plain data, type-only imports), not the results UI: this chunk stays small.
-import { VERDICTS, VERDICT_GLYPH, VERDICT_META, type Verdict } from '@/ui/results/lib/meta'
+import { VERDICTS, VERDICT_GLYPH } from '@/ui/results/lib/meta'
 import { VERSION } from '@/ui/hud/Hud'
 import { useCatalogStatus } from '@/ui/hud/catalogStatus'
 import { fmtStampZ } from '@/ui/hud/readouts'
 import s from './AboutPage.module.css'
 
+/** The sections in order; their titles are the 'about' namespace's `sections` (the index and each heading). */
 const SECTIONS = [
-  { id: 'short', index: '00', title: 'The short version' },
-  { id: 'method', index: '01', title: 'How we find the passes' },
-  { id: 'words', index: '02', title: 'What the labels mean' },
-  { id: 'accuracy', index: '03', title: 'What we can’t see' },
-  { id: 'privacy', index: '04', title: 'Privacy' },
-  { id: 'credits', index: '05', title: 'Credits' },
-  { id: 'keys', index: '06', title: 'Keyboard' },
+  { id: 'short', index: '00' },
+  { id: 'method', index: '01' },
+  { id: 'words', index: '02' },
+  { id: 'accuracy', index: '03' },
+  { id: 'privacy', index: '04' },
+  { id: 'credits', index: '05' },
+  { id: 'keys', index: '06' },
 ] as const
 
 /** The maker (credits and footer). */
 const MAKER_HANDLE = '@armaangupt0'
 const MAKER_URL = 'https://x.com/armaangupt0'
+const CELESTRAK_URL = 'https://celestrak.org/NORAD/elements/'
 
 type SectionId = (typeof SECTIONS)[number]['id']
+type Messages = typeof enAbout
 
 /** A jumped-to section's top lands this far below the top of the reading area. */
 const JUMP_MARGIN = 32
@@ -89,6 +102,7 @@ function copernicusYears(now = Date.now()): string {
 }
 
 export function AboutPage({ onClose }: { onClose: () => void }) {
+  const m = useMsgs(enAbout)
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -240,23 +254,25 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
   }
 
   const years = copernicusYears()
+  // What separates two sentences in running text: a space, or nothing in Chinese and Japanese.
+  const gap = LOCALE_INFO[useLocale()].sentenceGap
 
   return (
     <div ref={rootRef} className={s.overlay} role="dialog" aria-modal="true" aria-labelledby="about-title">
       <header className={s.bar} data-about-content>
         <span className={s.barLabel}>
-          <Wordmark height={16} className={s.wordmark} /> <span className={s.dim}>/ About</span>
+          <Wordmark height={16} className={s.wordmark} /> <span className={s.dim}>/ {m.bar}</span>
         </span>
-        <button ref={closeRef} type="button" className={s.close} onClick={onClose} aria-label="Close" aria-keyshortcuts="Escape">
-          <span className={s.closeText}>Close</span>
-          <Kbd className={s.closeKbd}>Esc</Kbd>
+        <button ref={closeRef} type="button" className={s.close} onClick={onClose} aria-label={m.close} aria-keyshortcuts="Escape">
+          <span className={s.closeText}>{m.close}</span>
+          <Kbd className={s.closeKbd}>{m.keyNames.esc}</Kbd>
           <Glyph name="close" size={14} />
         </button>
       </header>
       {/* The reading area sits inside the frame: under the bar, above the bezel's bottom hairline. */}
       <div ref={scrollRef} className={s.scroll} tabIndex={-1} data-about-content>
         <div className={s.grid}>
-          <nav className={s.nav} aria-label="Sections">
+          <nav className={s.nav} aria-label={m.sectionsLabel}>
             <ol>
               {SECTIONS.map((sec) => (
                 <li key={sec.id} className={sec.id === 'keys' ? s.keyboardOnly : undefined}>
@@ -267,7 +283,7 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
                     onClick={() => jump(sec.id)}
                   >
                     <span className={s.navIdx}>{sec.index}</span>
-                    {sec.title}
+                    {m.sections[sec.id]}
                   </button>
                 </li>
               ))}
@@ -277,155 +293,79 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
           <article className={s.article}>
             <header className={s.intro}>
               <h1 id="about-title" className={s.title}>
-                <Reveal as="span" className={s.titleLine} delay={300}>
-                  How this
-                </Reveal>
-                <Reveal as="span" className={s.titleLine} delay={360}>
-                  <em className={s.serif}>works</em>.
-                </Reveal>
+                {m.title.map((line, i) => (
+                  <Reveal key={i} as="span" className={s.titleLine} delay={300 + 60 * i}>
+                    <Rich parts={line} classes={{ accent: s.serif }} accentAs="em" />
+                  </Reveal>
+                ))}
               </h1>
               <Reveal as="p" className={s.lede} delay={500} duration={720}>
-                Pick a spot on Earth. We work out which satellites flew over it in the last week, then go find the photos they
-                took. It all runs in your browser, on public data.
+                {m.lede}
               </Reveal>
             </header>
 
-            <Section id="short" index="00" title="The short version">
-              <Facts
-                rows={[
-                  [
-                    'Is it live?',
-                    'Not quite. Photos land in the archives a few hours to a couple of days after they’re taken, so the newest passes might not have one yet.',
-                  ],
-                  ['Can it see me?', 'No. At best a pixel here is 10 m across. A car is one pixel. You’re not in it.'],
-                  [
-                    'Is this every satellite?',
-                    'No. Military and spy satellites mostly aren’t in public catalogs, and companies don’t say where they point their cameras.',
-                  ],
-                ]}
-              />
+            <Section id="short" index="00" title={m.sections.short}>
+              <Facts rows={m.short} />
             </Section>
 
-            <Section id="method" index="01" title="How we find the passes">
+            <Section id="method" index="01" title={m.sections.method}>
               <p>
-                Every object in orbit has a public set of numbers that describes its path.{' '}
-                <a href="https://celestrak.org/NORAD/elements/" target="_blank" rel="noreferrer">
-                  CelesTrak
-                </a>{' '}
-                publishes them from US Space Force tracking, and we grab a fresh copy every six hours.
+                <AboutText parts={m.method.orbits} href={CELESTRAK_URL} />
                 {catalog.state === 'ready' ? (
                   <>
-                    {' '}
-                    This page loaded <span className={s.num}>{fmtInt(catalog.count)}</span> objects, fetched{' '}
-                    <span className={s.num}>{fmtStampZ(catalog.fetchedAt)}</span>.
+                    {gap}
+                    <AboutText parts={m.method.loaded(catalog.count, fmtStampZ(catalog.fetchedAt))} />
                   </>
                 ) : null}
               </p>
-              <p>
-                We run each satellite through SGP4, the standard orbit model, for the past seven days and note every time your spot
-                was inside what it could see.
-              </p>
-              <Facts
-                rows={[
-                  [
-                    'Straight down',
-                    'Sentinel-2 and Landsat look straight down at a strip of ground, about 290 km wide for Sentinel-2 and 185 km for Landsat. You have to be in the strip.',
-                  ],
-                  ['Tilting cameras', 'Lots of commercial satellites can lean 30 to 45 degrees. If you were in reach, we call it “could have pointed here”.'],
-                  ['Daylight', 'Regular cameras need the sun. A pass in the dark never counts as a photo.'],
-                  [
-                    'Radar',
-                    'Sentinel-1 doesn’t need the sun. It sends out microwaves and records the echo, so it sees through cloud and at night, looking off to one side of its track. Its images are public too, so we show them, in grey: bright is rough ground and buildings, dark is calm water.',
-                  ],
-                  [
-                    'Weather satellites',
-                    'A few sit over the equator and watch half the planet every 10 minutes. If you’re on their side of Earth, you’re in every frame.',
-                  ],
-                ]}
-              />
-              <p>
-                Then we search the image archives (Microsoft Planetary Computer, Element 84 and NASA) and match each image to the
-                pass that took it. Every image you see is the real one, cropped around your spot.
-              </p>
-              <Facts
-                rows={[
-                  [
-                    'Touch-ups',
-                    'Sentinel-2 and Landsat photos are colour-balanced, smoothed and lightly sharpened for your screen, the same way across the whole picture. Nothing is added or removed.',
-                  ],
-                  [
-                    'Which way is up',
-                    'Sentinel-2 and Landsat photos keep the archive’s own map grid for your place, so north can sit a few degrees off straight up. When you open a photo, its N arrow shows exactly where.',
-                  ],
-                ]}
-              />
+              <p>{m.method.sgp4}</p>
+              <Facts rows={m.method.facts} />
+              <p>{m.method.archives}</p>
+              <Facts rows={m.method.photoFacts} />
             </Section>
 
-            <Section id="words" index="02" title="What the labels mean">
-              <Terms />
+            <Section id="words" index="02" title={m.sections.words}>
+              <Terms more={m.verdictMore} gap={gap} />
             </Section>
 
-            <Section id="accuracy" index="03" title="What we can’t see">
-              <Facts
-                rows={[
-                  ['Exact positions', 'Public orbit data is good to about a kilometre and drifts a little each day. Times can be off by a few seconds.'],
-                  ['Secret satellites', 'Some of the best cameras in orbit belong to militaries. They don’t show up here.'],
-                  ['Clouds', 'Plenty of photos are just cloud. When the archive tells us, we check the exact pixel over your spot and say so.'],
-                  ['Delays', 'Photos can take a day or two to show up.'],
-                ]}
-              />
+            <Section id="accuracy" index="03" title={m.sections.accuracy}>
+              <Facts rows={m.accuracy} />
             </Section>
 
-            <Section id="privacy" index="04" title="Privacy">
-              <Facts
-                rows={[
-                  ['Where it runs', 'The orbit maths happens in your browser.'],
-                  ['What we keep', 'We count searches by town and a rough 10 km area, never your exact spot, and keep a tally of what gets opened and shared. No IP addresses, no cookies of our own, nothing that ties one visit to the next.'],
-                  [
-                    'Who else sees it',
-                    'Most place names come from a list built into the site. Other searches go to Open-Meteo, Photon or Nominatim. Photos load straight from the archives. Our host counts page views and speed, without cookies, and may set one security cookie to tell people from bots. We never read it.',
-                  ],
-                  [
-                    'Share links',
-                    'Only made when you share something. Anyone with the link sees the place name, a spot rounded to about 1 km, and the pass you picked.',
-                  ],
-                ]}
-              />
+            <Section id="privacy" index="04" title={m.sections.privacy}>
+              <Facts rows={m.privacy} />
             </Section>
 
-            <Section id="credits" index="05" title="Credits">
+            <Section id="credits" index="05" title={m.sections.credits}>
               <ul className={s.credits}>
-                <Credit who="Made by">
-                  Armaan,{' '}
-                  <a href={MAKER_URL} target="_blank" rel="noreferrer">
-                    {MAKER_HANDLE}
-                  </a>{' '}
-                  on X
+                <Credit who={m.credits.madeBy.who}>
+                  <AboutText parts={m.credits.madeBy.text(MAKER_HANDLE)} href={MAKER_URL} />
                 </Credit>
+                {/* The data licences' attribution lines, in the wording they prescribe: English in every language. */}
                 <Credit who="Sentinel-1 / 2">Contains modified Copernicus Sentinel data {years}, processed by ESA.</Credit>
                 <Credit who="Landsat 8 / 9">Landsat imagery courtesy of the U.S. Geological Survey and NASA.</Credit>
-                <Credit who="NASA GIBS">Imagery from NASA’s GIBS, part of EOSDIS. GOES via NOAA and CIRA, Himawari via JMA.</Credit>
+                <Credit who="NASA GIBS">{m.credits.gibs}</Credit>
                 <Credit who="Meteosat">Contains modified EUMETSAT Meteosat data {new Date().getUTCFullYear()}, from EUMETSAT’s map service.</Credit>
-                <Credit who="Archives">Microsoft Planetary Computer and Element 84 Earth Search; Landsat’s 15 m band from the Copernicus Data Space Ecosystem.</Credit>
-                <Credit who="Orbits">Element sets from CelesTrak. SGP4 by satellite.js.</Credit>
-                <Credit who="Place names">Photon by komoot. Map data © OpenStreetMap contributors (ODbL).</Credit>
-                <Credit who="Earth textures">Solar System Scope (CC BY 4.0), from NASA Blue Marble and Black Marble.</Credit>
-                <Credit who="Type">Instrument Sans and Serif by Instrument, Martian Mono by Evil Martians (SIL OFL).</Credit>
+                <Credit who={m.credits.archives.who}>{m.credits.archives.text}</Credit>
+                <Credit who={m.credits.orbits.who}>{m.credits.orbits.text}</Credit>
+                <Credit who={m.credits.placeNames.who}>{m.credits.placeNames.text}</Credit>
+                <Credit who={m.credits.textures.who}>{m.credits.textures.text}</Credit>
+                <Credit who={m.credits.type.who}>{m.credits.type.text}</Credit>
               </ul>
             </Section>
 
-            <Section id="keys" index="06" title="Keyboard" className={s.keyboardOnly}>
+            <Section id="keys" index="06" title={m.sections.keys} className={s.keyboardOnly}>
               <dl className={s.keys}>
-                <Key k={['/']}>Search for a place</Key>
-                <Key k={['↑', '↓']}>Move through suggestions</Key>
-                <Key k={['Enter']}>Choose</Key>
-                <Key k={['←', '→']}>Step through passes</Key>
-                <Key k={['←', '→']}>Previous / next photo</Key>
-                <Key k={['F']}>Expand the photo</Key>
-                <Key k={['+', '−', '0']}>Zoom (when expanded)</Key>
-                <Key k={['Space']}>Play or pause the replay</Key>
-                <Key k={['Esc']}>Back, or close</Key>
-                <Key k={['?']}>This page</Key>
+                <Key k={['/']}>{m.keys.search}</Key>
+                <Key k={['↑', '↓']}>{m.keys.suggestions}</Key>
+                <Key k={[m.keyNames.enter]}>{m.keys.choose}</Key>
+                <Key k={['←', '→']}>{m.keys.passes}</Key>
+                <Key k={['←', '→']}>{m.keys.photos}</Key>
+                <Key k={['F']}>{m.keys.expand}</Key>
+                <Key k={['+', '−', '0']}>{m.keys.zoom}</Key>
+                <Key k={[m.keyNames.space]}>{m.keys.play}</Key>
+                <Key k={[m.keyNames.esc]}>{m.keys.back}</Key>
+                <Key k={['?']}>{m.keys.help}</Key>
               </dl>
             </Section>
 
@@ -437,12 +377,9 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
                 <span className={s.bySep} aria-hidden>
                   ·
                 </span>
-                Built by{' '}
-                <a href={MAKER_URL} target="_blank" rel="noreferrer">
-                  {MAKER_HANDLE}
-                </a>
+                <AboutText parts={m.builtBy(MAKER_HANDLE)} href={MAKER_URL} />
               </span>
-              <span className={s.dim}>Made from public data. We didn’t take any of these photos.</span>
+              <span className={s.dim}>{m.footerNote}</span>
             </footer>
           </article>
         </div>
@@ -466,13 +403,14 @@ function Section({ id, index, title, className, children }: { id: SectionId; ind
   )
 }
 
-function Facts({ rows }: { rows: [string, ReactNode][] }) {
+/** Question / answer rows, in the namespace's order, keyed by their ids. */
+function Facts({ rows }: { rows: Record<string, { term: string; text: string }> }) {
   return (
     <dl className={s.facts}>
-      {rows.map(([k, v]) => (
-        <div key={k} className={s.fact}>
-          <dt>{k}</dt>
-          <dd>{v}</dd>
+      {Object.entries(rows).map(([id, { term, text }]) => (
+        <div key={id} className={s.fact}>
+          <dt>{term}</dt>
+          <dd>{text}</dd>
         </div>
       ))}
     </dl>
@@ -480,17 +418,42 @@ function Facts({ rows }: { rows: [string, ReactNode][] }) {
 }
 
 /**
- * About's longer word on each verdict, after the one-sentence definition. The names and definitions come
- * from the product's one vocabulary table (DESIGN §7), so About always says what the results say.
+ * An About paragraph's rich parts as the page's own elements: text, mono numbers (s.num), and the paragraph's one
+ * link (`href`, opened in a new tab).
  */
-const VERDICT_MORE: Record<Verdict, string> = {
-  imaged: 'If we show it, it’s the actual photo.',
-  likely: 'The photo isn’t public yet, or it got tossed because of clouds.',
-  could: 'There’s no way to know if it actually did.',
-  overhead: '',
+function AboutText({ parts, href }: { parts: readonly AboutPart[]; href?: string }): ReactNode {
+  return parts.map((p, i) => <Fragment key={i}>{aboutPart(p, href)}</Fragment>)
 }
 
-function Terms() {
+const isLink = (p: AboutPart): p is LinkPart => typeof p === 'object' && 'link' in p
+
+function aboutPart(p: AboutPart, href: string | undefined): ReactNode {
+  if (typeof p === 'string') return p
+  if (isLink(p))
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        <AboutText parts={p.link} />
+      </a>
+    )
+  // data-num: a left-to-right island inside right-to-left prose (scripts.css), as Rich renders its numbers.
+  if (isNum(p))
+    return (
+      <span className={s.num} data-num="">
+        {numText(p)}
+      </span>
+    )
+  if (isAccent(p)) return <AboutText parts={p.accent} />
+  if (isStrong(p)) return <AboutText parts={p.strong} />
+  return null
+}
+
+/**
+ * About's longer word on each verdict (`more`), after the one-sentence definition. The names and definitions come
+ * from the product's one vocabulary (the 'verdicts' namespace, DESIGN §7), read here at render in the visitor's
+ * language, so About always says what the results say.
+ */
+function Terms({ more, gap }: { more: Messages['verdictMore']; gap: string }) {
+  const vm = useMsgs(enVerdicts)
   return (
     <dl className={s.terms}>
       {VERDICTS.map((v) => (
@@ -499,11 +462,11 @@ function Terms() {
             <span className={cx(s.termGlyph, v === 'imaged' && s.signal)}>
               <Glyph name={VERDICT_GLYPH[v]} size={14} />
             </span>
-            {VERDICT_META[v].title}
+            {vm[v].title}
           </dt>
           <dd>
-            {VERDICT_META[v].definition}
-            {VERDICT_MORE[v] ? ` ${VERDICT_MORE[v]}` : null}
+            {vm[v].definition}
+            {more[v] ? `${gap}${more[v]}` : null}
           </dd>
         </div>
       ))}

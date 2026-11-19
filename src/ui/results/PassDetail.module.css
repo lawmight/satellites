@@ -47,22 +47,32 @@
   margin-inline: auto;
 }
 /* ── four-up readout strip under the frame (R23) ──────────────── */
+/* Two shared rows (labels, values), each cell a subgrid of them: a label that takes two lines ("Cloud at spot",
+   "Fora do nadir") moves every value down with its own, so the four values stay on one line. */
 .strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: auto auto;
+  container-type: inline-size;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
 .stripCell {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  /* Its own column never grows past the cell for a word wider than it ("Bewolking" on a phone). */
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: 6px;
   min-width: 0;
-  padding: 10px 8px 10px 0;
+  /* logical, so right to left the cells mirror (the gutter on the inline end, as the + rule's start is) */
+  padding-block: 10px;
+  padding-inline: 0 8px;
 }
 .stripCell + .stripCell {
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--line);
 }
 .stripLabel {
   font-family: var(--font-mono);
@@ -72,6 +82,12 @@
   text-transform: uppercase;
   line-height: 1.2;
   color: var(--bone-3);
+}
+.stripLabel[data-tight] {
+  letter-spacing: 0;
+}
+.stripLabel[data-tight='2'] {
+  font-size: var(--fs-micro, 9.5px);
 }
 .stripValue {
   font-family: var(--font-mono);
@@ -83,9 +99,20 @@
   font-variant-numeric: tabular-nums;
   color: var(--bone);
   white-space: nowrap;
+  /* The unit goes under its value when the cell is too narrow for both ("−43.1°" over "Night"), never cut. */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-self: start;
+  column-gap: calc(var(--fs-label) * 0.3);
+  row-gap: 3px;
+}
+/* The last cell's end padding is the strip's edge, not a gutter to a neighbour: its value may run into it, as English's
+   "32.7° day" and "25% scene" always have, and wraps only past it ("−43.1° night" was cut at the edge). */
+.stripCell:last-child .stripValue {
+  margin-inline-end: -8px;
 }
 .stripUnit {
-  margin-left: 0.3em;
   font-size: var(--fs-label);
   font-weight: 400;
   letter-spacing: var(--track-label);
@@ -93,6 +120,13 @@
   color: var(--bone-3);
 }
 @media (max-width: 420px) {
+  .stripValue {
+    font-size: 18px;
+  }
+}
+/* A strip as narrow as a phone's on a laptop (the 1024 px pass column is 350 px) takes the phone's numbers: at 21 px,
+   "−20.0°" alone was wider than its cell. */
+@container (max-width: 360px) {
   .stripValue {
     font-size: 18px;
   }

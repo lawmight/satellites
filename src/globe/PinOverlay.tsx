@@ -15,9 +15,13 @@
  * action in progress rather than as nothing happening.
  *
  * Positions are written per frame from the runtime's anchors (no React render per frame), as GlobeOverlay does.
+ * Its words are the 'globe' namespace's `pin` group (src/i18n/en/globe.ts); the name, its area and the coordinates are
+ * data, shown as they come.
  */
 import { useEffect, useRef, useState } from 'react'
-import { coordinateLabel, isAbortError, reversePlace } from '@/imagery'
+import enGlobe from '@/i18n/en/globe'
+import { useMsgs } from '@/i18n/runtime'
+import { coordinateLabel, displayLabel, displaySublabel, isAbortError, reversePlace } from '@/imagery'
 import { isStacked } from '@/lib/layout'
 import { useApp, type DroppedPin } from '@/state/store'
 import type { Place } from '@/types'
@@ -48,6 +52,7 @@ export function PinOverlay({ runtime, onSearch }: { runtime: GlobeRuntime; onSea
 }
 
 function PinCard({ runtime, pin, onSearch }: { runtime: GlobeRuntime; pin: DroppedPin; onSearch: (place: Place) => void }) {
+  const m = useMsgs(enGlobe).pin
   const anchorEl = useRef<HTMLDivElement>(null)
   const card = useRef<HTMLDivElement>(null)
   const [named, setNamed] = useState<Named | null>(null)
@@ -161,7 +166,10 @@ function PinCard({ runtime, pin, onSearch }: { runtime: GlobeRuntime; pin: Dropp
 
   const coords = `${fmtLat(pin.lat, 4)} ${fmtLon(pin.lon, 4)}`
   const name = named?.pinId === pin.id ? named.place : undefined // undefined: still naming; null: no name here
-  const title = name ? [name.label, name.sublabel].filter(Boolean).join(', ') : undefined
+  // The name and the "where" line in the visitor's language (the Place keeps the English ones for lookups).
+  const label = name ? displayLabel(name) : undefined
+  const sub = name ? displaySublabel(name) : undefined
+  const title = name ? (label && sub ? m.placeTitle(label, sub) : label || sub || '') : undefined
 
   const search = async () => {
     if (busy) return
@@ -184,33 +192,26 @@ function PinCard({ runtime, pin, onSearch }: { runtime: GlobeRuntime; pin: Dropp
   return (
     <div ref={anchorEl} className={s.anchor} data-visible="0">
       <div ref={card} className={s.block}>
-        <div className={s.card} role="group" aria-label="Dropped pin">
+        <div className={s.card} role="group" aria-label={m.card}>
           <div className={s.text}>
             <span className={s.coord}>{coords}</span>
             <span className={s.name} data-state={name === undefined ? 'naming' : name ? 'named' : 'none'} title={title}>
-              {name === undefined ? 'Naming this spot' : name ? name.label : 'No named place nearby'}
-              {name?.sublabel ? <span className={s.sub}> {name.sublabel}</span> : null}
+              {name === undefined ? m.naming : name ? label : m.noName}
+              {sub ? <span className={s.sub}> {sub}</span> : null}
             </span>
           </div>
-          <button
-            type="button"
-            className={s.go}
-            onClick={search}
-            disabled={busy}
-            aria-label={`Show what passed over ${name ? name.label : coords}`}
-            title="Search here (Enter)"
-          >
+          <button type="button" className={s.go} onClick={search} disabled={busy} aria-label={m.searchAria(name ? name.label : coords)} title={m.searchTitle}>
             <Glyph name="arrow-right" size={16} />
           </button>
-          <button type="button" className={s.close} onClick={() => useApp.getState().setPin(undefined)} aria-label="Remove the pin" title="Remove the pin (Esc)">
+          <button type="button" className={s.close} onClick={() => useApp.getState().setPin(undefined)} aria-label={m.removeAria} title={m.removeTitle}>
             <Glyph name="close" size={11} />
           </button>
         </div>
         {/* Dropped by the landing's chip, in the middle of the globe: how to put it where you want it. */}
-        {pin.via === 'chip' ? <p className={s.caption}>Hold the globe anywhere to move it</p> : null}
+        {pin.via === 'chip' ? <p className={s.caption}>{m.moveHint}</p> : null}
       </div>
       <p className="sr-only" aria-live="polite">
-        {name === undefined ? `Pin dropped at ${coords}.` : `Pin dropped${name ? ` in ${title}` : ''}. Press Enter or the arrow to see what passed over it.`}
+        {name === undefined ? m.droppedAt(coords) : name ? m.droppedIn(title!) : m.droppedUnnamed}
       </p>
     </div>
   )

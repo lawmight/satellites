@@ -8,7 +8,7 @@
  * `input` and `selectionchange` only. (A hidden mirror span is kept as the fallback for a proportional
  * font, should a caller ever restyle the input.) The caret inverts the glyph beneath it
  * (mix-blend-mode: difference), stays solid while you type, hides while a range is selected, and does
- * not blink under reduced motion.
+ * not blink under reduced motion. Right to left the native caret shows instead (Field.module.css says why).
  *
  *   <Field label="01 / Place" placeholder="Search a place" leading={<Glyph name="search" />}
  *          trailing={<Kbd>/</Kbd>} busy={searching} />

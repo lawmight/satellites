@@ -34,11 +34,28 @@ describe('the video’s plan', () => {
 describe('the file’s name', () => {
   const frames = [{ date: '2015-10-22' }, { date: '2021-12-01' }, { date: '2026-09-04' }]
   it('names the place and the years it spans', () => {
-    expect(videoFileName('Groom Lake, Nevada', frames)).toBe('watched-groom-lake-nevada-2015-2026.mp4')
-    expect(videoFileName('São Paulo', frames.slice(0, 1))).toBe('watched-sao-paulo-2015.mp4')
+    expect(videoFileName('Groom Lake, Nevada', frames, 'place')).toBe('watched-groom-lake-nevada-2015-2026.mp4')
+    expect(videoFileName('São Paulo', frames.slice(0, 1), 'place')).toBe('watched-sao-paulo-2015.mp4')
+  })
+  it('spells letters that have no decomposition as the place search does, never as a hyphen', () => {
+    expect(videoFileName('Łódź', frames, 'place')).toBe('watched-lodz-2015-2026.mp4')
+    expect(videoFileName('Kırıkkale', frames, 'place')).toBe('watched-kirikkale-2015-2026.mp4')
+    expect(videoFileName('Ørsted', frames, 'place')).toBe('watched-orsted-2015-2026.mp4')
+    expect(videoFileName('Þingvellir, Ísland', frames, 'place')).toBe('watched-thingvellir-island-2015-2026.mp4')
+    expect(videoFileName('Straße des 17. Juni', frames, 'place')).toBe('watched-strasse-des-17-juni-2015-2026.mp4')
+    expect(videoFileName('İstanbul', frames, 'place')).toBe('watched-istanbul-2015-2026.mp4')
+    // English names, as before.
+    expect(videoFileName('St. John’s, Newfoundland', frames, 'place')).toBe('watched-st-john-s-newfoundland-2015-2026.mp4')
+  })
+  it('cuts a long name at 40 characters, never leaving a hyphen at the cut', () => {
+    const welsh = 'Llanfairpwllgwyngyllgogerychwyrndrobwll Llantysiliogogogoch' // 39 letters, then the space
+    expect(videoFileName(welsh, frames, 'place')).toBe('watched-llanfairpwllgwyngyllgogerychwyrndrobwll-2015-2026.mp4')
+    expect(videoFileName('Taumatawhakatangihangakoauauotamateaturipukakapikimaungahoronukupokaiwhenuakitanatahu', frames, 'place')).toBe(
+      'watched-taumatawhakatangihangakoauauotamateaturi-2015-2026.mp4',
+    )
   })
   it('still has a name for a place written in another script, or with no frames', () => {
-    expect(videoFileName('東京', frames)).toBe('watched-place-2015-2026.mp4')
-    expect(videoFileName('Oslo', [])).toBe('watched-oslo.mp4')
+    expect(videoFileName('東京', frames, 'place')).toBe('watched-place-2015-2026.mp4')
+    expect(videoFileName('Oslo', [], 'place')).toBe('watched-oslo.mp4')
   })
 })

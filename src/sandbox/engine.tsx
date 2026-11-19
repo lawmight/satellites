@@ -10,6 +10,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { buildElementBuffer, computeReport, ELEMENT_STRIDE, getSatInfo, loadCatalog, warmPassWorkers, type EngineReport } from '@/engine'
 import type { Capture, Pass, Place, ProgressEvent } from '@/types'
+import enEngine from '@/i18n/en/engine'
+import { refText } from '@/i18n/messageRef'
 import { Button, Glyph, Label, Readout, Rule, Tag, fmtInt, fmtLat, fmtLon, fmtNorad, fmtNum, fmtUtc, glyphForCategory } from '@/ui/system'
 
 /** `?budget=<ms>` overrides the report's GIBS time budget, to exercise the degraded path on demand. */
@@ -196,8 +198,8 @@ export default function EngineSandbox() {
 
       {report?.notes.length ? (
         <ul className="esb-notes t-mono">
-          {report.notes.map((n) => (
-            <li key={n}>{n}</li>
+          {report.notes.map((n, i) => (
+            <li key={i}>{refText(n, { engine: enEngine })}</li>
           ))}
         </ul>
       ) : null}
@@ -240,7 +242,7 @@ function ProgressReadout({ progress }: { progress?: ProgressEvent }) {
     <div className="esb-progress" aria-live="polite">
       <div className="esb-progress-msg t-mono">
         <span className="esb-stage">{progress?.stage ?? 'catalog'}</span>
-        <span>{progress?.message ?? 'STARTING'}</span>
+        <span>{refText(progress?.message, { engine: enEngine }) ?? 'STARTING'}</span>
         <span className="esb-progress-pct">{f === undefined ? '—' : `${Math.round(f * 100)}%`}</span>
       </div>
       <div className="esb-bar" aria-hidden>

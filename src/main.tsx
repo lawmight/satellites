@@ -2,9 +2,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles/fonts.css'
 import './styles/tokens.css'
+import './styles/scripts.css'
 import './styles/base.css'
 import { App } from './app/App'
 import * as telemetryDeps from './app/telemetryDeps'
+import { startLocale } from './i18n/runtime'
 import { installStaleBuildReload } from './lib/staleBuild'
 
 // Page views are counted by the host (Cloudflare Web Analytics adds its own beacon), so the app loads no analytics
@@ -17,6 +19,10 @@ if (import.meta.env.PROD) {
   if ('requestIdleCallback' in window) requestIdleCallback(telemetry, { timeout: 5000 })
   else setTimeout(telemetry, 2500)
 }
+
+// The language index.html chose: its messages are already downloading (modulepreload), so this rarely waits, and the
+// first render is in that language (never English first). English has nothing to load.
+await startLocale()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

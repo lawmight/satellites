@@ -24,6 +24,9 @@
  * with a plain-language note in `notes` (and `archiveFailed` when no Sentinel-2/Landsat archive answered,
  * which is different from "answered with nothing"). Only an abort rejects (AbortError).
  *
+ * Notes and progress lines are MessageRefs into the 'engine' namespace (src/i18n/en/engine.ts), never sentences: the
+ * report outlives a language switch, so the UI renders them in the language on screen (src/i18n/messageRef.ts).
+ *
  * Before the partial report, the engine also reads the cloud class AT THE PLACE (`capture.spot`) for the
  * four clearest Sentinel-2/Landsat scenes (1.5 s cap, in parallel with the pass search), so the best-look
  * hero can be ranked without another round trip; and, when the week has no Sentinel-2 scene at all, it
@@ -48,7 +51,9 @@
  */
 import { MS_PER_DAY } from '@/lib/geo'
 import { ensureTz, geoCapture, geoCaptureFromItem, latestGeoFrame, searchCapturesDetailed, searchRadar, sentinel2PlanCovers, spotCheck } from '@/imagery'
-import type { Capture, GeoWatcher, LatLon, Pass, Place, ProgressEvent, Report } from '@/types'
+import type { Capture, GeoWatcher, LatLon, MessageRef, Pass, Place, ProgressEvent, Report } from '@/types'
+import type enEngine from '@/i18n/en/engine'
+import { refMaker } from '@/i18n/messageRef'
 import { featuredSats, getRow, getSatInfo, loadCatalog, type LoadedCatalog } from './catalog'
 import { satrecFor } from './sgp4'
 import { geoScanPass, geoWatchers } from './geostationary'
@@ -154,8 +159,8 @@ export interface ReportTimings {
 
 /** The contract `Report`, plus caveats for footnotes and timings for diagnostics. */
 export interface EngineReport extends Report {
-  /** Plain sentences about degraded data (archive outage, stale elements). Empty when all is well. */
-  notes: string[]
+  /** About degraded data (archive outage, stale elements), as 'engine.note.*' refs. Empty when all is well. */
+  notes: MessageRef[]
   /** True for the `onPartial` snapshot: GIBS weather mosaics not matched yet. */
   partial: boolean
   /**
@@ -192,10 +197,11 @@ const COVER_WAIT_MS = 2_500
 export const GEO_FRAME_PROBE = { halfSizeKm: 400, px: 176 }
 /** A report whose window ended longer ago than this is not "now": it gets no newest geostationary frame. */
 const GEO_LIVE_WINDOW_MS = 3 * 3_600_000
-export const OCEAN_NOTE = "This spot is outside Sentinel-2's acquisition plan (open ocean)."
 
-const nf = /* @__PURE__ */ new Intl.NumberFormat('en-US')
-const plural = (n: number, one: string, many = `${one}S`) => `${nf.format(n)} ${n === 1 ? one : many}`
+/** Refs into the 'engine' namespace: the report's notes and its progress lines. */
+const ref = refMaker<typeof enEngine>('engine')
+export const OCEAN_NOTE: MessageRef = ref('note.openOcean')
+
 const noop = () => undefined
 
 function abortError(): Error {
@@ -323,12 +329,12 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   const windowEnd = opts.now ?? Date.now()
   const windowStart = windowEnd - days * MS_PER_DAY
   const latLon = { lat: place.lat, lon: place.lon }
-  const notes: string[] = []
-  const emit = (stage: ProgressEvent['stage'], message: string, fraction?: number) => safely(opts.onProgress, { stage, message, fraction })
+  const notes: MessageRef[] = []
+  const emit = (stage: ProgressEvent['stage'], message: MessageRef, fraction?: number) => safely(opts.onProgress, { stage, message, fraction })
   throwIfAborted(signal)
 
   // ── STAC archive search: needs nothing from the catalog, so it goes out first ──
-  emit('catalog', 'LOADING ORBITAL CATALOG', 0.02)
+  emit('catalog', ref('progress.loadingCatalog'), 0.02)
   const archiveStart = performance.now()
   let archiveMs = 0
   let archiveDone = false
@@ -342,11 +348,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
     .catch((err): Capture[] => {
       if (isAbort(err) && signal?.aborted) throw err
       archiveFailed = true
-      notes.push(
-        err instanceof Error && err.name === 'TimeoutError'
-          ? 'The Sentinel-2 and Landsat archives were too slow to answer; passes are shown from orbital geometry only.'
-          : 'The Sentinel-2 and Landsat archives could not be reached; passes are shown from orbital geometry only.',
-      )
+      notes.push(err instanceof Error && err.name === 'TimeoutError' ? ref('note.archiveSlow') : ref('note.archiveDown'))
       return []
     })
     .finally(() => {
@@ -429,13 +431,13 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   throwIfAborted(signal)
   const catalogMs = performance.now() - tStart
   const targets = passTargets(cat)
-  emit('catalog', `CATALOG · ${plural(cat.count, 'OBJECT')}`, 0.06)
+  emit('catalog', ref('progress.catalog', { objects: cat.count }), 0.06)
   // SGP4 error grows by roughly 1–3 km per day away from the element epoch, in either direction.
   const ageMs = windowEnd - Date.parse(cat.fetchedAt)
   if (ageMs > STALE_CATALOG_MS) {
-    notes.push(`Orbital elements are ${Math.round(ageMs / MS_PER_DAY)} days old, so pass times may be off by a few minutes.`)
+    notes.push(ref('note.elementsOld', { days: Math.round(ageMs / MS_PER_DAY) }))
   } else if (-ageMs > STALE_CATALOG_MS) {
-    notes.push('These passes are reconstructed from newer orbital elements, so their times may be off by a few minutes.')
+    notes.push(ref('note.elementsNewer'))
   }
 
   // ── passes: GIBS satellites first, one per worker; everything else behind them ──
@@ -445,9 +447,9 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   const done = { gibs: 0, other: 0 }
   const onPassProgress = () => {
     const n = done.gibs + done.other
-    emit('propagate', `PROPAGATING ORBITS · ${nf.format(n)} / ${nf.format(targets.length)}`, 0.06 + 0.64 * (n / Math.max(1, targets.length)))
+    emit('propagate', ref('progress.propagating', { done: n, total: targets.length }), 0.06 + 0.64 * (n / Math.max(1, targets.length)))
   }
-  emit('propagate', `PROPAGATING ${plural(targets.length, 'ORBIT')} · ${days} DAYS`, 0.06)
+  emit('propagate', ref('progress.propagateStart', { orbits: targets.length, days }), 0.06)
   const gibsPasses = runPassSearch(targets.filter(hasGibs), query, {
     signal,
     chunkSize: 1,
@@ -466,7 +468,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   const weather = startWeatherLeg(latLon, gibsPasses, {
     signal,
     onSettle: (n, total) => {
-      if (verifying) emit('match', `VERIFYING NASA WEATHER MOSAICS · ${nf.format(n)} / ${nf.format(total)}`, 0.86 + 0.13 * (n / total))
+      if (verifying) emit('match', ref('progress.verifyingWeather', { settled: n, total }), 0.86 + 0.13 * (n / total))
     },
     onLate: (c, byRule) => onLate?.(c, byRule),
     onLateSettled: (left) => onLateSettled?.(left),
@@ -534,8 +536,8 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   const geo = await geoP
   mark('geo')
   const satellitesConsidered = targets.length + featuredSats(cat).filter((s) => s.category === 'weather-geo' && s.profile?.operational).length
-  /** Weather-leg sentences, recomputed for every build (background patches change them). */
-  let weatherNotes: string[] = []
+  /** Weather-leg notes, recomputed for every build (background patches change them). */
+  let weatherNotes: MessageRef[] = []
   /** The clear cover this report waits on (set once the matched passes confirm the window needs one). */
   let coverP: Promise<Capture | undefined> | undefined
 
@@ -581,7 +583,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   }
 
   // ── STAC scenes ───────────────────────────────────────────────────────────
-  if (!archiveDone) emit('archive', 'SEARCHING SENTINEL-2 + LANDSAT ARCHIVES', 0.72)
+  if (!archiveDone) emit('archive', ref('progress.searchingArchives'), 0.72)
   let stac: Capture[]
   try {
     stac = await archive
@@ -590,7 +592,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
     throw err
   }
   throwIfAborted(signal)
-  emit('match', `MATCHING ${plural(stac.length, 'SCENE')} TO ${plural(passes.length, 'PASS', 'PASSES')}`, 0.8)
+  emit('match', ref('progress.matching', { scenes: stac.length, passes: passes.length }), 0.8)
   mark('archive-in')
   const orphans = attachCaptures(passes, stac)
   passes.push(...passesForOrphanScenes(cat, latLon, orphans, passes))
@@ -665,7 +667,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   if (!weather.isDone()) {
     verifying = true
     const { total, settled } = weather.progress()
-    emit('match', total ? `VERIFYING NASA WEATHER MOSAICS · ${nf.format(settled)} / ${nf.format(total)}` : 'VERIFYING NASA WEATHER MOSAICS', 0.86 + 0.13 * (total ? settled / total : 0))
+    emit('match', total ? ref('progress.verifyingWeather', { settled, total }) : ref('progress.verifyingWeatherStart'), 0.86 + 0.13 * (total ? settled / total : 0))
     const startedAt = weather.timing().startedAt || performance.now()
     const deadline = finalDueAt ?? Math.max(tStart + budgetMs, startedAt + MIN_WEATHER_MS)
     try {
@@ -683,22 +685,12 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   /** VIIRS images counted by rule and not confirmed yet (late confirmations shrink the footnote). */
   let unconfirmed = rule.length
   const gibsNotes = () => {
-    const out: string[] = []
-    if (unconfirmed > 0)
-      out.push(
-        `NASA GIBS was slow to confirm ${unconfirmed === 1 ? 'one VIIRS image' : `${nf.format(unconfirmed)} VIIRS images`}; VIIRS images the whole globe every day, so ${unconfirmed === 1 ? 'that pass counts' : 'those passes count'} as watched.`,
-      )
+    const out: MessageRef[] = []
+    if (unconfirmed > 0) out.push(ref('note.gibsUnconfirmed', { n: unconfirmed }))
     if (missing > 0) {
       const all = missing >= mosaics
-      out.push(
-        cut > 0
-          ? all
-            ? 'NASA GIBS did not answer in time, so weather-satellite images are not shown.'
-            : `NASA GIBS did not return ${nf.format(missing)} of ${nf.format(mosaics)} weather-satellite images in time; those passes are shown as likely.`
-          : all
-            ? 'NASA GIBS could not be reached, so weather-satellite images are not shown.'
-            : `NASA GIBS failed to return ${nf.format(missing)} of ${nf.format(mosaics)} weather-satellite images; those passes are shown as likely.`,
-      )
+      const some = { missing, total: mosaics }
+      out.push(cut > 0 ? (all ? ref('note.gibsSlowAll') : ref('note.gibsSlowSome', some)) : all ? ref('note.gibsDownAll') : ref('note.gibsDownSome', some))
     }
     return out
   }
@@ -713,7 +705,7 @@ export async function computeReport(place: Place, opts: ReportOptions = {}): Pro
   const shown = scenes()
   let latest = build(passes, [...shown, ...weatherMatched], false, firstMs)
   mark('final')
-  emit('done', `${plural(latest.counts.passes, 'PASS', 'PASSES')} · ${plural(latest.counts.imaged, 'IMAGE')}`, 1)
+  emit('done', ref('progress.done', { passes: latest.counts.passes, images: latest.counts.imaged }), 1)
 
   // Background: a straggler that comes back with pixels upgrades its pass in a NEW report (the delivered
   // one is never mutated), and the counts only ever go up.

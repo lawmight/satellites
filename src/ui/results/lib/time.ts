@@ -4,7 +4,17 @@
  *
  * Output is mixed case ("Sun 1 Nov"); mono labels uppercase it with CSS. Human dates never zero-pad
  * the day and carry no year (share cards add it); machine stamps stay ISO.
+ *
+ * The words (days, months, "ago", duration units) are the visitor's language: they come from the 'time' namespace
+ * (src/i18n/en/time.ts), read at call time, so a cache or memo that keeps their output must be keyed by the locale.
+ * This module computes the instant's local fields once (`localParts`, or `partsAtOffset` on the timeline's fast path)
+ * and hands them to the message with the raw instant and zone; callers that need a piece of a date (the weekday, a
+ * compact day) ask for it here (`fmtWeekdayShort`, `fmtDayCompact`, `fmtDayRange`) rather than taking a formatted
+ * date apart, since another language orders and spaces its dates its own way. Clocks, zone abbreviations, the T−
+ * countdown and ISO keys are international notation and stay as they are in every language.
  */
+import enTime from '@/i18n/en/time'
+import { msgs } from '@/i18n/runtime'
 
 /**
  * One cached formatter per (call site, zone). Keys are fixed strings per call site, so a row render
@@ -39,15 +49,33 @@ const PARTS_OPTS: Intl.DateTimeFormatOptions = {
 }
 const ZONE_OPTS: Intl.DateTimeFormatOptions = { timeZoneName: 'short' }
 
-export interface LocalParts {
+/**
+ * An instant's local fields at a zone, numbers only: what the 'time' messages get beside the instant and the zone, so a
+ * translation that builds its label by hand has the day, month and weekday, and no English word to reach for.
+ */
+export interface DateFields {
   year: number
   month: number // 1..12
   day: number
-  weekday: string // "Sun"
-  monthName: string // "Nov"
+  /** Day of the week, 0 = Sunday */
+  dow: number
   hour: number
   minute: number
   second: number
+}
+
+export interface LocalParts extends DateFields {
+  /**
+   * English "Sun", the field's historical value, for callers that still assemble labels from it.
+   * @deprecated Visible words come from the visitor's language: fmtWeekdayShort(ms, tz, p), fmtDayCompact(ms, tz, p).
+   * Removed once no caller is left (the timeline's day marks).
+   */
+  weekday: string
+  /**
+   * English "Nov", the field's historical value.
+   * @deprecated Visible words come from the visitor's language: fmtLocalDay(ms, tz, p), fmtDayMonth(ms, tz, p).
+   */
+  monthName: string
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -55,11 +83,14 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 export function localParts(ms: number, timeZone: string): LocalParts {
   const parts = dtf('parts', 'en-GB', timeZone, PARTS_OPTS).formatToParts(ms)
   const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? ''
+  const year = Number(get('year'))
   const month = Number(get('month'))
+  const day = Number(get('day'))
   return {
-    year: Number(get('year')),
+    year,
     month,
-    day: Number(get('day')),
+    day,
+    dow: new Date(Date.UTC(year, month - 1, day)).getUTCDay(),
     weekday: get('weekday').slice(0, 3),
     monthName: MONTHS[month - 1] ?? '',
     hour: Number(get('hour')) % 24,
@@ -67,6 +98,7 @@ export function localParts(ms: number, timeZone: string): LocalParts {
     second: Number(get('second')),
   }
 }
+// LocalParts' deprecated English `weekday` / `monthName` fields only; visible words come from the 'time' namespace.
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -78,6 +110,7 @@ export function partsAtOffset(ms: number, offsetMin: number): LocalParts {
     year: d.getUTCFullYear(),
     month,
     day: d.getUTCDate(),
+    dow: d.getUTCDay(),
     weekday: WEEKDAYS_SHORT[d.getUTCDay()],
     monthName: MONTHS[month - 1],
     hour: d.getUTCHours(),
@@ -130,7 +163,11 @@ const FIXED_ABBR: Record<string, string> = {
   'Asia/Calcutta': 'IST',
   'Asia/Hong_Kong': 'HKT',
   'Asia/Singapore': 'SGT',
+  // Indonesia's three zones, as Indonesians write them (Bali and Makassar are WITA, Papua WIT; owner, 2026-11-19)
   'Asia/Jakarta': 'WIB',
+  'Asia/Pontianak': 'WIB',
+  'Asia/Makassar': 'WITA',
+  'Asia/Jayapura': 'WIT',
   'Europe/Moscow': 'MSK',
   'Australia/Perth': 'AWST',
 }
@@ -184,47 +221,59 @@ export function zoneAbbr(ms: number, timeZone: string): string {
  * the ocean's nautical zones ("Etc/GMT+9", whose sign is inverted) read "UTC−9 · at sea".
  */
 export function zoneLabel(ms: number, timeZone: string): string {
-  if (timeZone.startsWith('Etc/')) return `${utcLabel(utcOffsetMin(ms, timeZone))} · at sea`
+  if (timeZone.startsWith('Etc/')) return msgs(enTime).atSea(utcLabel(utcOffsetMin(ms, timeZone)))
   return timeZone.replace(/_/g, ' ')
 }
 
+const clock = (p: DateFields, seconds: boolean) => `${pad2(p.hour)}:${pad2(p.minute)}${seconds ? `:${pad2(p.second)}` : ''}`
+
 /** "11:21" or "11:21:13" at the place. */
 export function fmtLocalTime(ms: number, timeZone: string, seconds = false): string {
-  const p = localParts(ms, timeZone)
-  return `${pad2(p.hour)}:${pad2(p.minute)}${seconds ? `:${pad2(p.second)}` : ''}`
+  return clock(localParts(ms, timeZone), seconds)
 }
 
-/** "Sun 1 Nov" at the place. */
-export function fmtLocalDay(ms: number, timeZone: string): string {
-  const p = localParts(ms, timeZone)
-  return `${p.weekday} ${p.day} ${p.monthName}`
+/**
+ * "Sun 1 Nov" at the place. `p` (the instant's local fields, from localParts or partsAtOffset) skips the Intl call
+ * where the caller already has them (the timeline's day marks).
+ */
+export function fmtLocalDay(ms: number, timeZone: string, p: DateFields = localParts(ms, timeZone)): string {
+  return msgs(enTime).day(ms, timeZone, p)
 }
 
-const WEEKDAYS: Record<string, string> = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' }
-const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+/** "Sun" at the place: the weekday alone (never cut it from fmtLocalDay: other languages order dates differently). */
+export function fmtWeekdayShort(ms: number, timeZone: string, p: DateFields = localParts(ms, timeZone)): string {
+  return msgs(enTime).weekdayShort(ms, timeZone, p)
+}
+
+/** "Su 1" at the place: the timeline's mid-width day label. */
+export function fmtDayCompact(ms: number, timeZone: string, p: DateFields = localParts(ms, timeZone)): string {
+  return msgs(enTime).dayCompact(ms, timeZone, p)
+}
 
 /** "Friday 6 November" at the place, for screen readers. */
 export function fmtSpokenDay(ms: number, timeZone: string): string {
-  const p = localParts(ms, timeZone)
-  return `${WEEKDAYS[p.weekday] ?? p.weekday} ${p.day} ${MONTHS_LONG[p.month - 1] ?? ''}`
+  return msgs(enTime).daySpoken(ms, timeZone, localParts(ms, timeZone))
 }
 
 /** "41 hours ago", "12 minutes ago", "3 days ago": fmtRelative spelled out for screen readers. */
 export function spokenRelative(ms: number, now: number): string {
-  return fmtRelative(ms, now)
-    .replace(/(\d+) min\b/, (_, n) => `${n} ${n === '1' ? 'minute' : 'minutes'}`)
-    .replace(/(\d+) h\b/, (_, n) => `${n} ${n === '1' ? 'hour' : 'hours'}`)
+  return msgs(enTime).relativeSpoken(ms, now)
 }
 
 /** "29 Oct" at the place (no weekday, no zero pad). */
-export function fmtDayMonth(ms: number, timeZone: string): string {
-  const p = localParts(ms, timeZone)
-  return `${p.day} ${p.monthName}`
+export function fmtDayMonth(ms: number, timeZone: string, p: DateFields = localParts(ms, timeZone)): string {
+  return msgs(enTime).dayMonth(ms, timeZone, p)
 }
 
-/** "Sun 1 Nov · 11:21 EST" */
+/** "1 → 8 Nov" / "29 Oct → 5 Nov" at the place: the days from `startMs` to `endMs`, the shared month written once. */
+export function fmtDayRange(startMs: number, endMs: number, timeZone: string): string {
+  return msgs(enTime).dayRange(startMs, endMs, timeZone, localParts(startMs, timeZone), localParts(endMs, timeZone))
+}
+
+/** "Sun 1 Nov · 11:21 EST": the day in the visitor's language, then the clock and the zone (international notation). */
 export function fmtLocalStamp(ms: number, timeZone: string, seconds = false): string {
-  return `${fmtLocalDay(ms, timeZone)} · ${fmtLocalTime(ms, timeZone, seconds)} ${zoneAbbr(ms, timeZone)}`
+  const p = localParts(ms, timeZone)
+  return msgs(enTime).stamp(ms, timeZone, p, clock(p, seconds), zoneAbbr(ms, timeZone))
 }
 
 /** Local calendar date key "2026-11-01" (for day bucketing). */
@@ -245,18 +294,7 @@ export function utcOffsetMin(ms: number, timeZone: string): number {
  * Hours up to 48 so "yesterday evening" reads as "30 h ago", which is what an instrument would say.
  */
 export function fmtRelative(ms: number, now: number): string {
-  const diff = now - ms
-  const future = diff < 0
-  const s = Math.abs(diff) / 1000
-  let out: string
-  if (s < 45) return 'just now'
-  if (s < 3600) out = `${Math.max(1, Math.round(s / 60))} min`
-  else if (s < 48 * 3600) out = `${Math.round(s / 3600)} h`
-  else {
-    const d = Math.round(s / 86_400)
-    out = `${d} ${d === 1 ? 'day' : 'days'}`
-  }
-  return future ? `in ${out}` : `${out} ago`
+  return msgs(enTime).relative(ms, now)
 }
 
 /** "T−00:42" / "T+01:05" relative to a reference instant (mm:ss, or h:mm:ss past an hour). */
@@ -272,9 +310,10 @@ export function fmtTMinus(ms: number, ref: number): string {
 
 /** "38 s", "4 min 12 s", "1 h 02 min" */
 export function fmtDuration(ms: number): string {
+  const t = msgs(enTime)
   const s = Math.max(0, Math.round(ms / 1000))
-  if (s < 60) return `${s} s`
+  if (s < 60) return t.durationSeconds(s)
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m} min ${pad2(s % 60)} s`
-  return `${Math.floor(m / 60)} h ${pad2(m % 60)} min`
+  if (m < 60) return t.durationMinutes(m, s % 60)
+  return t.durationHours(Math.floor(m / 60), m % 60)
 }

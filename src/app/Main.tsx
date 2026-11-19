@@ -13,6 +13,8 @@
  */
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
+import enApp from '@/i18n/en/app'
+import { useMsgs } from '@/i18n/runtime'
 import { backStack, onBackSettled, watchLayer } from '@/lib/backStack'
 import { useApp, type Phase } from '@/state/store'
 import type { Place } from '@/types'
@@ -167,10 +169,24 @@ function enterDelayAfter(prev: Phase): number {
   return 160
 }
 
+/**
+ * The tab's title in the page's language, following a switch: app.documentTitle, whose English is index.html's own
+ * title, word for word (i18n.test.ts checks it). Never read back from document.title: before the app runs, the boot
+ * words (src/i18n/bootText.ts) have already set the boot language's title there, so a German page switched to English,
+ * or falling back to it when its chunk failed, kept the German title.
+ */
+function useDocumentTitle() {
+  const m = useMsgs(enApp)
+  useEffect(() => {
+    if (document.title !== m.documentTitle) document.title = m.documentTitle
+  }, [m])
+}
+
 export default function Main() {
   const phase = useApp((st) => st.phase)
   const error = useApp((st) => st.error)
   const about = useApp((st) => st.aboutOpen)
+  useDocumentTitle()
 
   // The loading screen (index.html) leaves in the commit that mounts what boot led to, before its first paint.
   useLayoutEffect(() => {
@@ -249,7 +265,7 @@ export default function Main() {
     [],
   )
 
-  // Global keys: Esc backs out, "?" opens About.
+  // Global keys: Esc backs out, "?" opens About ("؟" is the same key on an Arabic layout).
   useEffect(() => {
     // Overlays (About, ShareSheet, search suggestions) handle their own keys first and stop/prevent them.
     const onKey = (e: KeyboardEvent) => {
@@ -260,7 +276,7 @@ export default function Main() {
         const st = useApp.getState()
         if (st.selectedPassId) return st.selectPass(undefined)
         if (st.phase === 'results' || st.phase === 'computing' || st.phase === 'error') resetToLanding()
-      } else if (!typing && e.key === '?') {
+      } else if (!typing && (e.key === '?' || e.key === '\u061f')) {
         openAbout()
       }
     }

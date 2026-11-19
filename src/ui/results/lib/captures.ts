@@ -1,7 +1,14 @@
 /**
  * Capture helpers: which image belongs to a pass, how big a crop to ask for, and how to label it
  * honestly (a 375 m daily mosaic is not a 10 m photograph; a radar image is not a photograph at all).
+ *
+ * The labels' words and units come from the 'results' namespace (product, pixel), read at call time: a component
+ * that shows them subscribes to the language. Instrument and archive names are proper names, the same in every
+ * language.
  */
+import enResults from '@/i18n/en/results'
+import { msgs } from '@/i18n/runtime'
+import { SPELLED } from '@/imagery/placeKey'
 import type { Capture, CaptureCollection, Pass, Report } from '@/types'
 
 /** The capture attached to a pass, if any. */
@@ -110,24 +117,27 @@ export function sensorName(c: Pick<Capture, 'collection' | 'platform'>): string 
 
 /** Product line for captions: "Sentinel-2 L2A · 10 m" / "Daily mosaic · 375 m" / "Sentinel-1 radar · 20 m" / "Full disc · 2 km". */
 export function productLabel(c: Pick<Capture, 'collection' | 'provider' | 'gsdM' | 'band'>): string {
-  if (isDailyMosaic(c)) return `Daily mosaic · ${Math.round(c.gsdM)} m`
+  const m = msgs(enResults).product
+  const metres = Math.round(c.gsdM)
+  if (isDailyMosaic(c)) return m.mosaic(metres)
   // The pixel the map service draws the disc on, in km; an infrared frame says so (cloud tops, not the ground).
-  if (isGeoFrame(c)) return `${c.band === 'infrared' ? 'Infrared' : 'Full disc'} · ${Math.round(c.gsdM / 1000)} km`
+  if (isGeoFrame(c)) return (c.band === 'infrared' ? m.infrared : m.fullDisc)(Math.round(c.gsdM / 1000))
   switch (c.collection) {
     case 'sentinel-2-l2a':
-      return `Sentinel-2 L2A · ${Math.round(c.gsdM)} m`
+      return m.sentinel2(metres)
     case 'landsat-c2-l2':
-      return `Landsat C2 L2 · ${Math.round(c.gsdM)} m`
+      return m.landsat(metres)
     case 'sentinel-1-rtc':
-      return `Sentinel-1 radar · ${Math.round(c.gsdM)} m`
+      return m.sentinel1(metres)
     default:
-      return `${Math.round(c.gsdM)} m`
+      return m.other(metres)
   }
 }
 
 /** A capture's pixel as a label: "10 m", "375 m", "2 km" (a geostationary frame's grid). */
 export function pixelLabel(c: Pick<Capture, 'gsdM'>): string {
-  return c.gsdM >= 1000 ? `${Math.round(c.gsdM / 1000)} km` : `${Math.round(c.gsdM)} m`
+  const m = msgs(enResults).pixel
+  return c.gsdM >= 1000 ? m.km(Math.round(c.gsdM / 1000)) : m.m(Math.round(c.gsdM))
 }
 
 /** Archive name for the "View source" link. */
@@ -153,13 +163,19 @@ export function scaleBarKm(widthKm: number): number {
   return best
 }
 
-/** Filename-safe slug. */
+/**
+ * Filename-safe slug: ASCII letters and digits only (a file name must survive every system). A name written only in
+ * another script (Japanese, Arabic, Ukrainian) gives an empty slug: a caller joining slugs should skip empty ones.
+ */
 export function slug(s: string): string {
   return s
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
+    // letters with no decomposition (Łódź → lodz, Kırıkkale → kirikkale), as the place search spells them
+    .replace(/[łøæœßđðþıħ]/g, (c) => SPELLED[c])
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 48)
+    .replace(/-+$/, '')
 }

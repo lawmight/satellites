@@ -1,9 +1,14 @@
 /**
  * Pure formatters for the corner readouts. Fixed-width where a value ticks, so right-aligned
  * readouts don't jitter: latitudes are zero-padded to 2 integer digits, longitudes to 3.
+ *
+ * Coordinates, clocks and stamps are international notation (the same in every language); the words around them
+ * ("SUN", "OBJECTS", the age units) come from the 'hud' namespace, read at call time.
  */
+import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
+import enHud from '@/i18n/en/hud'
+import { currentLocale, msgs } from '@/i18n/runtime'
 import { gmst, RAD } from '@/lib/geo'
-import { fmtInt } from '@/ui/system/format'
 
 const pad = (n: number, w: number) => String(Math.trunc(n)).padStart(w, '0')
 
@@ -26,7 +31,7 @@ export function fmtLonFixed(lon: number, digits = 1): string {
 
 /** "SUN 06.2°S 118.2°E" */
 export function fmtSun(p: { lat: number; lon: number }, digits = 1): string {
-  return `SUN ${fmtLatFixed(p.lat, digits)} ${fmtLonFixed(p.lon, digits)}`
+  return msgs(enHud).sun(fmtLatFixed(p.lat, digits), fmtLonFixed(p.lon, digits))
 }
 
 /** Greenwich mean sidereal time as "HH:MM:SS" (sidereal hours). */
@@ -44,16 +49,28 @@ export function fmtStampZ(iso: string): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1, 2)}-${pad(d.getUTCDate(), 2)} ${pad(d.getUTCHours(), 2)}:${pad(d.getUTCMinutes(), 2)}Z`
 }
 
-/** Compact age: "<1 MIN", "42 MIN", "5 H", "3 D". Never negative. */
-export function fmtAge(fromMs: number, nowMs: number): string {
+/** The unit of a catalog age: under a minute, minutes (1–89), hours (2–47), days (2 or more). */
+export type AgeUnit = 'underMinute' | 'minute' | 'hour' | 'day'
+
+/**
+ * How old something is, as a unit and a count: under a minute, minutes up to 90, hours up to 48, then days. Never
+ * negative. Raw values, so each language words them its own way (the 'hud' namespace's `catalogAge`).
+ */
+export function ageOf(fromMs: number, nowMs: number): { unit: AgeUnit; n: number } {
   const s = Math.max(0, (nowMs - fromMs) / 1000)
-  if (s < 60) return '<1 MIN'
-  if (s < 90) return '1 MIN'
+  if (s < 60) return { unit: 'underMinute', n: 0 }
+  if (s < 90) return { unit: 'minute', n: 1 }
   const m = Math.round(s / 60)
-  if (m < 90) return `${m} MIN`
+  if (m < 90) return { unit: 'minute', n: m }
   const h = Math.round(m / 60)
-  if (h < 48) return `${h} H`
-  return `${Math.round(h / 24)} D`
+  if (h < 48) return { unit: 'hour', n: h }
+  return { unit: 'day', n: Math.round(h / 24) }
+}
+
+/** The catalog's age after "Fetched …": "<1 MIN ago", "42 MIN ago", "5 H ago", "Stale, 3 D ago". */
+export function fmtCatalogAge(fromMs: number, nowMs: number, stale: boolean): string {
+  const a = ageOf(fromMs, nowMs)
+  return msgs(enHud).catalogAge(a.unit, a.n, stale)
 }
 
 /** Element sets older than this are flagged (--warn): pass times drift by seconds per day. */
@@ -65,9 +82,9 @@ export function isStale(fetchedAtIso: string, nowMs: number): boolean {
 }
 
 /** "16,893 OBJECTS" */
-export const fmtObjects = (n: number) => `${fmtInt(n)} OBJECTS`
+export const fmtObjects = (n: number) => msgs(enHud).objects(n)
 
 /** Catalog source label, e.g. "CelesTrak GP" → "CELESTRAK GP"; trims parentheticals for the corner. */
 export function fmtSource(source: string): string {
-  return source.replace(/\s*\(.*\)\s*$/, '').trim().toUpperCase() || 'CATALOG'
+  return source.replace(/\s*\(.*\)\s*$/, '').trim().toLocaleUpperCase(LOCALE_INFO[currentLocale()].intl) || msgs(enHud).catalog
 }

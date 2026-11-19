@@ -13,7 +13,7 @@ export {
 } from './elements'
 export type { EngineReport, ReportOptions, ReportTimings } from './report'
 export { geoWatchers, scanAngleAt, scanLine, scanSeatOf, type ScanLine, type ScanSeat } from './geostationary'
-export { PROFILES } from './profiles'
+export { PROFILES, profileBlurb, type SatBlurb } from './profiles'
 
 import type { Place, SatProfile } from '@/types'
 import { getSatInfo } from './catalog'

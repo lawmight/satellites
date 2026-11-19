@@ -48,3 +48,15 @@
     clip-path: inset(0 0 0 0);
   }
 }
+/* The x wipe follows the reading: right to left, it opens from the right edge. */
+:root[dir='rtl'] .revealX {
+  animation-name: reveal-x-rtl;
+}
+@keyframes reveal-x-rtl {
+  from {
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}

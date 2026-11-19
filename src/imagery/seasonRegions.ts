@@ -27,11 +27,13 @@
 import type { LatLon } from '@/types'
 import { GLACIER_CELL, GLACIER_ROWS } from './glaciers'
 
+/** A season's id, never shown as it is: the time-lapse's copy says it in each language (src/i18n/en/timelapse.ts). */
 export type SeasonName = 'winter' | 'spring' | 'summer' | 'autumn'
 
 export interface SeasonRegion {
+  /** For people reading this file; never shown */
   name: string
-  /** What the caption calls it */
+  /** The season every year keeps, which the caption names ("one each autumn") */
   season: SeasonName
   /** The middle day of the season (days since 1 January), its window SEASON_HALF_DAYS either side */
   day: number

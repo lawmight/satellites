@@ -11,11 +11,17 @@ import {
   regionLabel,
   scrubMessage,
   setEnricher,
+  setLanguage,
   telemetryAllowed,
   track,
   utmOf,
 } from './telemetry'
 import { phaseErrorMsg, reportCounts, searchSource } from '@/app/telemetry'
+import { CATALOG_FAULT, COMPUTE_FAULT, englishOf } from '@/app/messageRefs'
+import enPlaces from '@/i18n/en/places'
+import { setBundleForTests } from '@/i18n/runtime'
+import { localizedPlace } from '@/ui/landing/curated'
+import { EXAMPLE_PLACES, SURPRISE_PLACES } from '@/ui/landing/places'
 import type { Pass, Place } from '@/types'
 
 describe('opt-outs', () => {
@@ -157,6 +163,28 @@ describe('batching', () => {
     track('about_open')
     expect(() => flush()).not.toThrow()
   })
+
+  it('names the language the app shows in each batch, as it is when the batch is sent (0027)', () => {
+    const sent: string[] = []
+    _testing({ allowed: true, sender: (b) => sent.push(b), ctx: { device: 'phone' }, sid: 'sid_abcdefghijklmnop' })
+    track('about_open')
+    flush()
+    expect(JSON.parse(sent[0]).ctx).toEqual({ device: 'phone' }) // none handed in yet: no key
+    let locale = 'de'
+    setLanguage(() => locale)
+    track('about_open')
+    flush()
+    locale = 'pt-BR' // the language menu
+    track('about_open')
+    flush()
+    expect(sent.slice(1).map((b) => JSON.parse(b).ctx)).toEqual([{ device: 'phone', lang: 'de' }, { device: 'phone', lang: 'pt-BR' }])
+    setLanguage(() => {
+      throw new Error('boom')
+    })
+    track('about_open')
+    expect(() => flush()).not.toThrow()
+    expect(JSON.parse(sent[3]).ctx).toEqual({ device: 'phone' })
+  })
 })
 
 describe('derived events', () => {
@@ -188,13 +216,61 @@ describe('the geocoder flags street-level results (src/imagery/geocode.ts)', () 
   })
 })
 
+/** A curated place by its English label (src/ui/landing/places.ts). */
+const curated = (label: string): Place => [...EXAMPLE_PLACES, ...SURPRISE_PLACES].find((p) => p.label === label)!
+/** A test bundle: the 'places' namespace with three places in French (the rest English). */
+const FRENCH = {
+  places: {
+    ...enPlaces,
+    giza: { chip: 'Gizeh', label: 'Pyramides de Gizeh', sublabel: 'Gizeh, Égypte' },
+    area51: { chip: 'Zone 51', label: 'Zone 51', sublabel: 'lac Groom, Nevada, États-Unis' },
+    uluru: { label: 'Uluṟu', sublabel: 'Territoire du Nord, Australie' },
+  },
+}
+
 describe('record_lookup labels are city-only too (src/lib/backend.ts lookupLabel)', () => {
+  afterEach(() => setBundleForTests('en', null))
   it('street-level results are saved as their city', async () => {
     const { lookupLabel } = await import('./backend')
     expect(lookupLabel({ label: 'Kalverstraat', sublabel: 'Amsterdam, North Holland, Netherlands', streetLevel: true })).toBe('Amsterdam')
     expect(lookupLabel({ label: 'Rijksmuseum', sublabel: 'Amsterdam, Netherlands', streetLevel: true })).toBe('Amsterdam')
     expect(lookupLabel({ label: 'Damrak 12', sublabel: '1012 LG, Netherlands', streetLevel: true })).toBe('Netherlands')
     expect(lookupLabel({ label: 'Waterloo', sublabel: 'Ontario, Canada' })).toBe('Waterloo')
+  })
+  it('a curated place is saved by its English name, whatever language it was shown in', async () => {
+    const { canonicalPlace, lookupLabel } = await import('./backend')
+    const english = curated('Pyramids of Giza')
+    setBundleForTests('fr', FRENCH)
+    const giza = localizedPlace(english)
+    expect([giza.label, giza.sublabel, giza.canonicalLabel]).toEqual(['Pyramides de Gizeh', 'Gizeh, Égypte', 'Pyramids of Giza'])
+    // The search event and record_lookup name it exactly as an English visitor's search.
+    expect(regionLabel(canonicalPlace(giza), cityLevelLabel)).toBe('Pyramids of Giza, Giza, Egypt')
+    expect(regionLabel(canonicalPlace(giza), cityLevelLabel)).toBe(regionLabel(english, cityLevelLabel))
+    expect(lookupLabel(giza)).toBe('Pyramids of Giza')
+    // Area 51 has a digit, so both keep a city of its sublabel: the ENGLISH sublabel's, not the one on screen.
+    const area51 = localizedPlace(curated('Area 51'))
+    expect(area51.sublabel).toBe('lac Groom, Nevada, États-Unis')
+    expect(lookupLabel(area51)).toBe('Groom Lake')
+    expect(regionLabel(canonicalPlace(area51), cityLevelLabel)).toBe(regionLabel(curated('Area 51'), cityLevelLabel))
+    // A Surprise me pick too.
+    const uluru = localizedPlace(curated('Uluru'))
+    expect(uluru.label).toBe('Uluṟu')
+    expect(regionLabel(canonicalPlace(uluru), cityLevelLabel)).toBe('Uluru, Northern Territory, Australia')
+  })
+  it('in English, and for any other place, nothing changes', async () => {
+    const { canonicalPlace } = await import('./backend')
+    for (const label of ['Pyramids of Giza', 'Area 51', 'Uluru']) {
+      const p = localizedPlace(curated(label))
+      expect(canonicalPlace(p)).toBe(p)
+    }
+    // Geocoder names are data, as they came (a typed "Area 51" is no example chip).
+    const typed = { label: 'Waterloo', sublabel: 'Ontario, Canada', source: 'search' as const }
+    expect(canonicalPlace(typed)).toBe(typed)
+    const search = { label: 'Zone 51', sublabel: 'Nevada, États-Unis', source: 'search' as const, lat: 37.235, lon: -115.811 }
+    expect(canonicalPlace(search)).toBe(search)
+    // A link's curated place (src/app/links.ts linkPlaceIn) carries only its English label.
+    const link = { label: 'Pyramides de Gizeh', canonicalLabel: 'Pyramids of Giza', source: 'url' as const }
+    expect(canonicalPlace(link)).toEqual({ ...link, label: 'Pyramids of Giza' })
   })
 })
 
@@ -235,6 +311,8 @@ describe('the boot-time arrival record (src/app/telemetryDeps.ts)', () => {
     vi.stubGlobal('sessionStorage', ss)
     vi.doMock('@/state/store', () => ({ useApp: {} }))
     vi.doMock('@/engine/catalog', () => ({ getSatInfo: () => undefined }))
+    vi.doMock('@/app/messageRefs', () => ({ englishOf: () => undefined }))
+    vi.doMock('@/i18n/runtime', () => ({ currentLocale: () => 'en' })) // its import reads <html data-locale>
     return (await import('@/app/telemetryDeps')).arrival
   }
   it('?noanalytics=1 opts the tab out at boot, before the app rewrites the URL', async () => {
@@ -256,16 +334,24 @@ describe('the boot-time arrival record (src/app/telemetryDeps.ts)', () => {
 })
 
 describe('a fault notice in the stats (src/app/telemetry.ts)', () => {
+  afterEach(() => setBundleForTests('en', null))
   it('keeps the sentence the visitor read, then what failed', () => {
     const said = 'Could not load the orbit catalog. Check your connection and try again.'
-    expect(phaseErrorMsg({ error: said, errorCause: 'TypeError: Failed to fetch' })).toBe(`${said} (TypeError: Failed to fetch)`)
-    expect(phaseErrorMsg({ error: said, errorCause: 'Catalog request failed: HTTP 503' })).toBe(`${said} (Catalog request failed: HTTP 503)`)
-    expect(phaseErrorMsg({ error: said })).toBe(said)
-    expect(phaseErrorMsg({})).toBe('error')
+    expect(phaseErrorMsg({ error: CATALOG_FAULT, errorCause: 'TypeError: Failed to fetch' }, englishOf)).toBe(`${said} (TypeError: Failed to fetch)`)
+    expect(phaseErrorMsg({ error: CATALOG_FAULT, errorCause: 'Catalog request failed: HTTP 503' }, englishOf)).toBe(`${said} (Catalog request failed: HTTP 503)`)
+    expect(phaseErrorMsg({ error: CATALOG_FAULT }, englishOf)).toBe(said)
+    expect(phaseErrorMsg({}, englishOf)).toBe('error')
   })
   it('masks a URL in the cause, like every other message', () => {
-    expect(phaseErrorMsg({ error: 'Something went wrong.', errorCause: 'TypeError: Failed to fetch dynamically imported module: https://www.watched.earth/assets/engine-abc.js' })).toBe(
-      'Something went wrong. (TypeError: Failed to fetch dynamically imported module: [url])',
+    expect(phaseErrorMsg({ error: COMPUTE_FAULT, errorCause: 'TypeError: Failed to fetch dynamically imported module: https://www.watched.earth/assets/engine-abc.js' }, englishOf)).toBe(
+      'Something went wrong computing passes for this place. Try again in a moment. (TypeError: Failed to fetch dynamically imported module: [url])',
     )
+  })
+  it('is logged in English whatever language the visitor reads', () => {
+    setBundleForTests('fr', { app: { faults: { catalog: 'Impossible de charger le catalogue des orbites.', compute: 'Échec du calcul.' } } })
+    expect(phaseErrorMsg({ error: CATALOG_FAULT }, englishOf)).toBe('Could not load the orbit catalog. Check your connection and try again.')
+  })
+  it('logs the id of a message it does not know', () => {
+    expect(phaseErrorMsg({ error: { id: 'app.faults.gone' } }, englishOf)).toBe('app.faults.gone')
   })
 })

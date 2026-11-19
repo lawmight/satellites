@@ -107,3 +107,10 @@
   color: var(--bone-2);
   white-space: nowrap;
 }
+
+/* Right to left: the plan is a map, north up and west on the left, so nothing on it mirrors: the corner labels keep
+   their corners and the scale bar starts at the left. Only the words read right to left, inside their chips; the
+   scale's number sits under the bar's start, where it is measured from. */
+:root[dir='rtl'] .scaleText {
+  text-align: left;
+}

@@ -14,7 +14,14 @@
  * ground a fresh crop centred on the rounded point would show. When the pass view's picture isn't in
  * the cache (a summary's closest look, a recipient's first look), the same rect is loaded and faded in.
  * Pictures go through the results' session photo cache (loadPhoto): one request per URL for the page.
+ *
+ * Language: the spec is built in the sharer's language (the app's, unless a caller names another) and the PNG is
+ * drawn in it: mono rows uppercased with that language's rules except their units ("10 m", "786 km" in every language:
+ * api/_lib/i18n/units.ts), lines broken between words even where words are not separated by spaces (Chinese, Japanese:
+ * Intl.Segmenter), and text that a shaping engine must join (Arabic) always drawn as one run, untracked, in its own
+ * direction. Latin text is drawn exactly as it always was, units aside.
  */
+import { isolateIslands, outsideIsolates } from './bidi'
 import { geoCaptureFromItem, gibsWmsUrl, pcCropUrl, radarCropUrl, radarPolOfItemId } from '@/imagery'
 import { bboxAround } from '@/lib/geo'
 import type { Capture, Pass, Report } from '@/types'
@@ -25,6 +32,8 @@ import {
   CARD_W,
   CHIP_BOX,
   HEAD,
+  HEAD_CJK,
+  headTracking,
   PANEL,
   PLATE,
   TONE_COLOR,
@@ -46,12 +55,18 @@ import { cropCrs, gridOfBox, isToneCollection, nativeBox } from '../../../api/_l
 import { loadPhoto } from '../results/images'
 import { coverPinKey, pinnedOrder } from '../results/gallery'
 import { orderPhotos } from '../results/lib/photos'
-import { platformDisplayName } from '@/lib/backend'
+import { canonicalPlace, cityLevelLabel, platformDisplayName } from '@/lib/backend'
 import { captureFor, cropSpec, displayUrl } from '../results/lib/captures'
 import { archiveDown, headline } from '../results/lib/copy'
 import type { MetaFn, SatMeta } from '../results/lib/meta'
 import { roundedPlace, type SummaryLinkInput } from './links'
 import { WORDMARK_BOX, WORDMARK_DOT, WORDMARK_PATH } from '../../../api/_lib/wordmark'
+import { LOCALE_INFO, type Locale } from '../../../api/_lib/i18n/locales'
+import { isAccent, plain } from '../../../api/_lib/i18n/parts'
+import { capsExceptUnits } from '../../../api/_lib/i18n/units'
+import { currentLocale } from '@/i18n/runtime'
+// The card in the app's language takes its words from the app's loaded bundle (installed on import).
+import '@/i18n/en/card'
 
 /** Lockup height on the 1200×630 card (fills the 22 px header row). */
 const LOCKUP_H = 22
@@ -61,6 +76,24 @@ export { CARD_H, CARD_W, PLATE, type CardSpec, type PlateSource }
 export interface CardOptions {
   /** The picture is mostly cloud (results' isClouded): the clouded variant. */
   clouded?: boolean
+  /** The card's language (default: the app's, read now) */
+  locale?: Locale
+}
+
+/**
+ * The place's name in a share (the card, the post, the stored share and every link). Shares are public: never a street
+ * address; the city instead, then the rounded coordinates.
+ *
+ * Language-free: a curated place (an example chip, a Surprise me pick) shown in the sharer's language is shared under
+ * its English name (canonicalPlace), as its address-bar links always name it (src/app/links.ts), so the stored share,
+ * its links and the card the server draws for them never carry the sharer's language, and one place is one share in
+ * every language. Its card, preview and post print that name too: the server could not print a translated one, and
+ * the preview must be the card the followers see. Names from a geocoder or the offline list are data, shared as they
+ * came.
+ */
+export function publicLabelOf(place: Report['place']): string {
+  const r = roundedPlace(place.lat, place.lon)
+  return cityLevelLabel(canonicalPlace(place)) ?? `${r.lat.toFixed(2)}, ${r.lon.toFixed(2)}`
 }
 
 /** N for a pass card's headline (owner): the results headline's count of satellites that watched the place this week. */
@@ -153,31 +186,34 @@ export function cardSource(
 export function cardSpec(pass: Pass, report: Report, meta: SatMeta, timeZone: string, host: string, opts: CardOptions & { satellites?: number } = {}): CardSpec {
   const r = roundedPlace(report.place.lat, report.place.lon)
   const capture = captureFor(report, pass)
-  const spec = buildCardSpec({
-    verdict: pass.verdict,
-    satName: meta.name,
-    placeLabel: report.place.label,
-    satellites: opts.satellites,
-    lat: r.lat,
-    lon: r.lon,
-    tClosest: pass.tClosest,
-    timeZone,
-    pass,
-    capture: capture
-      ? {
-          collection: capture.collection,
-          itemId: capture.itemId,
-          provider: capture.provider,
-          platform: capture.platform,
-          gsdM: capture.gsdM,
-          cloudCoverPct: capture.cloudCoverPct,
-          spot: capture.spot,
-          datetime: capture.datetime,
-        }
-      : undefined,
-    clouded: opts.clouded,
-    host,
-  })
+  const spec = buildCardSpec(
+    {
+      verdict: pass.verdict,
+      satName: meta.name,
+      placeLabel: report.place.label,
+      satellites: opts.satellites,
+      lat: r.lat,
+      lon: r.lon,
+      tClosest: pass.tClosest,
+      timeZone,
+      pass,
+      capture: capture
+        ? {
+            collection: capture.collection,
+            itemId: capture.itemId,
+            provider: capture.provider,
+            platform: capture.platform,
+            gsdM: capture.gsdM,
+            cloudCoverPct: capture.cloudCoverPct,
+            spot: capture.spot,
+            datetime: capture.datetime,
+          }
+        : undefined,
+      clouded: opts.clouded,
+      host,
+    },
+    opts.locale ?? currentLocale(),
+  )
   if (spec.plate.kind === 'image' && capture) {
     spec.plate.imageUrl = cropUrlFor(capture, spec.plate.crop, r.lat, r.lon)
     // report.place is the exact searched point (ShareSheet swaps only its label): the pass view's crop is centred there.
@@ -212,7 +248,8 @@ export function summaryFacts(report: Report, placeLabel: string, meta: MetaFn): 
       ? {
           collection: first.capture.collection,
           itemId: first.capture.itemId,
-          satName: norad !== undefined ? meta(norad).name : (platformDisplayName(first.capture.platform) ?? 'A satellite'),
+          // No name: nothing travels (the link carries no `bs`) and each card says "a satellite" in its own language.
+          satName: norad !== undefined ? meta(norad).name : platformDisplayName(first.capture.platform),
           tClosest: first.pass?.tClosest ?? first.capture.datetime,
           gsdM: first.capture.gsdM,
           capture: first.capture,
@@ -225,7 +262,7 @@ export function summaryFacts(report: Report, placeLabel: string, meta: MetaFn): 
     lat: report.place.lat,
     lon: report.place.lon,
     satellites: head.flewOver,
-    // K is the headline's own count (it equals the imaged passes, the card's PHOTO readout).
+    // K is the headline's own count (it equals the imaged passes, the card's IMAGE readout).
     counts: { ...counts, imaged: head.images },
     archiveDown: down || undefined,
     partial: !down && (report.partial || (report.lateChecks ?? 0) > 0) ? true : undefined,
@@ -234,24 +271,27 @@ export function summaryFacts(report: Report, placeLabel: string, meta: MetaFn): 
   }
 }
 
-/** The summary card, as the sharer sees it (the server builds the same from the link's parameters). */
-export function summaryCardSpec(report: Report, placeLabel: string, meta: MetaFn, timeZone: string, host: string): CardSpec {
+/** The summary card, as the sharer sees it (the server builds the same from the link's parameters), in `locale`. */
+export function summaryCardSpec(report: Report, placeLabel: string, meta: MetaFn, timeZone: string, host: string, locale: Locale = currentLocale()): CardSpec {
   const f = summaryFacts(report, placeLabel, meta)
   const r = roundedPlace(report.place.lat, report.place.lon)
   const c = f.best?.capture
-  const spec = buildSummarySpec({
-    placeLabel,
-    lat: r.lat,
-    lon: r.lon,
-    satellites: f.satellites,
-    counts: f.counts,
-    archiveDown: f.archiveDown,
-    partial: f.partial,
-    windowEnd: f.windowEnd,
-    timeZone,
-    best: f.best && c ? { satName: f.best.satName, tClosest: f.best.tClosest, capture: { collection: c.collection, itemId: c.itemId, gsdM: c.gsdM }, look: f.best.look } : undefined,
-    host,
-  })
+  const spec = buildSummarySpec(
+    {
+      placeLabel,
+      lat: r.lat,
+      lon: r.lon,
+      satellites: f.satellites,
+      counts: f.counts,
+      archiveDown: f.archiveDown,
+      partial: f.partial,
+      windowEnd: f.windowEnd,
+      timeZone,
+      best: f.best && c ? { satName: f.best.satName, tClosest: f.best.tClosest, capture: { collection: c.collection, itemId: c.itemId, gsdM: c.gsdM }, look: f.best.look } : undefined,
+      host,
+    },
+    locale,
+  )
   if (spec.plate.kind === 'image' && c) {
     spec.plate.imageUrl = cropUrlFor(c, spec.plate.crop, r.lat, r.lon)
     spec.plate.source = cardSource(c, report.place, r, spec.plate.crop)
@@ -261,9 +301,27 @@ export function summaryCardSpec(report: Report, placeLabel: string, meta: MetaFn
 
 // ── Canvas ──────────────────────────────────────────────────────────────────────────────────
 
-const SANS = '"Instrument Sans Variable", "Instrument Sans", system-ui, sans-serif'
-const MONO = '"Martian Mono Variable", "Martian Mono", ui-monospace, monospace'
-const SERIF = '"Instrument Serif", Georgia, serif'
+/**
+ * The canvas's font stacks: the page's own for the active script (src/styles/scripts.css adds the Cyrillic, Arabic or
+ * CJK faces behind the brand ones), read from the CSS tokens when a card is drawn, so the PNG matches the preview in
+ * every language. A canvas cannot read var(); getComputedStyle hands back the resolved list.
+ */
+const SANS_LATIN = '"Instrument Sans Variable", "Instrument Sans", system-ui, sans-serif'
+const MONO_LATIN = '"Martian Mono Variable", "Martian Mono", ui-monospace, monospace'
+const SERIF_LATIN = '"Instrument Serif", Georgia, serif'
+let SANS = SANS_LATIN
+let MONO = MONO_LATIN
+let SERIF = SERIF_LATIN
+/** The headline's stack: the sans, or one whose script face is pinned at the display width (Cyrillic, scripts.css) */
+let DISPLAY = SANS_LATIN
+function readStacks() {
+  const css = typeof getComputedStyle === 'function' && typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
+  const get = (name: string, fallback: string) => css?.getPropertyValue(name).trim() || fallback
+  SANS = get('--font-sans', SANS_LATIN)
+  MONO = get('--font-mono', MONO_LATIN)
+  SERIF = get('--font-serif', SERIF_LATIN)
+  DISPLAY = get('--font-card-display', SANS)
+}
 
 type Ctx = CanvasRenderingContext2D & { fontStretch?: string; letterSpacing?: string }
 interface Face {
@@ -297,16 +355,62 @@ function setFace(ctx: Ctx, f: Face) {
 
 const nativeTracking = (ctx: Ctx) => Reflect.has(ctx, 'letterSpacing')
 
-/** Width of `text` in the current face, tracking included (CSS adds it after every glyph). */
-function textWidth(ctx: Ctx, text: string, tracking: number): number {
-  if (nativeTracking(ctx)) return ctx.measureText(text).width
-  return ctx.measureText(text).width + tracking * Array.from(text).length
+/**
+ * Scripts whose letters a shaping engine joins and reorders (Arabic, Hebrew, the Indic and South-East Asian scripts):
+ * such text is always drawn as one run and never tracked (spacing letters apart breaks Arabic's joins).
+ */
+const SHAPED = /[\u0590-\u08FF\u0900-\u0DFF\u0E00-\u0FFF\u1000-\u109F\u1780-\u17FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
+/** Right-to-left letters: a run whose first letter is one of them is laid out right to left (its own direction). */
+const RTL = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
+export const needsShaping = (text: string) => SHAPED.test(text)
+const rtlRun = (text: string) => {
+  // read outside its isolates, as the preview's unicode-bidi: plaintext reads it (bidi.ts)
+  const first = /\p{L}/u.exec(outsideIsolates(text))
+  return !!first && RTL.test(first[0])
 }
 
-/** Draw text with tracking even where the canvas has no `letterSpacing` (per-glyph fallback). */
-function fillText(ctx: Ctx, text: string, x: number, y: number, tracking: number) {
-  if (nativeTracking(ctx) || !tracking) {
+/** Run `fn` with the canvas's native tracking off for shaped text (Latin text keeps the face's tracking). */
+function untracked<T>(ctx: Ctx, text: string, fn: () => T): T {
+  if (!nativeTracking(ctx) || !needsShaping(text)) return fn()
+  const prev = ctx.letterSpacing
+  ctx.letterSpacing = '0px'
+  try {
+    return fn()
+  } finally {
+    ctx.letterSpacing = prev
+  }
+}
+
+/** Width of `text` in the current face, tracking included (CSS adds it after every glyph; shaped text has none). */
+function textWidth(ctx: Ctx, text: string, tracking: number): number {
+  if (nativeTracking(ctx)) return untracked(ctx, text, () => ctx.measureText(text).width)
+  return ctx.measureText(text).width + (needsShaping(text) ? 0 : tracking * Array.from(text).length)
+}
+
+/**
+ * One run of text at its left edge, in its own direction (a right-to-left run keeps its left edge at x). In Arabic text,
+ * clocks, percentages and Latin names are isolated first, so they keep their order ("81%", "11:21 EST": bidi.ts).
+ */
+function drawRun(ctx: Ctx, line: string, x: number, y: number) {
+  const text = isolateIslands(line)
+  if (!rtlRun(text)) {
     ctx.fillText(text, x, y)
+    return
+  }
+  ctx.save()
+  ctx.direction = 'rtl'
+  ctx.textAlign = 'left'
+  ctx.fillText(text, x, y)
+  ctx.restore()
+}
+
+/**
+ * Draw text with tracking even where the canvas has no `letterSpacing` (per-glyph fallback, for text that has no
+ * shaping: drawing Arabic a glyph at a time would leave it unjoined and backwards).
+ */
+function fillText(ctx: Ctx, text: string, x: number, y: number, tracking: number) {
+  if (nativeTracking(ctx) || !tracking || needsShaping(text)) {
+    untracked(ctx, text, () => drawRun(ctx, text, x, y))
     return
   }
   let cx = x
@@ -324,23 +428,66 @@ function baselineIn(ctx: Ctx, top: number, lineH: number): number {
   return top + (lineH - (asc + desc)) / 2 + asc
 }
 
-/** Word wrap that, like the browser and satori, may also break after a hyphen. */
-function wrap(ctx: Ctx, text: string, maxW: number, tracking: number): string[] {
+/**
+ * Writing without spaces between words (Chinese, Japanese, Thai, Lao, Khmer, Myanmar): such text breaks between the
+ * words Intl.Segmenter finds. Korean writes spaces, and keeps its words whole.
+ */
+const SPACELESS = /[\u0E00-\u0EFF\u1000-\u109F\u1780-\u17FF\u2E80-\u2FFF\u3000-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/
+/** Never at a line's start: closing punctuation, small kana, the prolonged sound mark (kinsoku). */
+const NO_START = /^[、。，．・：；？！ー〜）」』】〕〉》〙〗〟’”…‥ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ々,.:;!?)\]}%]/
+/** Never at a line's end: opening brackets and quotes. */
+const NO_END = /[（「『【〔〈《〘〖〝‘“([{]$/
+
+const segmenters = new Map<Locale, { segment(text: string): Iterable<{ segment: string }> } | null>()
+function wordSegmenter(locale: Locale) {
+  if (!segmenters.has(locale)) {
+    const S = (Intl as { Segmenter?: new (tag: string, o: { granularity: 'word' }) => { segment(text: string): Iterable<{ segment: string }> } }).Segmenter
+    segmenters.set(locale, S ? new S(LOCALE_INFO[locale].intl, { granularity: 'word' }) : null)
+  }
+  return segmenters.get(locale)
+}
+
+/** The pieces of a run written without spaces, each a place a line may break before (by word; by character without Intl.Segmenter). */
+function spacelessPieces(text: string, locale: Locale): string[] {
+  const seg = wordSegmenter(locale)
+  const raw = seg ? Array.from(seg.segment(text), (x) => x.segment) : Array.from(text)
+  const out: string[] = []
+  for (const piece of raw) {
+    if (out.length && (NO_START.test(piece) || NO_END.test(out[out.length - 1]))) out[out.length - 1] += piece
+    else out.push(piece)
+  }
+  return out
+}
+
+/**
+ * Word wrap that, like the browser and satori, may also break after a hyphen, and between the words of text written
+ * without spaces. Exported for its tests.
+ */
+export function wrap(ctx: Pick<Ctx, 'measureText'> & Partial<Ctx>, text: string, maxW: number, tracking: number, locale: Locale = 'en'): string[] {
   // Words, each hyphenated part kept with its hyphen ("Saint-", "Jean-", "sur-", "Richelieu,"). No
-  // regex lookbehind: Safari before 16.4 can't parse one, and this module ships to every browser.
-  const tokens = text
-    .split(/\s+/)
-    .filter(Boolean)
-    .flatMap((w) => w.replace(/-/g, '-\u0000').split('\u0000').filter(Boolean))
+  // regex lookbehind: Safari before 16.4 can't parse one, and this module ships to every browser. A part written
+  // without spaces is cut into its words; those join their neighbours without a space, as hyphenated parts do.
+  const tokens: { text: string; spaced: boolean }[] = []
+  // Split at breaking spaces only: a no-break space holds a count to its noun ("256 супутників", "1 565 m"), as
+  // the browser and satori keep it, so the PNG breaks its lines where the preview does.
+  for (const w of text.split(/[^\S\u00a0\u202f\u2007]+/).filter(Boolean)) {
+    w.replace(/-/g, '-\u0000')
+      .split('\u0000')
+      .filter(Boolean)
+      .forEach((part, i) => {
+        const pieces = SPACELESS.test(part) ? spacelessPieces(part, locale) : [part]
+        pieces.forEach((piece, j) => tokens.push({ text: piece, spaced: i === 0 && j === 0 }))
+      })
+  }
   // Re-attach the separators: a token that ended with "-" joins the next without a space.
   const lines: string[] = []
   let line = ''
   for (const tok of tokens) {
-    const sep = line && !line.endsWith('-') ? ' ' : ''
-    const test = line + sep + tok
-    if (line && textWidth(ctx, test, tracking) > maxW) {
+    const sep = line && tok.spaced && !line.endsWith('-') ? ' ' : ''
+    const test = line + sep + tok.text
+    if (line && textWidth(ctx as Ctx, test, tracking) > maxW) {
       lines.push(line)
-      line = tok
+      line = tok.text
     } else line = test
   }
   if (line) lines.push(line)
@@ -384,11 +531,33 @@ function drawPrims(ctx: Ctx, prims: Prim[]) {
   }
 }
 
+/**
+ * Uppercase in the card's language (canvas has no CSS text-transform): Turkish i → İ. Units keep their case
+ * ("10 m", "1 km": api/_lib/i18n/units.ts), as the preview's [data-unit] spans and satori's rows keep them.
+ */
+type Caps = (text: string) => string
+
+/** The card's mono caps in a language (`intl`, as LOCALE_INFO gives it). */
+export const cardCaps =
+  (intl: string): Caps =>
+  (t) =>
+    capsExceptUnits(t, intl)
+
+/**
+ * How a chip is uppercased: in the card's language, except the licence credit (Chip.lang 'en'), which is English in
+ * every language and so is uppercased as English ("CONTAINS", never Turkish "CONTAİNS").
+ */
+export function chipCaps(chip: Pick<Chip, 'lang'>, caps: Caps): Caps {
+  const lang = chip.lang
+  return lang ? cardCaps(lang) : caps
+}
+
 /** A flat ink chip: padding, 1px line-strong border, mono segments separated by CHIP_BOX.gap. */
-function drawChip(ctx: Ctx, chip: Chip, plateSize = PLATE) {
+function drawChip(ctx: Ctx, chip: Chip, caps: Caps, plateSize = PLATE) {
   const f = monoFace(chip.size)
   setFace(ctx, f)
-  const segs = chip.segs.map((s) => ({ ...s, text: s.text.toUpperCase() }))
+  const up = chipCaps(chip, caps)
+  const segs = chip.segs.map((s) => ({ ...s, text: up(s.text) }))
   const widths = segs.map((s) => textWidth(ctx, s.text, f.tracking!))
   const lineH = chip.size * CHIP_BOX.lineH
   const w = widths.reduce((a, b) => a + b, 0) + CHIP_BOX.gap * (segs.length - 1) + CHIP_BOX.padX * 2 + 2
@@ -410,12 +579,12 @@ function drawChip(ctx: Ctx, chip: Chip, plateSize = PLATE) {
   })
 }
 
-/** ├── 1 KM ──┤ in a chip at the plate's top right. */
-function drawScale(ctx: Ctx, s: ScaleBar) {
+/** ├── 1 km ──┤ in a chip at the plate's top right. */
+function drawScale(ctx: Ctx, s: ScaleBar, caps: Caps) {
   if (s.px <= 0) return
   const f = monoFace(CARD_FS.chip)
   setFace(ctx, f)
-  const label = s.label.toUpperCase()
+  const label = caps(s.label)
   const lw = textWidth(ctx, label, f.tracking!)
   const lineH = CARD_FS.chip * CHIP_BOX.lineH
   const w = s.px + CHIP_BOX.gap + lw + CHIP_BOX.padX * 2 + 2
@@ -437,12 +606,12 @@ function drawScale(ctx: Ctx, s: ScaleBar) {
   fillText(ctx, label, bx + s.px + CHIP_BOX.gap, baselineIn(ctx, y + 1 + CHIP_BOX.padTop, lineH), f.tracking!)
 }
 
-function drawPlan(ctx: Ctx, plan: PlanPlate) {
+function drawPlan(ctx: Ctx, plan: PlanPlate, caps: Caps) {
   ctx.fillStyle = C.ink1
   ctx.fillRect(0, 0, PLATE, PLATE)
   drawPrims(ctx, plan.prims)
-  plan.chips.forEach((c) => drawChip(ctx, c))
-  drawScale(ctx, plan.scale)
+  plan.chips.forEach((c) => drawChip(ctx, c, caps))
+  drawScale(ctx, plan.scale, caps)
 }
 
 /** Mono caps text centred vertically in a [top, height] box; `align` right anchors at x. */
@@ -462,9 +631,9 @@ function drawWordmark(ctx: Ctx, x: number, y: number, h: number) {
   ctx.restore()
 }
 
-function rowText(ctx: Ctx, text: string, x: number, box: readonly [number, number], color: string, face: Face, align: 'left' | 'right' = 'left') {
+function rowText(ctx: Ctx, text: string, caps: Caps, x: number, box: readonly [number, number], color: string, face: Face, align: 'left' | 'right' = 'left') {
   setFace(ctx, face)
-  const t = text.toUpperCase()
+  const t = caps(text)
   const w = textWidth(ctx, t, face.tracking ?? 0)
   ctx.fillStyle = color
   fillText(ctx, t, align === 'left' ? x : x - w, baselineIn(ctx, box[0], box[1]), face.tracking ?? 0)
@@ -494,9 +663,12 @@ async function plateImage(spec: CardSpec): Promise<{ img: HTMLImageElement; rect
  * critical path, instead of first reading the whole card back from the GPU (a long task on phones).
  */
 export async function renderCardPng(spec: CardSpec): Promise<Blob> {
-  const fontsToLoad = [`560 84px ${SANS}`, `400 24px ${SANS}`, `350 13px ${MONO}`, `500 16px ${MONO}`, `italic 400 84px ${SERIF}`]
+  readStacks()
+  const fontsToLoad = [`560 84px ${DISPLAY}`, `400 24px ${SANS}`, `350 13px ${MONO}`, `500 16px ${MONO}`, `italic 400 84px ${SERIF}`]
+  // The card's own words, so a script face behind a unicode-range (Cyrillic, Arabic) is fetched before it is drawn.
+  const sample = JSON.stringify(spec)
   const [, pic] = await Promise.all([
-    Promise.all(fontsToLoad.map((f) => document.fonts?.load(f))).catch(() => undefined), // fall back to whatever is available
+    Promise.all(fontsToLoad.map((f) => document.fonts?.load(f, sample))).catch(() => undefined), // fall back to whatever is available
     plateImage(spec),
   ])
   const img = pic?.img ?? null
@@ -507,6 +679,7 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
   const ctx = cv.getContext('2d', { willReadFrequently: true }) as Ctx | null
   if (!ctx) throw new Error('Canvas unavailable')
   ctx.textBaseline = 'alphabetic'
+  const caps = cardCaps(LOCALE_INFO[spec.locale].intl)
 
   ctx.fillStyle = C.ink0
   ctx.fillRect(0, 0, CARD_W, CARD_H)
@@ -528,11 +701,11 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
       drawPrims(ctx, [{ t: 'path', d: hatchPath(PLATE), stroke: C.hatch, width: 1 }])
     }
     drawPrims(ctx, plate.overlay)
-    drawChip(ctx, plate.chip)
-    drawScale(ctx, plate.scale)
-    if (plate.clouded) drawChip(ctx, plate.clouded)
-    drawChip(ctx, plate.credit)
-  } else if (plate.kind === 'plan') drawPlan(ctx, plate)
+    drawChip(ctx, plate.chip, caps)
+    drawScale(ctx, plate.scale, caps)
+    if (plate.clouded) drawChip(ctx, plate.clouded, caps)
+    drawChip(ctx, plate.credit, caps)
+  } else if (plate.kind === 'plan') drawPlan(ctx, plate, caps)
   ctx.restore()
   ctx.fillStyle = C.lineStrong
   ctx.fillRect(PLATE, 0, 1, CARD_H)
@@ -541,39 +714,45 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
   const X = PANEL.x
   const R = PANEL.right
   drawWordmark(ctx, X, PANEL.top[0] + (PANEL.top[1] - LOCKUP_H) / 2, LOCKUP_H)
-  if (spec.stamp) rowText(ctx, spec.stamp, R, PANEL.top, C.bone2, monoFace(CARD_FS.row), 'right')
+  if (spec.stamp) rowText(ctx, spec.stamp, caps, R, PANEL.top, C.bone2, monoFace(CARD_FS.row), 'right')
   ctx.fillStyle = C.line
   ctx.fillRect(X, PANEL.rule1, PANEL.w, 1)
 
-  // headline, centred in its band (PANEL.headTop … headBottom): condensed lead lines, serif place, optional sub-line
+  // headline, centred in its band (PANEL.headTop … headBottom): the headline's blocks in their order (condensed text,
+  // the serif place), then the optional sub-line
   const S = spec.size
   const P = S * HEAD.placeScale
-  const lead: Face = { family: SANS, size: S, weight: 560, stretch: 'condensed', tracking: -0.02 * S }
-  const place: Face = { family: SERIF, size: P, italic: true, tracking: -0.01 * P }
+  const track = headTracking(spec.locale)
+  // CJK at 600: system CJK fonts round 501–599 up to Semibold or Bold (scripts.css --w-display)
+  const lead: Face = { family: DISPLAY, size: S, weight: spec.cjk ? 600 : 560, stretch: 'condensed', tracking: track.lead * S }
+  const place: Face = { family: SERIF, size: P, italic: true, tracking: track.place * P }
   const sub: Face = { family: SANS, size: CARD_FS.sub }
-  setFace(ctx, lead)
-  const leadLines = wrap(ctx, spec.lead, PANEL.w, lead.tracking!)
-  setFace(ctx, place)
-  const placeLines = wrap(ctx, `${spec.place}${spec.tail}`, PANEL.w, place.tracking!)
-  setFace(ctx, sub)
-  const subLines = spec.sub ? wrap(ctx, spec.sub, PANEL.w, 0) : []
-  const leadLH = S * HEAD.leadLH
-  const placeLH = P * HEAD.placeLH
+  // Chinese, Japanese, Korean: their leading, and each text part one phrase on one line (HEAD_CJK)
+  const lh = spec.cjk ? HEAD_CJK : HEAD
+  const leadLH = S * lh.leadLH
+  const placeLH = P * lh.placeLH
   const subLH = CARD_FS.sub * HEAD.subLH
-  const total = leadLines.length * leadLH + P * HEAD.placeGap + placeLines.length * placeLH + (subLines.length ? HEAD.subGap + subLines.length * subLH : 0)
+  const blockGap = P * HEAD.placeGap
+  const blocks = spec.head.map((part) => {
+    const serif = isAccent(part)
+    const face = serif ? place : lead
+    setFace(ctx, face)
+    const text = serif ? plain(part.accent) : plain([part])
+    return { face, lh: serif ? placeLH : leadLH, lines: spec.cjk && !serif ? [text.trim()] : wrap(ctx, text, PANEL.w, face.tracking!, spec.locale) }
+  })
+  setFace(ctx, sub)
+  const subLines = spec.sub ? wrap(ctx, spec.sub, PANEL.w, 0, spec.locale) : []
+  const total = blocks.reduce((sum, b, i) => sum + (i ? blockGap : 0) + b.lines.length * b.lh, 0) + (subLines.length ? HEAD.subGap + subLines.length * subLH : 0)
   let y = PANEL.headTop + (PANEL.headBottom - PANEL.headTop - total) / 2
   ctx.fillStyle = C.bone
-  setFace(ctx, lead)
-  for (const l of leadLines) {
-    fillText(ctx, l, X, baselineIn(ctx, y, leadLH), lead.tracking!)
-    y += leadLH
-  }
-  y += P * HEAD.placeGap
-  setFace(ctx, place)
-  for (const l of placeLines) {
-    fillText(ctx, l, X, baselineIn(ctx, y, placeLH), place.tracking!)
-    y += placeLH
-  }
+  blocks.forEach((b, i) => {
+    if (i) y += blockGap
+    setFace(ctx, b.face)
+    for (const l of b.lines) {
+      fillText(ctx, l, X, baselineIn(ctx, y, b.lh), b.face.tracking!)
+      y += b.lh
+    }
+  })
   if (subLines.length) {
     y += HEAD.subGap
     setFace(ctx, sub)
@@ -594,7 +773,7 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
       ctx.fillStyle = C.line
       ctx.fillRect(X + i * colW, PANEL.roLabel[0], 1, PANEL.roValue[0] + PANEL.roValue[1] - PANEL.roLabel[0])
     }
-    rowText(ctx, r.label, cx, PANEL.roLabel, C.bone3, monoFace(CARD_FS.row))
+    rowText(ctx, r.label, caps, cx, PANEL.roLabel, C.bone3, monoFace(CARD_FS.row))
     const size = spec.readoutSize ?? CARD_FS.readout
     const vf = monoFace(size, TRACK.readout * size)
     setFace(ctx, vf)
@@ -606,14 +785,15 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
       const uf = monoFace(CARD_FS.readoutUnit)
       setFace(ctx, uf)
       ctx.fillStyle = C.bone3
-      fillText(ctx, r.unit.toUpperCase(), cx + vw + 8, base, uf.tracking!)
+      // A readout's unit is a unit symbol ("km", "m", "km/s"): it keeps its case.
+      fillText(ctx, r.unit, cx + vw + 8, base, uf.tracking!)
     }
   })
 
   // footer
   ctx.fillStyle = C.line
   ctx.fillRect(X, PANEL.rule3, PANEL.w, 1)
-  rowText(ctx, spec.footLeft, X, PANEL.foot, C.bone2, monoFace(CARD_FS.row))
+  rowText(ctx, spec.footLeft, caps, X, PANEL.foot, C.bone2, monoFace(CARD_FS.row))
   if (spec.host) {
     setFace(ctx, monoFace(CARD_FS.row, 0.5))
     const w = textWidth(ctx, spec.host, 0.5)

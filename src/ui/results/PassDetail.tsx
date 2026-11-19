@@ -12,10 +12,16 @@
  * Honest about cloud (decision #2): a mostly-cloud scene says so in its caption and its spot line, and a
  * near-total one is dimmed so it is never the brightest thing on screen.
  */
-import { startTransition, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { startTransition, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { isRadarUrl, isTonedUrl, spotCloud, tonedImageBlob } from '@/imagery'
 import type { Capture, Pass, SpotCloud } from '@/types'
-import { Glyph, Readout, Rule, ScrambleOnce, cx, fmtLon, fmtNorad, fmtUtc } from '@/ui/system'
+import { Glyph, Readout, Rule, ScrambleOnce, cx, fmtLon, fmtNorad, fmtUtcDate, fmtUtcTime } from '@/ui/system'
+import { profileBlurb } from '@/engine'
+import { msgs, useLocale, useMsgs } from '@/i18n/runtime'
+import enPassView from '@/i18n/en/passView'
+import enSats from '@/i18n/en/sats'
+import { fmt } from '../../../api/_lib/i18n/format'
+import { isUnitSymbol } from '../../../api/_lib/i18n/units'
 import { reportNow } from './Ago'
 import { decodedPhoto } from './images'
 import { cardUrl } from './lib/photos'
@@ -24,11 +30,12 @@ import { PassPlan } from './PassPlan'
 import { ReplayControls } from './ReplayControls'
 import { Paragraph } from './Text'
 import { archiveName, cropSpec, downloadUrl, isDailyMosaic, isGeoFrame, isRadar, pixelLabel, slug, captureFor } from './lib/captures'
-import { compassAbbr, dec1, dec2, int, passSentences } from './lib/copy'
+import { compassAbbr, passSentences } from './lib/copy'
 import type { SatMeta } from './lib/meta'
 import { replayWindow } from './lib/replay'
 import { fmtDuration } from './lib/time'
 import type { ResultsModel } from './model'
+import { placeName } from './placeName'
 import r from './results.module.css'
 import s from './PassDetail.module.css'
 
@@ -37,6 +44,9 @@ const st = (ms: number) => ({ '--st': `${ms}ms` }) as CSSProperties
 
 /** A pass older than this with no scene has no scene (not "archive lag"). */
 const SCENE_LAG_MS = 48 * 3_600_000
+
+/** The UTC clock to the minute, "16:14" (international notation in every language). */
+const utcHm = (ms: number) => fmtUtcTime(ms, false)
 
 /**
  * A pass with a photo. The gallery persists across quiet selections (swipes); the body below is keyed by the
@@ -51,9 +61,10 @@ export function PhotoPassView({ model, pass, mobile, onReplay }: { model: Result
     if (pass.id !== bodyPass.id) startTransition(() => setBodyPass(pass))
   }, [pass, bodyPass.id])
   const shown = model.passById.get(bodyPass.id) ?? pass
+  const m = useMsgs(enPassView)
   return (
     <div className={s.detail}>
-      <section className={cx(r.section, s.st)} style={st(0)} aria-label="Photos">
+      <section className={cx(r.section, s.st)} style={st(0)} aria-label={m.photosSection}>
         <Gallery model={model} context="detail" mobile={mobile} selectedId={pass.id} onReplay={onReplay} />
       </section>
       <PassBody key={shown.id} model={model} pass={shown} entering={first.current === shown.id} />
@@ -66,9 +77,10 @@ export function PassDetail({ model, pass }: { model: ResultsModel; pass: Pass })
   const meta = model.meta(pass.norad)
   const place = model.report.place
   const now = reportNow(model.clock)
+  const m = useMsgs(enPassView)
   return (
     <div className={s.detail}>
-      <section className={cx(r.section, s.st)} style={st(0)} aria-label="Plan view">
+      <section className={cx(r.section, s.st)} style={st(0)} aria-label={m.planSection}>
         <div data-image-end>
           <PassPlan pass={pass} meta={meta} lat={place.lat} lon={place.lon} className={s.plan} />
         </div>
@@ -91,7 +103,7 @@ function PassBody({ model, pass, entering }: { model: ResultsModel; pass: Pass; 
   const place = report.place
   const cloud = useSpotCloud(capture, place)
   const now = reportNow(model.clock)
-  const sentences = passSentences({ pass, meta, capture, timeZone: tz, placeLabel: place.label, archiveFailed: model.archiveFailed, now })
+  const sentences = passSentences({ pass, meta, capture, timeZone: tz, placeLabel: placeName(place), archiveFailed: model.archiveFailed, now })
   // PERF-04: the words commit first; geometry and replay a frame later, interruptibly.
   const [rest, setRest] = useState(false)
   useEffect(() => {
@@ -99,6 +111,9 @@ function PassBody({ model, pass, entering }: { model: ResultsModel; pass: Pass; 
     return () => cancelAnimationFrame(id)
   }, [])
   const stc = entering ? s.st : undefined
+  const m = useMsgs(enPassView)
+  // The satellite's one-sentence blurb, in the visitor's language (the profile names it by key: src/i18n/en/sats.ts).
+  const blurb = profileBlurb(meta.profile, useMsgs(enSats))
   return (
     <div className={cx(s.body, !entering && s.quietIn)}>
       <section className={cx(r.section, stc)} style={st(0)}>
@@ -108,41 +123,27 @@ function PassBody({ model, pass, entering }: { model: ResultsModel; pass: Pass; 
       <section className={cx(r.section, stc, s.prose)} style={st(60)}>
         <Paragraph sentences={sentences} />
         {capture && !isDailyMosaic(capture) && !isRadar(capture) && !isGeoFrame(capture) ? <SpotLine state={cloud} /> : null}
-        {capture && isGeoFrame(capture) ? (
-          <p className={r.footnote}>
-            A full-disc image: one picture of everything the satellite can see, at {pixelLabel(capture)} a pixel here. Coarse, but real, and the newest one
-            published; it has taken one like it {meta.profile?.cadenceMin ? `every ${int(meta.profile.cadenceMin)} minutes` : 'every few minutes'} all week.
-          </p>
-        ) : null}
-        {capture && isDailyMosaic(capture) ? (
-          <p className={r.footnote}>
-            A daily mosaic: NASA stitches each day’s swaths into one picture at {int(capture.gsdM)} m per pixel. Coarse, but real, and from this pass’s day.
-          </p>
-        ) : null}
-        {capture && isRadar(capture) ? (
-          <p className={r.footnote}>
-            A radar image, not a photograph: Sentinel-1 sends out microwaves and records their echo, so cloud and darkness don’t stop it. Brightness is how
-            strongly the ground sends them back: buildings and rough ground are bright, calm water is dark.
-          </p>
-        ) : null}
-        {meta.profile?.blurb ? <p className={r.blurb}>{meta.profile.blurb}</p> : null}
-        {capture ? <Links capture={capture} pass={pass} meta={meta} placeLabel={place.label} /> : null}
+        {capture && isGeoFrame(capture) ? <p className={r.footnote}>{m.fullDiscNote(pixelLabel(capture), meta.profile?.cadenceMin)}</p> : null}
+        {capture && isDailyMosaic(capture) ? <p className={r.footnote}>{m.mosaicNote(capture.gsdM)}</p> : null}
+        {capture && isRadar(capture) ? <p className={r.footnote}>{m.radarNote}</p> : null}
+        {blurb ? <p className={r.blurb}>{blurb}</p> : null}
+        {capture ? <Links capture={capture} pass={pass} meta={meta} placeLabel={place.canonicalLabel ?? place.label} /> : null}
       </section>
 
       {rest ? (
         <>
-          <section className={r.section} aria-label="Geometry">
+          <section className={r.section} aria-label={m.geometry}>
             <div className={stc} style={st(120)}>
               <Rule index="01" className={r.rule}>
-                Geometry
+                {m.geometry}
               </Rule>
             </div>
             <Geometry pass={pass} meta={meta} tz={tz} model={model} entering={entering} />
           </section>
 
-          <section className={cx(r.section, stc)} style={st(300)} aria-label="Replay">
+          <section className={cx(r.section, stc)} style={st(300)} aria-label={m.replay}>
             <Rule index="02" className={r.rule}>
-              Replay
+              {m.replay}
             </Rule>
             <ReplayControls pass={pass} />
           </section>
@@ -152,27 +153,28 @@ function PassBody({ model, pass, entering }: { model: ResultsModel; pass: Pass; 
   )
 }
 
+/** Why a pass shows its plan view, not a picture (read at render time, in the active language). */
 function noImageNote(p: Pass, meta: SatMeta, archiveFailed: boolean, now: number): string {
+  const m = msgs(enPassView).noImage
   switch (p.verdict) {
     case 'could':
       // The sentence below says what we can't know; this only says why there is no picture.
-      if (meta.profile?.openArchive) return `No ${meta.name} image of this spot from this pass. Plan view of the pass.`
-      return meta.category === 'radar'
-        ? 'No public image: this radar operator’s archive is private. Plan view of the pass.'
-        : 'No public image: commercial archives are private. Plan view of the pass.'
+      if (meta.profile?.openArchive) return m.openArchive(meta.name)
+      return meta.category === 'radar' ? m.radarPrivate : m.commercialPrivate
     case 'likely':
-      if (meta.category !== 'open-optical') return 'No image to show for this pass. Plan view of the pass.'
-      if (archiveFailed) return 'The archive could not be searched just now. Plan view of the pass.'
-      if (now - p.tClosest > SCENE_LAG_MS) return 'No scene exists for this pass. Plan view of the pass.'
-      return 'No published scene matches this pass yet. Sentinel-2 and Landsat scenes usually appear within a day.'
+      if (meta.category !== 'open-optical') return m.noneToShow
+      if (archiveFailed) return m.archiveDown
+      if (now - p.tClosest > SCENE_LAG_MS) return m.noScene
+      return m.notYet
     case 'overhead':
-      return 'Crewed stations carry cameras, but their photos are not published by place and time.'
+      return m.crewed
     default:
-      return 'The image for this pass is not available.'
+      return m.unavailable
   }
 }
 
 function Links({ capture, pass, meta, placeLabel }: { capture: Capture; pass: Pass; meta: SatMeta; placeLabel: string }) {
+  const m = useMsgs(enPassView).links
   const spec = cropSpec(capture.collection)
   const [dl, setDl] = useState<'idle' | 'busy' | 'err'>('idle')
   const download = async () => {
@@ -192,7 +194,9 @@ function Links({ capture, pass, meta, placeLabel }: { capture: Capture; pass: Pa
       const ext = blob.type.includes('png') ? 'png' : 'jpg'
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
-      a.download = `watched-${slug(meta.name)}-${slug(placeLabel)}-${new Date(pass.tClosest).toISOString().slice(0, 10)}.${ext}`
+      // The place's English name when it has one (as links and shares are named); a name only in another script, whose
+      // slug is empty, drops out rather than leave "--".
+      a.download = `${['watched', slug(meta.name), slug(placeLabel), new Date(pass.tClosest).toISOString().slice(0, 10)].filter(Boolean).join('-')}.${ext}`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -210,18 +214,18 @@ function Links({ capture, pass, meta, placeLabel }: { capture: Capture; pass: Pa
         // The picture on screen (its toned bytes, a blob: URL) when the lossless render could not be fetched.
         <a className={s.link} href={decodedPhoto(cardUrl(capture))?.src ?? downloadUrl(capture, spec)} target="_blank" rel="noopener noreferrer">
           <Glyph name="arrow-up-right" size={12} />
-          Open image to save it
+          {m.openToSave}
         </a>
       ) : (
         <button type="button" className={s.link} onClick={download} disabled={dl === 'busy'}>
           <Glyph name="download" size={12} />
-          {dl === 'busy' ? 'Downloading…' : 'Download image'}
+          {dl === 'busy' ? m.downloading : m.download}
         </button>
       )}
       {capture.sourceUrl ? (
         <a className={s.link} href={capture.sourceUrl} target="_blank" rel="noopener noreferrer">
           <Glyph name="arrow-up-right" size={12} />
-          View source · {archiveName(capture)}
+          {m.viewSource(archiveName(capture))}
         </a>
       ) : null}
     </div>
@@ -231,39 +235,86 @@ function Links({ capture, pass, meta, placeLabel }: { capture: Capture; pass: Pa
 // ── readout strip (R23) ──────────────────────────────────────────────────────────────────
 
 function ReadoutStrip({ pass: p, meta, capture, cloud }: { pass: Pass; meta: SatMeta; capture?: Capture; cloud: CloudState }) {
+  const m = useMsgs(enPassView)
+  const f = fmt(useLocale())
+  const L = m.strip
+  const U = m.unit
   const res = capture?.gsdM ?? meta.profile?.resolutionM
   const spot: SpotCloud | undefined = cloud === 'checking' || cloud === 'none' ? capture?.spot : cloud
-  let last: { label: string; value: string; unit?: string }
+  // `id` keys the cell (never its words: two labels may read alike in a language).
+  let last: { id: string; label: string; value: string; unit?: string }
   // A radar image needs no light: the sun is the fact worth showing (it may well have been night).
-  if (capture && isGeoFrame(capture)) last = { label: 'Band', value: capture.band === 'infrared' ? 'Infrared' : capture.band === 'visible' ? 'Visible' : 'Colour' }
-  else if (!capture || isRadar(capture)) last = { label: 'Sun', value: `${dec1(p.sunElevationDeg)}°`, unit: p.sunElevationDeg >= 0 ? 'day' : p.sunElevationDeg >= -6 ? 'twilight' : 'night' }
-  else if (isDailyMosaic(capture)) last = { label: 'Cloud', value: '—', unit: 'mosaic' }
-  else if (cloud === 'checking' && !capture.spot) last = { label: 'Cloud at spot', value: '…' }
-  else if (spot && spot !== 'unknown')
-    last = { label: 'Cloud at spot', value: spot === 'clear' ? 'Clear' : spot === 'cirrus' ? 'Cirrus' : spot === 'cloud' ? 'Cloud' : 'Shadow' }
-  else last = { label: 'Cloud', value: capture.cloudCoverPct !== undefined ? `${int(capture.cloudCoverPct)}%` : '—', unit: capture.cloudCoverPct !== undefined ? 'scene' : undefined }
+  if (capture && isGeoFrame(capture)) last = { id: 'band', label: L.band, value: capture.band === 'infrared' ? m.band.infrared : capture.band === 'visible' ? m.band.visible : m.band.colour }
+  else if (!capture || isRadar(capture))
+    last = { id: 'sun', label: L.sun, value: `${f.dec(p.sunElevationDeg, 1)}°`, unit: p.sunElevationDeg >= 0 ? U.sun.day : p.sunElevationDeg >= -6 ? U.sun.twilight : U.sun.night }
+  else if (isDailyMosaic(capture)) last = { id: 'cloud', label: L.cloud, value: '—', unit: U.mosaic }
+  else if (cloud === 'checking' && !capture.spot) last = { id: 'spot', label: L.cloudAtSpot, value: '…' }
+  else if (spot && spot !== 'unknown') last = { id: 'spot', label: L.cloudAtSpot, value: m.spotValue[spot] }
+  else
+    last = {
+      id: 'cloud',
+      label: L.cloud,
+      value: capture.cloudCoverPct !== undefined ? f.pct(capture.cloudCoverPct) : '—',
+      unit: capture.cloudCoverPct !== undefined ? U.scene : undefined,
+    }
   const cells = [
-    { label: 'Altitude', value: int(p.altitudeKm), unit: 'km' },
+    { id: 'altitude', label: L.altitude, value: f.int(p.altitudeKm), unit: U.km },
     // A geostationary imager is never overhead: how high it stands in your sky says more than its mirror's angle.
-    p.geostationary ? { label: 'Elevation', value: `${dec1(p.elevationDeg)}°`, unit: 'up' } : { label: 'Off-nadir', value: `${dec1(p.offNadirDeg)}°` },
+    p.geostationary ? { id: 'elevation', label: L.elevation, value: `${f.dec(p.elevationDeg, 1)}°`, unit: U.up } : { id: 'offNadir', label: L.offNadir, value: `${f.dec(p.offNadirDeg, 1)}°` },
     res !== undefined && res >= 1000
-      ? { label: 'Pixel', value: int(res / 1000), unit: 'km' }
-      : { label: 'Pixel', value: res !== undefined ? (res < 1 ? dec2(res) : int(res)) : '—', unit: res !== undefined ? 'm' : undefined },
+      ? { id: 'pixel', label: L.pixel, value: f.int(res / 1000), unit: U.km }
+      : { id: 'pixel', label: L.pixel, value: res !== undefined ? (res < 1 ? f.dec(res, 2) : f.int(res)) : '—', unit: res !== undefined ? U.m : undefined },
     last,
   ]
+  const ref = useTightLabels(cells.map((c) => c.label).join('\n'))
   return (
-    <div className={s.strip}>
+    <div className={s.strip} ref={ref}>
       {cells.map((c) => (
-        <div key={c.label} className={s.stripCell}>
+        <div key={c.id} className={s.stripCell}>
           <span className={s.stripLabel}>{c.label}</span>
           <span className={s.stripValue}>
             {c.value}
-            {c.unit ? <span className={s.stripUnit}>{c.unit}</span> : null}
+            {/* A word in the unit slot ("day", "scene") is in caps with its label; a unit symbol ("km") never is. */}
+            {c.unit ? (
+              <span className={s.stripUnit} data-unit={isUnitSymbol(c.unit) ? '' : undefined}>
+                {c.unit}
+              </span>
+            ) : null}
           </span>
         </div>
       ))}
     </div>
   )
+}
+
+/**
+ * A label that is one word wider than its cell ("Dépointage", "Nubosidad" on a phone) cannot wrap: it drops its
+ * tracking (`data-tight="1"`), and on the narrowest phones takes the micro size too ("2"), rather than run over the
+ * divider or the strip's edge. Measured, so a label that fits is left as it is; again when the strip's width or a
+ * font changes.
+ */
+function useTightLabels(words: string) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const strip = ref.current
+    if (!strip) return
+    const fit = () => {
+      for (const label of strip.querySelectorAll<HTMLElement>(`.${s.stripLabel}`)) {
+        delete label.dataset.tight
+        for (let level = 1; level <= 2 && label.scrollWidth > label.clientWidth; level++) label.dataset.tight = String(level)
+      }
+    }
+    fit()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(fit)
+    ro.observe(strip)
+    document.fonts?.addEventListener('loadingdone', fit)
+    return () => {
+      ro.disconnect()
+      document.fonts?.removeEventListener('loadingdone', fit)
+    }
+  }, [words])
+  return ref
 }
 
 // ── spot cloud ────────────────────────────────────────────────────────────────────────────
@@ -287,20 +338,13 @@ function useSpotCloud(capture: Capture | undefined, place: { lat: number; lon: n
   return state
 }
 
-const SPOT_TEXT: Record<Exclude<CloudState, 'none' | 'unknown'>, string> = {
-  checking: 'Reading the pixel at your spot…',
-  clear: 'Clear over your spot.',
-  cirrus: 'Thin cirrus flagged over your spot; it may soften the picture.',
-  cloud: 'Cloud over your spot.',
-  shadow: 'Your spot was in cloud shadow.',
-}
-
 function SpotLine({ state }: { state: CloudState }) {
+  const m = useMsgs(enPassView)
   if (state === 'none' || state === 'unknown') return null
   return (
     <p className={cx(s.spot, state === 'checking' && s.spotChecking)} aria-live="polite">
       <span className={cx(s.spotMark, state === 'clear' && s.spotClear, state === 'cirrus' && s.spotCirrus)} aria-hidden />
-      {SPOT_TEXT[state]}
+      {m.spot[state]}
     </p>
   )
 }
@@ -308,61 +352,67 @@ function SpotLine({ state }: { state: CloudState }) {
 // ── geometry ──────────────────────────────────────────────────────────────────────────────
 
 function Geometry({ pass: p, meta, tz, model, entering }: { pass: Pass; meta: SatMeta; tz: string; model: ResultsModel; entering: boolean }) {
-  const [utcDate, utcTime] = fmtUtc(p.tClosest).split(' ')
+  const m = useMsgs(enPassView)
+  const f = fmt(useLocale())
+  const G = m.geo
+  // UTC stamps are international notation: built from the instant, never split back out of formatted text.
+  const utcDate = fmtUtcDate(p.tClosest)
   const prof = meta.profile
   const w = replayWindow(p)
   const t = model.times(p)
   void tz
+  const sun = p.sunElevationDeg >= 0 ? m.sunPhase.day : p.sunElevationDeg >= -6 ? m.sunPhase.twilight : m.sunPhase.night
+  // Cells are keyed by `id`, never by their words (two labels may read alike in a language).
   if (p.geostationary) {
     // A scan, not an overflight: where the satellite sits, and how its line crossed the place (to about a minute).
-    const [, startUtc] = fmtUtc(p.tStart).split(' ')
-    const [, endUtc] = fmtUtc(p.tEnd).split(' ')
-    const geoCells: { label: string; value: ReactNode; unit?: string; wide?: boolean }[] = [
-      { label: 'Scan line here · UTC', value: `≈ ${utcTime.slice(0, 5)}`, unit: utcDate },
-      { label: 'Scan line here · local', value: `≈ ${t.time}`, unit: `${t.day} ${t.zone}` },
-      { label: 'Above the equator at', value: fmtLon(p.track[0]?.lon ?? 0, 1) },
-      { label: 'In your sky', value: `${dec1(p.elevationDeg)}°`, unit: `up · ${compassAbbr(p.azimuthDeg)}` },
-      { label: 'Scan direction', value: p.node === 'descending' ? 'North → south' : 'South → north' },
-      { label: 'Line speed here', value: dec1(p.groundSpeedKmS), unit: 'km/s' },
-      { label: 'Sun elevation', value: `${dec1(p.sunElevationDeg)}°`, unit: p.sunElevationDeg >= 0 ? 'Day' : p.sunElevationDeg >= -6 ? 'Twilight' : 'Night' },
-      { label: 'Coverage', value: 'Full disc', unit: prof?.cadenceMin ? `every ${int(prof.cadenceMin)} min` : undefined },
-      { label: 'This scan', value: `${startUtc.slice(0, 5)} → ${endUtc.slice(0, 5)}`, unit: `UTC · ${fmtDuration(p.tEnd - p.tStart)}`, wide: true },
-      { label: 'NORAD · scan', value: <ScrambleOnce text={fmtNorad(p.norad)} />, unit: p.id, wide: true },
+    const geoCells: { id: string; label: string; value: ReactNode; unit?: string; wide?: boolean }[] = [
+      { id: 'scanUtc', label: G.scanUtc, value: `≈ ${utcHm(p.tClosest)}`, unit: utcDate },
+      { id: 'scanLocal', label: G.scanLocal, value: `≈ ${t.time}`, unit: `${t.day} ${t.zone}` },
+      { id: 'aboveEquator', label: G.aboveEquator, value: fmtLon(p.track[0]?.lon ?? 0, 1) },
+      { id: 'inYourSky', label: G.inYourSky, value: `${f.dec(p.elevationDeg, 1)}°`, unit: m.upCompass(compassAbbr(p.azimuthDeg)) },
+      { id: 'scanDirection', label: G.scanDirection, value: p.node === 'descending' ? m.northToSouth : m.southToNorth },
+      { id: 'lineSpeed', label: G.lineSpeed, value: f.dec(p.groundSpeedKmS, 1), unit: m.unit.kmS },
+      { id: 'sunElevation', label: G.sunElevation, value: `${f.dec(p.sunElevationDeg, 1)}°`, unit: sun },
+      { id: 'coverage', label: G.coverage, value: m.fullDisc, unit: prof?.cadenceMin ? m.everyMin(prof.cadenceMin) : undefined },
+      { id: 'thisScan', label: G.thisScan, value: m.timeRange(utcHm(p.tStart), utcHm(p.tEnd)), unit: `UTC · ${fmtDuration(p.tEnd - p.tStart)}`, wide: true },
+      { id: 'noradScan', label: G.noradScan, value: <ScrambleOnce text={fmtNorad(p.norad)} />, unit: p.id, wide: true },
     ]
     return (
       <div className={r.grid}>
         {geoCells.map((c, i) => (
-          <div key={c.label} className={cx(r.cell, c.wide && r.cellWide, entering && s.st)} style={st(Math.min(300, 120 + i * 20))}>
+          <div key={c.id} className={cx(r.cell, c.wide && r.cellWide, entering && s.st)} style={st(Math.min(300, 120 + i * 20))}>
             <Readout label={c.label} value={c.value} unit={c.unit} />
           </div>
         ))}
       </div>
     )
   }
-  const cells: { label: string; value: ReactNode; unit?: string; wide?: boolean }[] = [
-    { label: 'Closest · UTC', value: utcTime, unit: utcDate },
-    { label: 'Closest · local', value: t.timeS, unit: `${t.day} ${t.zone}` },
-    { label: 'Ground distance', value: dec1(p.groundDistanceKm), unit: 'km' },
-    { label: 'Elevation from you', value: `${dec1(p.elevationDeg)}°`, unit: compassAbbr(p.azimuthDeg) },
-    { label: 'Ground speed', value: dec2(p.groundSpeedKmS), unit: 'km/s' },
-    { label: 'Heading', value: `${dec1(p.headingDeg)}°`, unit: `${compassAbbr(p.headingDeg)} · ${p.node === 'ascending' ? 'Asc' : 'Desc'}` },
-    { label: 'Sun elevation', value: `${dec1(p.sunElevationDeg)}°`, unit: p.sunElevationDeg >= 0 ? 'Day' : p.sunElevationDeg >= -6 ? 'Twilight' : 'Night' },
+  const span = p.tEnd > p.tStart
+  const cells: { id: string; label: string; value: ReactNode; unit?: string; wide?: boolean }[] = [
+    { id: 'closestUtc', label: G.closestUtc, value: fmtUtcTime(p.tClosest), unit: utcDate },
+    { id: 'closestLocal', label: G.closestLocal, value: t.timeS, unit: `${t.day} ${t.zone}` },
+    { id: 'groundDistance', label: G.groundDistance, value: f.dec(p.groundDistanceKm, 1), unit: m.unit.km },
+    { id: 'elevationFromYou', label: G.elevationFromYou, value: `${f.dec(p.elevationDeg, 1)}°`, unit: compassAbbr(p.azimuthDeg) },
+    { id: 'groundSpeed', label: G.groundSpeed, value: f.dec(p.groundSpeedKmS, 2), unit: m.unit.kmS },
+    { id: 'heading', label: G.heading, value: `${f.dec(p.headingDeg, 1)}°`, unit: m.heading(compassAbbr(p.headingDeg), p.node === 'ascending') },
+    { id: 'sunElevation', label: G.sunElevation, value: `${f.dec(p.sunElevationDeg, 1)}°`, unit: sun },
     prof?.maxOffNadirDeg
-      ? { label: 'Field of regard', value: `±${int(prof.maxOffNadirDeg)}°` }
-      : { label: 'Swath', value: prof?.swathKm ? int(prof.swathKm) : '—', unit: prof?.swathKm ? 'km' : undefined },
+      ? { id: 'fieldOfRegard', label: G.fieldOfRegard, value: `±${f.int(prof.maxOffNadirDeg)}°` }
+      : { id: 'swath', label: G.swath, value: prof?.swathKm ? f.int(prof.swathKm) : '—', unit: prof?.swathKm ? m.unit.km : undefined },
     {
-      label: p.tEnd > p.tStart ? (p.inSwath ? 'In swath' : 'In view') : 'Window',
-      value: p.tEnd > p.tStart ? `${fmtUtc(p.tStart).split(' ')[1]} → ${fmtUtc(p.tEnd).split(' ')[1]}` : `${fmtUtc(w[0]).split(' ')[1]} → ${fmtUtc(w[1]).split(' ')[1]}`,
-      unit: p.tEnd > p.tStart ? fmtDuration(p.tEnd - p.tStart) : 'UTC',
+      id: span ? (p.inSwath ? 'inSwath' : 'inView') : 'window',
+      label: span ? (p.inSwath ? G.inSwath : G.inView) : G.window,
+      value: span ? m.timeRange(fmtUtcTime(p.tStart), fmtUtcTime(p.tEnd)) : m.timeRange(fmtUtcTime(w[0]), fmtUtcTime(w[1])),
+      unit: span ? fmtDuration(p.tEnd - p.tStart) : 'UTC',
       wide: true,
     },
     // The pass ID lives here, with the satellite's catalog number (not in the header: V05).
-    { label: 'NORAD · pass', value: <ScrambleOnce text={fmtNorad(p.norad)} />, unit: p.id, wide: true },
+    { id: 'noradPass', label: G.noradPass, value: <ScrambleOnce text={fmtNorad(p.norad)} />, unit: p.id, wide: true },
   ]
   return (
     <div className={r.grid}>
       {cells.map((c, i) => (
-        <div key={c.label} className={cx(r.cell, c.wide && r.cellWide, entering && s.st)} style={st(Math.min(300, 120 + i * 20))}>
+        <div key={c.id} className={cx(r.cell, c.wide && r.cellWide, entering && s.st)} style={st(Math.min(300, 120 + i * 20))}>
           <Readout label={c.label} value={c.value} unit={c.unit} />
         </div>
       ))}

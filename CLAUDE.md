@@ -25,8 +25,10 @@
   font sizes or colours.
 
 **Production, data and permissions**
-- Every branch push gets a Vercel preview deploy, behind Vercel login. To open one, use the Vercel connector's
-  `get_access_to_vercel_url` (a share link) and keep its cookie.
+- The site is served by the Cloudflare Worker; Vercel no longer builds (it still receives each push and cancels the
+  deployment). Every branch push gets a Cloudflare Workers Builds preview, public, at
+  `https://<branch, non-alphanumerics as ->-watched.<account subdomain>.workers.dev` (the subdomain: Cloudflare API
+  `/accounts/<id>/workers/subdomain`). A push to `main` deploys production the same way.
 - Supabase project `etiebfmgepkcewkkbxwi`: use the Management API
   (`POST https://api.supabase.com/v1/projects/etiebfmgepkcewkkbxwi/database/query`; the session proxy adds the token).
   Do NOT use the Supabase MCP connector: it points at an unrelated project (`xcinlndzgpzjmvmeujor`).
@@ -142,7 +144,7 @@
   (see `SearchBox.tsx`).
 - Vercel functions use the fetch-style handler (`export default { fetch }`) and are registered in `vercel.json`
   (`maxDuration`). Vercel passes the query string percent-encoded in `req.url`.
-- The site is moving to a Cloudflare Worker (`worker/`, `wrangler.jsonc`) that runs the same handlers. Its routes
+- The site runs on a Cloudflare Worker (`worker/`, `wrangler.jsonc`) with the same handlers as the Vercel functions. Its routes
   (`worker/router.ts`) and static headers (`public/_headers`) mirror `vercel.json`, and tests keep them equal: change
   both. Workers run only WebAssembly bundled at deploy time, so the card renderer takes its fonts and WebAssembly
   from `api/_lib/bundled.ts` there. After `npm run build`, `npm run dev:worker` runs it locally.

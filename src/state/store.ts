@@ -11,7 +11,7 @@
  *   inside its frame loop, never through a React subscription.
  */
 import { create } from 'zustand'
-import type { Pass, Place, ProgressEvent, Report } from '@/types'
+import type { MessageRef, Pass, Place, ProgressEvent, Report } from '@/types'
 import type { Share } from '@/lib/backend'
 
 /** CSS px of the viewport covered by UI on each edge. The camera frames the globe inside what's left. */
@@ -55,7 +55,11 @@ export type CameraIntent =
 
 export interface AppState {
   phase: Phase
-  error?: string
+  /**
+   * The fault notice's message (phase 'error'): a ref into the 'app' namespace (src/app/messageRefs.ts: CATALOG_FAULT,
+   * COMPUTE_FAULT), never a sentence. ErrorNotice shows it in the visitor's language; the usage stats log its English.
+   */
+  error?: MessageRef
   /** What failed, in the code's words (an error's name and message): for the usage stats, never shown. */
   errorCause?: string
   place?: Place
@@ -96,7 +100,7 @@ export interface AppState {
   pinAtCentre: number
 
   // actions
-  setPhase: (p: Phase, error?: string, errorCause?: string) => void
+  setPhase: (p: Phase, error?: MessageRef, errorCause?: string) => void
   setPlace: (p?: Place) => void
   setPendingWindow: (w?: [number, number]) => void
   setReport: (r?: Report) => void

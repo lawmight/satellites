@@ -1,6 +1,10 @@
 /**
  * Custom 1px-stroke marks. The ONLY icon set in the product (see docs/DESIGN.md §1, §2).
  * Drawn on a 16×16 grid with crisp 0.5px offsets so 1px strokes land on pixels.
+ *
+ * The left and right arrows point along the reading (go, open, back): in a right-to-left page they mirror
+ * (`data-reading`, base.css). A time axis or a sequence that runs left to right in every language draws its
+ * own chevrons, so nothing here has to opt out.
  */
 import type { SatCategory } from '@/types'
 
@@ -137,6 +141,7 @@ export function Glyph({ name, size = 16, color = 'currentColor', className, titl
       aria-hidden={title ? undefined : true}
       role={title ? 'img' : undefined}
       shapeRendering="geometricPrecision"
+      data-reading={name === 'arrow-right' || name === 'arrow-left' ? '' : undefined}
     >
       {title ? <title>{title}</title> : null}
       {body}

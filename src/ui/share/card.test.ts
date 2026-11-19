@@ -135,7 +135,7 @@ describe('clouded words match the picture (R2SH3)', () => {
     host: 'overflight.app',
   })
   const post = (pct: number, spot?: string) =>
-    postText({ verdict: 'imaged', satName: 'Sentinel-2B', placeLabel: 'Waterloo', altitudeKm: 795, localDay: 'Fri 30 Oct', localTime: '12:24', resolution: '10 m', cloud: { pct, spot } })
+    postText({ verdict: 'imaged', satName: 'Sentinel-2B', placeLabel: 'Waterloo', altitudeKm: 795, tClosest: Date.UTC(2026, 9, 30, 16, 24), timeZone: 'America/Toronto', pixelM: 10, cloud: { pct, spot } })
 
   const CASES = [
     { pct: 93, spot: undefined, sub: 'Clouded over. It saw only cloud.', chip: 'Clouded over · 93%', desc: 'It saw only cloud (93%).', post: 'It saw only cloud.' },
@@ -209,7 +209,7 @@ describe('summary copy matches the results headline: N watched, K made public (R
     const spec = summaryCardSpec(report, 'Waterloo', meta, 'America/Toronto', 'www.watched.earth')
     expect(`${spec.lead} ${spec.place}${spec.tail}`).toBe(lead)
     expect(spec.sub).toBe(photos)
-    expect(spec.readouts[0]).toEqual({ label: 'Photo', value: String(f.counts.imaged) })
+    expect(spec.readouts[0]).toEqual({ label: 'Image', value: String(f.counts.imaged) })
     const link = summaryFromParams(new URL(summaryLink('https://www.watched.earth', f)).searchParams)
     expect(summaryTitle(link as { satellites: number; placeLabel: string })).toBe(lead)
     expect(summaryDescription(link)).toMatch(new RegExp(`^${photos.replace(/\./g, '\\.')} The closest look is from \\S.+\\. What watched you this week\\?$`))
@@ -279,13 +279,16 @@ describe('the week’s card shows the gallery’s first image, labelled as the g
     const f = summaryFacts({ ...cloudy, clearCover }, 'Waterloo', meta)
     expect(f.best).toMatchObject({ itemId: LS9, satName: 'Landsat 9', tClosest: T_CLEAR, look: 'lastClear' })
     const spec = summaryCardSpec({ ...cloudy, clearCover }, 'Waterloo', meta, 'America/Toronto', 'www.watched.earth')
-    expect(spec.plate.kind === 'image' && chipText(spec.plate.chip)).toBe('Last clear look · 3 Nov · Landsat 9 · 30 m')
+    // The chip must end before the scale chip: the bar takes 1 km instead of 2, and the pixel size goes (the full
+    // "… · 30 m" ran 72 px under the scale chip).
+    expect(spec.plate.kind === 'image' && chipText(spec.plate.chip)).toBe('Last clear look · 3 Nov · Landsat 9')
+    expect(spec.plate.kind === 'image' && spec.plate.scale.label).toBe('1 km')
     const link = new URL(summaryLink('https://www.watched.earth', f))
     expect(link.searchParams.get('bw')).toBe('lc')
     const back = summaryFromParams(link.searchParams) as Parameters<typeof buildSummarySpec>[0]
     expect(back.best?.look).toBe('lastClear')
     const fromLink = buildSummarySpec({ ...back, timeZone: 'America/Toronto', host: 'www.watched.earth' }).plate
-    expect(fromLink.kind === 'image' && chipText(fromLink.chip)).toBe('Last clear look · 3 Nov · Landsat 9 · 30 m')
+    expect(fromLink.kind === 'image' && chipText(fromLink.chip)).toBe('Last clear look · 3 Nov · Landsat 9')
     expect(summaryDescription(back)).toContain('The last clear look is from Landsat 9.')
   })
 

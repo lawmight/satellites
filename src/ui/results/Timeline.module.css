@@ -48,7 +48,7 @@
   color: var(--bone-4);
 }
 .meta {
-  margin-left: 10px;
+  margin-inline-start: 10px;
   color: var(--bone-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -77,7 +77,8 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  padding: 10px 14px 0 0;
+  padding-block: 10px 0;
+  padding-inline: 0 14px;
 }
 .compact .body {
   padding: 0;
@@ -85,14 +86,15 @@
 .lanes {
   position: relative;
   flex: none;
-  width: 124px;
+  /* English's 124 px, or the widest label's room in a language whose words run longer (the sizer below) */
+  width: max-content;
+  min-width: 124px;
   margin-bottom: 22px;
-  border-right: 1px solid var(--line);
+  border-inline-end: 1px solid var(--line);
 }
 .laneLabel {
   position: absolute;
-  left: 14px;
-  right: 10px;
+  inset-inline: 14px 10px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -104,6 +106,21 @@
   color: var(--bone-3);
   white-space: nowrap;
 }
+/* The labels' hidden copies, in the flow and zero tall: their width is the column's. Each glyph keeps its size. */
+.laneSizer {
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+.laneSizer > .laneLabel {
+  position: static;
+  width: max-content;
+  padding-inline: 14px 10px;
+}
+.laneLabel > svg {
+  flex: none;
+}
 /* Photographs lead the strip (decision #7). */
 .laneLead {
   color: var(--bone);
@@ -114,18 +131,20 @@
 /* Narrow strips (the timeline beside the panel at ≤ 1180 px): glyph + count, so days keep ≥ 60 px. */
 @media (max-width: 1180px) {
   .lanes {
-    width: 64px;
+    min-width: 64px;
   }
   .laneLabel {
-    left: 10px;
-    right: 6px;
+    inset-inline: 10px 6px;
     gap: 6px;
+  }
+  .laneSizer > .laneLabel {
+    padding-inline: 10px 6px;
   }
   .laneLabel .laneWord {
     display: none;
   }
   .laneCount {
-    margin-left: auto;
+    margin-inline-start: auto;
   }
 }
 .laneWord {
@@ -153,22 +172,25 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  margin-left: 12px;
+  margin-inline-start: 12px;
 }
 @media (max-width: 1180px) {
   .plotWrap {
-    margin-left: 8px;
+    margin-inline-start: 8px;
   }
   .body {
-    padding-right: 10px;
+    padding-inline-end: 10px;
   }
 }
 .compact .plotWrap {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
+/* The plot and its day labels are a time axis: they run left to right in every language, as clocks and charts do in
+   Arabic (docs/I18N.md, Right to left). The chrome around them (the header, the lane labels) follows the reading. */
 .plot {
   position: relative;
   flex: 1;
+  direction: ltr;
   min-height: 0;
   cursor: crosshair;
   border-bottom: 1px solid var(--line-strong);
@@ -241,6 +263,7 @@
 .axis {
   position: relative;
   flex: none;
+  direction: ltr;
   height: 22px;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
@@ -327,4 +350,11 @@
 }
 .tipLine {
   line-height: 1.45;
+}
+
+/* ── right to left ────────────────────────────────────────────── */
+/* Each label on the axis reads in its own direction: an Arabic day («الأحد، 1 نوفمبر») right to left, a clock and
+   its zone («23:00 UTC-5») left to right; the axis only places them. The tooltip follows the reading already. */
+:root[dir='rtl'] .axis > span {
+  unicode-bidi: plaintext;
 }

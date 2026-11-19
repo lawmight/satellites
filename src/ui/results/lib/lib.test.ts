@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { Capture, GeoWatcher, Pass } from '@/types'
 import { byClarity, isClouded, pickBestLook } from './bestLook'
 import { captureFor, cropSpec, displayUrl, isDailyMosaic, productLabel, scaleBarKm, slug } from './captures'
-import { ARCHIVE_DOWN_LINE, archiveDown, compassAbbr, compassWord, darkSentences, geoImageCount, headline, passSentences, photosLine, placeInProse, placeParts, plain, radarSentence, shareHeadline, watchedPhrase } from './copy'
+import { ARCHIVE_DOWN_LINE, archiveDown, compass8, compassAbbr, darkSentences, geoImageCount, headline, passSentences, photosLine, plain, radarSentence, shareHeadline, watchedPhrase, zeroSentence } from './copy'
+import { placeInProse, placeParts } from '@/i18n/en/plain/english'
 import { cardUrl, filterCounts, filterPhotos, hiResHelps, hiResUrl, orderPhotos, photoHeadingDeg, placeOffset, thumbUrl } from './photos'
 import { isMagnifiedView, placeInCrop, tonePlanForUrl } from '../../../../api/_lib/toneRender'
 import { pcCropUrl, type CropOpts } from '@/imagery'
@@ -112,9 +113,10 @@ describe('time', () => {
 
 describe('copy', () => {
   it('compass words and abbreviations', () => {
-    expect(compassWord(194.6)).toBe('south')
-    expect(compassWord(345)).toBe('north')
-    expect(compassWord(268)).toBe('west')
+    // Directions reach the sentences as ids; each language words them (English: "moving south", "to the west").
+    expect(compass8(194.6)).toBe('s')
+    expect(compass8(345)).toBe('n')
+    expect(compass8(268)).toBe('w')
     expect(compassAbbr(194.6)).toBe('SSW')
     expect(compassAbbr(-10)).toBe('N')
   })
@@ -134,7 +136,7 @@ describe('copy', () => {
     }
     const h = headline(report, meta)
     expect(h).toMatchObject({ flewOver: 4, photographed: 2, detailedSats: 1, mosaicSats: 1, more: 2, images: 2, detailed: 1, mosaics: 1 })
-    expect(h.zeroReason).toBeUndefined()
+    expect(h.zeroKind).toBeUndefined()
   })
 
   it('owner F: "N satellites watched" counts every distinct satellite with a pass, never a geostationary one', () => {
@@ -158,7 +160,7 @@ describe('copy', () => {
     expect(photosLine(31)).toBe('31 images were made public.')
     expect(photosLine(1)).toBe('1 image was made public.')
     expect(photosLine(0)).toBe('No images were made public this week.')
-    expect(photosLine(0, { week: 'that week' })).toBe('No images were made public that week.')
+    expect(photosLine(0, { past: true })).toBe('No images were made public that week.')
     expect(photosLine(4, { partial: true })).toBe('At least 4 images were made public.')
     expect(photosLine(1234)).toBe('1,234 images were made public.')
     expect(ARCHIVE_DOWN_LINE).not.toContain('—')
@@ -174,12 +176,25 @@ describe('copy', () => {
   })
 
   it('states a plain reason when nothing photographed the place', () => {
+    // The headline keeps the reason as a kind (cached with the model); the sentence is worded when it is shown.
     const likelyS2 = { captures: [], notes: [], passes: [pass({ verdict: 'likely' }), pass({ verdict: 'likely' })] }
-    expect(headline(likelyS2, meta).zeroReason).toBe('Sentinel-2 or Landsat crossed it 2 times in daylight, but no scene has been published yet')
+    const unpublished = headline(likelyS2, meta)
+    expect(unpublished).toMatchObject({ zeroKind: 'unpublished', unpublishedPasses: 2 })
+    expect(plain(zeroSentence(unpublished)!)).toBe('Sentinel-2 or Landsat crossed it 2 times in daylight, but no scene has been published yet.')
+    expect(plain(zeroSentence({ zeroKind: 'unpublished', unpublishedPasses: 1 })!)).toBe(
+      'Sentinel-2 or Landsat crossed it once in daylight, but no scene has been published yet.',
+    )
     const outage = { captures: [], notes: ['The Sentinel-2 and Landsat archives could not be reached; passes are shown from orbital geometry only.'], passes: [] }
-    expect(headline(outage, meta).zeroReason).toBe('the image archives did not answer in time')
+    expect(headline(outage, meta).zeroKind).toBe('archive')
+    expect(zeroSentence(headline(outage, meta))).toBeUndefined() // the second line says it (the outage line)
+    const refOutage = { captures: [], notes: [{ id: 'engine.note.archiveDown' }], passes: [] }
+    expect(headline(refOutage, meta).zeroKind).toBe('archive')
     const dark = { captures: [], notes: [], passes: [pass({ norad: 25544, verdict: 'overhead', sunElevationDeg: -20 })] }
-    expect(headline(dark, meta).zeroReason).toBe('the sun barely rose there')
+    expect(headline(dark, meta).zeroKind).toBe('dark')
+    expect(headline(dark, meta).sunNeverRose).toBeUndefined()
+    expect(plain(darkSentences(headline(dark, meta)))).toBe('The sun barely rose, so no daylight camera could see it.')
+    const none = { captures: [], notes: [], passes: [pass({ norad: 59625, verdict: 'could' })] }
+    expect(plain(zeroSentence(headline(none, meta))!)).toBe('No open imaging satellite crossed it in daylight.')
   })
 
   it('writes the pass sentence from real numbers (tClosest, never the scene time)', () => {
@@ -293,7 +308,7 @@ describe('timeline', () => {
     expect(new Date(days[0].t).toISOString()).toBe('2026-10-28T04:00:00.000Z') // EDT midnight
     expect(new Date(days[4].t).toISOString()).toBe('2026-11-01T04:00:00.000Z') // the DST night
     expect(new Date(days[5].t).toISOString()).toBe('2026-11-02T05:00:00.000Z') // EST midnight
-    expect(days[4].label).toBe('Sun 1 Nov')
+    expect(fmtLocalDay(days[4].t, TZ, days[4].p)).toBe('Sun 1 Nov')
   })
   it('handles half-hour zones', () => {
     const days = dayBoundaries(t0, t1, 'Asia/Kolkata')
@@ -588,7 +603,7 @@ describe('one vocabulary for verdicts (R9)', () => {
     expect(VERDICT_META.likely.title).toBe('Likely watched')
     expect(VERDICT_META.imaged.title).toBe('Watched')
     expect(VERDICT_META.imaged.verb).toBe('watched')
-    expect(VERDICT_TAG.imaged).toBe('Photo')
+    expect(VERDICT_TAG.imaged).toBe('Image')
     expect(verdictUnit('imaged', 1)).toBe('pass')
     expect(verdictUnit('imaged', 31)).toBe('passes')
     expect(verdictUnit('could', 1)).toBe('pass')
@@ -608,6 +623,9 @@ describe('honest copy (R7, R17)', () => {
     expect(archiveDown({ archiveFailed: true })).toBe(true)
     expect(archiveDown({ archiveFailed: false, notes: ['The Sentinel-2 and Landsat archives could not be reached'] })).toBe(false)
     expect(archiveDown({ notes: ['The Sentinel-2 and Landsat archives could not be reached; passes are shown from orbital geometry only.'] })).toBe(true)
+    // Notes are MessageRefs now: told apart by id, never by their words.
+    expect(archiveDown({ notes: [{ id: 'engine.note.archiveSlow' }] })).toBe(true)
+    expect(archiveDown({ notes: [{ id: 'engine.note.sentinel2Down' }, 'Landsat archive unreachable; Landsat images may be missing.'] })).toBe(false)
     const t = plain(passSentences({ pass: pass({ verdict: 'likely' }), meta: meta(60989), timeZone: TZ, placeLabel: 'Waterloo', archiveFailed: true }))
     expect(t).toContain('The archive could not be searched just now.')
     expect(t).not.toContain('archives can lag')
@@ -645,6 +663,8 @@ describe('familiar time zones (R22) and spoken labels (R19)', () => {
   const jul = Date.parse('2026-07-01T12:00:00Z')
   it('maps the big zones the en-US locale leaves as GMT offsets', () => {
     expect(zoneAbbr(nov, 'Asia/Tokyo')).toBe('JST')
+    // Indonesia's three zones as Indonesians write them (Bali and Makassar WITA, Papua WIT)
+    expect(['Asia/Jakarta', 'Asia/Pontianak', 'Asia/Makassar', 'Asia/Jayapura'].map((z) => zoneAbbr(nov, z))).toEqual(['WIB', 'WIB', 'WITA', 'WIT'])
     expect(zoneAbbr(nov, 'Asia/Seoul')).toBe('KST')
     expect(zoneAbbr(nov, 'Asia/Kolkata')).toBe('IST')
     expect(zoneAbbr(nov, 'Europe/Paris')).toBe('CET')

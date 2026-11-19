@@ -50,14 +50,18 @@ async function loadEnv(): Promise<void> {
 }
 
 const WATERLOO = { place: 'Waterloo', lat: '43.4723', lon: '-80.5449', sv: '256' }
+const S2C_IMAGED = {
+  ...WATERLOO,
+  sat: 'Sentinel-2C', norad: '60989', verdict: 'imaged', t: '1793549661025', alt: '794.9', off: '5.26', cloud: '25.46',
+  dist: '73.26', az: '103.9', hdg: '194.6', collection: 'sentinel-2-l2a', item: 'S2C_MSIL2A_20261101T161421_R140_T17TNJ_20261102T164803',
+}
 
 const CASES: Record<string, Record<string, string>> = {
   'default': {},
-  's2c-imaged': {
-    ...WATERLOO,
-    sat: 'Sentinel-2C', norad: '60989', verdict: 'imaged', t: '1793549661025', alt: '794.9', off: '5.26', cloud: '25.46',
-    dist: '73.26', az: '103.9', hdg: '194.6', collection: 'sentinel-2-l2a', item: 'S2C_MSIL2A_20261101T161421_R140_T17TNJ_20261102T164803',
-  },
+  's2c-imaged': S2C_IMAGED,
+  // In the sharer's language (`l`), with the place named in it: the Cyrillic faces, and Han in Japanese forms.
+  'uk-imaged': { ...S2C_IMAGED, place: 'Ватерлоо', l: 'uk' },
+  'ja-imaged': { ...S2C_IMAGED, place: 'オンタリオ州ウォータールー', l: 'ja' },
   'landsat9-imaged': {
     ...WATERLOO,
     sat: 'Landsat 9', norad: '49260', verdict: 'imaged', t: '1793462633109', alt: '708.3', off: '3.39', cloud: '11.68',

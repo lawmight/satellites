@@ -46,8 +46,8 @@ import { clearFraction } from '../../api/_lib/tone'
 
 const COLLECTION = 'sentinel-2-l2a'
 const DAY = 86_400_000
-/** Sentinel-2A's first public scenes. */
-const ARCHIVE_START = Date.UTC(2015, 5, 23)
+/** Sentinel-2A's first public scenes (the player names the year: "since 2015"). */
+export const ARCHIVE_START = Date.UTC(2015, 5, 23)
 /** Half the side of every frame, km: the photos' own square. */
 export const FRAME_HALF_KM = 5
 /** Fewer frames than this is not a time-lapse. */

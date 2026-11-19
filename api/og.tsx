@@ -15,16 +15,26 @@
  *
  * Runs on Node (Vercel; fonts and the default plate are read from api/_fonts, api/_assets) and in the Cloudflare
  * Worker, which registers its bundled copies of them (api/_lib/bundled.ts).
+ *
+ * Every card is drawn in the language its URL names (`l=<locale>`, the sharer's: api/s.ts writes it into og:image
+ * for any language but English), English otherwise; an English card is byte for byte what it always was.
+ *
+ * Except a right-to-left language: satori shapes Arabic (HarfBuzz) but has no bidirectional layout, so an Arabic
+ * headline came out with its words in reverse order and its numbers misplaced. Those links unfurl with the English
+ * card (the share page itself, HTML, is in Arabic; the PNG the app saves is drawn by the browser, which lays Arabic
+ * out properly). `cardLocale` is the one place that decides it.
  */
 import { decode as decodePng } from 'fast-png'
 import { encode as encodeJpeg } from 'jpeg-js'
 import { CARD_H, CARD_W, PLATE, defaultCard, defaultPlateDataUri, shareCard } from './_lib/card.js'
-import { buildCardSpec, buildSummarySpec, type CardSpec } from './_lib/cardSpec.js'
+import { buildCardSpec, buildSummarySpec, type CardSpec, type Locale } from './_lib/cardSpec.js'
 import { displayHost, siteOrigin } from './_lib/env.js'
-import { loadFonts } from './_lib/fonts.js'
+import { cardFonts } from './_lib/fonts.js'
+import { textOf } from './_lib/h.js'
+import { DEFAULT_LOCALE, LOCALE_INFO } from './_lib/i18n/locales.js'
 import { renderCardPng } from './_lib/ogRender.js'
 import { cropPlan, fetchCropPicture } from './_lib/imagery.js'
-import { SHARE_ID_RE, cardInputFromShare, fetchShare, shareFromParams, shareTimeZone, summaryFromParams, type ShareRecord } from './_lib/share.js'
+import { SHARE_ID_RE, cardInputFromShare, fetchShare, linkLocale, shareFromParams, shareTimeZone, summaryFromParams, type ShareRecord } from './_lib/share.js'
 
 /** PC renders a 630² crop in 1–3 s, occasionally much longer; stay well inside maxDuration. */
 const IMAGE_TIMEOUT_MS = 9000
@@ -88,13 +98,16 @@ export function pngToJpeg(png: ArrayBuffer | Uint8Array): Uint8Array<ArrayBuffer
   return new Uint8Array(jpeg.buffer as ArrayBuffer, jpeg.byteOffset, jpeg.byteLength)
 }
 
-/** The lossless PNG of a card (the JPEG's source; also what scripts/backend-render-og.ts bakes og-default.png from). */
-async function renderPng(element: ReturnType<typeof defaultCard>): Promise<Uint8Array> {
-  return renderCardPng(element, { width: CARD_W, height: CARD_H, fonts: await loadFonts() })
+/**
+ * The lossless PNG of a card (the JPEG's source; also what scripts/backend-render-og.ts bakes og-default.png from), in
+ * the fonts its language and its words need (a card that prints no Cyrillic reads none of the Cyrillic files).
+ */
+async function renderPng(element: ReturnType<typeof defaultCard>, locale: Locale): Promise<Uint8Array> {
+  return renderCardPng(element, { width: CARD_W, height: CARD_H, fonts: await cardFonts(locale, textOf(element)) })
 }
 
-async function render(element: ReturnType<typeof defaultCard>, cacheControl: string, status = 200): Promise<Response> {
-  const jpeg = pngToJpeg(await renderPng(element))
+async function render(element: ReturnType<typeof defaultCard>, locale: Locale, cacheControl: string, status = 200): Promise<Response> {
+  const jpeg = pngToJpeg(await renderPng(element, locale))
   return new Response(jpeg, {
     status,
     headers: {
@@ -110,7 +123,7 @@ async function render(element: ReturnType<typeof defaultCard>, cacheControl: str
  * from satori's own pixels, not from the JPEG /api/og serves.
  */
 export async function defaultCardPng(host: string): Promise<Uint8Array> {
-  return renderPng(defaultCard({ host, plateDataUri: await defaultPlateDataUri() }))
+  return renderPng(defaultCard({ host, plateDataUri: await defaultPlateDataUri() }), DEFAULT_LOCALE)
 }
 
 type CardImage =
@@ -129,23 +142,27 @@ async function cardImage(share: ShareRecord): Promise<CardImage> {
 }
 
 /** A week's summary: the closest look's crop (when it has one) beside "N satellites watched … K images were made public." */
-async function renderSummary(q: URLSearchParams, host: string): Promise<Response | null> {
+async function renderSummary(q: URLSearchParams, host: string, locale: Locale): Promise<Response | null> {
   const sum = summaryFromParams(q)
   if (!sum) return null
-  const spec = buildSummarySpec({ ...sum, timeZone: shareTimeZone(sum), host })
+  const spec = buildSummarySpec({ ...sum, timeZone: shareTimeZone(sum), host }, locale)
   const cap = sum.best?.capture
   const plan = cap ? cropPlan(cap, sum.lat, sum.lon, PLATE) : null
   const pic = plan ? await fetchCropPicture(plan.url, IMAGE_TIMEOUT_MS) : null
-  return render(shareCard({ spec, image: pic ? { dataUri: pic.dataUri } : null }), plan && !pic?.complete ? CACHE.degraded : CACHE.final)
+  return render(shareCard({ spec, image: pic ? { dataUri: pic.dataUri } : null }), locale, plan && !pic?.complete ? CACHE.degraded : CACHE.final)
 }
 
-async function renderDefault(host: string, cache: string): Promise<Response> {
-  return render(defaultCard({ host, plateDataUri: await defaultPlateDataUri() }), cache)
+async function renderDefault(host: string, cache: string, locale: Locale): Promise<Response> {
+  return render(defaultCard({ host, plateDataUri: await defaultPlateDataUri(), locale }), locale, cache)
 }
+
+/** The language satori can draw a card in: the link's, or English for a right-to-left one (see the top of this file). */
+export const cardLocale = (locale: Locale): Locale => (LOCALE_INFO[locale].dir === 'rtl' ? DEFAULT_LOCALE : locale)
 
 export async function handleOg(request: Request): Promise<Response> {
   const url = new URL(request.url)
   const host = displayHost(siteOrigin(request))
+  const locale = cardLocale(linkLocale(url.searchParams))
   try {
     let share: ShareRecord | null = null
     let degraded = false
@@ -157,7 +174,7 @@ export async function handleOg(request: Request): Promise<Response> {
         else degraded = true
       } else degraded = true
     } else if (url.searchParams.get('kind') === 'summary') {
-      const res = await renderSummary(url.searchParams, host)
+      const res = await renderSummary(url.searchParams, host, locale)
       if (res) return res
     } else if (url.searchParams.get('kind') !== 'place') {
       share = shareFromParams(url.searchParams)
@@ -165,18 +182,18 @@ export async function handleOg(request: Request): Promise<Response> {
 
     // No pass to draw (the root link, an address-bar place link, a missing share): the default card,
     // whose real photograph and invitation suit any place.
-    if (!share) return await renderDefault(host, degraded ? CACHE.degraded : CACHE.default)
+    if (!share) return await renderDefault(host, degraded ? CACHE.degraded : CACHE.default, locale)
 
     const img = await cardImage(share)
-    const spec: CardSpec = buildCardSpec(cardInputFromShare(share, host, img.kind === 'permanent' ? 'permanent' : undefined))
+    const spec: CardSpec = buildCardSpec(cardInputFromShare(share, host, img.kind === 'permanent' ? 'permanent' : undefined), locale)
     // Only a transient archive miss (or a plate toned without its cloud mask) is worth re-rendering soon; everything
     // else is final.
     const cache = degraded || img.kind === 'transient' || (img.kind === 'image' && !img.complete) ? CACHE.degraded : CACHE.final
-    return await render(shareCard({ spec, image: img.kind === 'image' ? { dataUri: img.dataUri } : null }), cache)
+    return await render(shareCard({ spec, image: img.kind === 'image' ? { dataUri: img.dataUri } : null }), locale, cache)
   } catch (err) {
     console.error('[og] render failed', err)
     try {
-      return await renderDefault(host, CACHE.degraded)
+      return await renderDefault(host, CACHE.degraded, locale)
     } catch {
       return new Response('card unavailable', { status: 500, headers: { 'cache-control': 'no-store' } })
     }

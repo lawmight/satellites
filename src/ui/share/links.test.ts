@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { DEEP_LINK_PASS_KEYS, POST_CREDIT, POST_MAX, X_LINK, X_MAX, deepLink, postText, roundCoord, roundedPlace, shareLink, summaryLink, summaryPostText, xIntentUrl, xLength } from './links'
 
+/** Sun 1 Nov 2026, 11:21 at Waterloo (EST): the post says the day and time at the place. */
+const TORONTO = 'America/Toronto'
+const SUN_1_NOV_1121 = Date.UTC(2026, 10, 1, 16, 21)
+
 describe('share links', () => {
   it('rounds coordinates to ~1 km', () => {
     expect(roundCoord(43.4723)).toBe(43.47)
@@ -51,12 +55,12 @@ describe('share links', () => {
     expect(shareLink('https://overflight.app', 'abc123')).toBe('https://overflight.app/s/abc123')
   })
   it('writes precise post text with an invitation, and fits with a link', () => {
-    const base = { satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795.4, localDay: 'Sun 1 Nov', localTime: '11:21' }
-    const t = postText({ ...base, verdict: 'imaged', resolution: '10 m' })
+    const base = { satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795.4, tClosest: SUN_1_NOV_1121, timeZone: TORONTO }
+    const t = postText({ ...base, verdict: 'imaged', pixelM: 10 })
     expect(t).toBe(
       'Sentinel-2C watched Waterloo from 795 km up on Sun 1 Nov at 11:21 local. 10 m per pixel; this is the actual image.\n\nSomething watched you this week too.\nvia @armaangupt0',
     )
-    const c = postText({ ...base, verdict: 'could', satName: 'WorldView Legion 4', altitudeKm: 520, localDay: 'Sat 31 Oct', localTime: '10:52' })
+    const c = postText({ ...base, verdict: 'could', satName: 'WorldView Legion 4', altitudeKm: 520, tClosest: Date.UTC(2026, 9, 31, 14, 52), timeZone: TORONTO })
     expect(c).toBe(
       "WorldView Legion 4 passed within view of Waterloo on Sat 31 Oct at 10:52 local. It could have pointed here. Its operator doesn't say whether it did.\n\nWhat passed over you this week?\nvia @armaangupt0",
     )
@@ -65,14 +69,14 @@ describe('share links', () => {
     expect(postText({ ...base, verdict: 'imaged', cloud: { pct: 93 } })).toContain('from 795 km up on Sun 1 Nov at 11:21 local. It saw only cloud.')
     expect(postText({ ...base, verdict: 'imaged', cloud: { pct: 81 } })).toContain('at 11:21 local. It saw mostly cloud (81%).')
     expect(postText({ ...base, verdict: 'imaged', cloud: { pct: 64, spot: 'cloud' } })).toContain('at 11:21 local. Cloud covered the spot.')
-    expect(postText({ ...base, verdict: 'imaged', resolution: '10 m', cloud: { pct: 30, spot: 'clear' } })).toContain('10 m per pixel; this is the actual image.')
+    expect(postText({ ...base, verdict: 'imaged', pixelM: 10, cloud: { pct: 30, spot: 'clear' } })).toContain('10 m per pixel; this is the actual image.')
     for (const pct of [0, 64, 70, 81, 89.4]) expect(postText({ ...base, verdict: 'imaged', cloud: { pct, spot: 'cloud' } })).not.toContain('only cloud')
     // Never "photographed" in what people post (owner override: "watched").
     for (const verdict of ['imaged', 'likely', 'could', 'overhead'] as const) expect(postText({ ...base, verdict })).not.toMatch(/photographed/i)
   })
 
   it('ends every post with the credit on its own line, within 280 with the link (R3-14)', () => {
-    const base = { satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795.4, localDay: 'Sun 1 Nov', localTime: '11:21' }
+    const base = { satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795.4, tClosest: SUN_1_NOV_1121, timeZone: TORONTO }
     const places = [
       'Waterloo',
       'Saint-Jean-sur-Richelieu',
@@ -84,7 +88,7 @@ describe('share links', () => {
     const posts: string[] = []
     for (const verdict of ['imaged', 'likely', 'could', 'overhead'] as const) {
       for (const placeLabel of places) {
-        posts.push(postText({ ...base, verdict, placeLabel, satName: 'WorldView Legion 4', resolution: '10 m' }))
+        posts.push(postText({ ...base, verdict, placeLabel, satName: 'WorldView Legion 4', pixelM: 10 }))
         posts.push(postText({ ...base, verdict, placeLabel, cloud: { pct: 93 } }))
       }
       // A short post keeps its invitation paragraph, then the credit on the very next line.
@@ -137,7 +141,7 @@ describe('share links', () => {
 
   it('puts the link on its own line after the credit in the X intent (R3-14)', () => {
     expect(xIntentUrl('a b', 'https://x.y/s/1')).toBe('https://x.com/intent/tweet?text=a%20b%0Ahttps%3A%2F%2Fx.y%2Fs%2F1')
-    const text = postText({ verdict: 'imaged', satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795, localDay: 'Sun 1 Nov', localTime: '11:21', resolution: '10 m' })
+    const text = postText({ verdict: 'imaged', satName: 'Sentinel-2C', placeLabel: 'Waterloo', altitudeKm: 795, tClosest: SUN_1_NOV_1121, timeZone: TORONTO, pixelM: 10 })
     const intent = new URL(xIntentUrl(text, 'https://www.watched.earth/s/ab3d5f7h'))
     expect(intent.searchParams.get('url')).toBeNull()
     expect(intent.searchParams.get('text')!.endsWith('\nSomething watched you this week too.\nvia @armaangupt0\nhttps://www.watched.earth/s/ab3d5f7h')).toBe(true)

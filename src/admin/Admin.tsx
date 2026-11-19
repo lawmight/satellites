@@ -11,7 +11,8 @@ import { Wordmark } from '@/ui/system/Wordmark'
 import { RANGES, currentSession, fetchLive, fetchStats, liveFor, sendMagicLink, signOut, supabase, takeAuthError, verifyCode, type AdminStats, type LiveCounts, type Range } from './api'
 import { ActivityChart, Funnel, RankList, Split, WorldMap } from './charts'
 import { liveSeries } from './live'
-import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, maintBehind, type FunnelStage } from './format'
+import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, languageName, maintBehind, type FunnelStage } from './format'
+import { LOCALES } from '../../api/_lib/i18n/locales'
 
 type View =
   | { kind: 'loading' }
@@ -303,9 +304,10 @@ function Section({ n, title, children, className }: { n: number; title: string; 
   )
 }
 
-function Panel({ title, children, note }: { title: string; children: ReactNode; note?: string }) {
+/** `wide`: two columns of a three-column grid (the whole row in two- and one-column layouts). */
+function Panel({ title, children, note, wide }: { title: string; children: ReactNode; note?: string; wide?: boolean }) {
   return (
-    <div className="a-panel">
+    <div className={wide ? 'a-panel a-panel-wide' : 'a-panel'}>
       <h3 className="a-label">{title}</h3>
       {children}
       {note && <p className="a-note">{note}</p>}
@@ -368,6 +370,12 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
   const lapseShared = (action: string) => s.top['timelapse_share.action']?.find((x) => x[0] === action)?.[1] ?? 0
   const lapseVideos = lapseShared('video')
   const lapseLinks = lapseShared('link')
+  // Tabs by language (0027). Only tabs whose app named one are in the list (none from before it did), so its shares
+  // are of those tabs (dimTotals), not of every session.
+  const langs = s.top['session.lang']
+  const langTabs = s.dimTotals['session.lang'] ?? 0
+  const langEnglish = langs?.find(([v]) => v === 'en')?.[1] ?? 0
+  const langUsed = (langs ?? []).filter(([v, n]) => v && n > 0).length
   const now = useNow(30e3)
   // A database from 0016 on says where the range starts, and its days are US Eastern; before, they were UTC.
   const etDays = s.from != null
@@ -519,8 +527,30 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
         </div>
       </Section>
 
+      <Section n={9} title="LANGUAGES">
+        <div className="a-grid3">
+          <Panel title="TABS BY LANGUAGE" wide note="A tab counts once a day, in the language it showed an hour or two after it first came that day; a later switch counts from the next day.">
+            <RankList rows={langs} total={langTabs} max={LOCALES.length} label={languageName} empty="No languages recorded yet" cols />
+          </Panel>
+          <Panel title="IN USE" note="Of the tabs that recorded a language: tabs from before the app sent one are not counted here.">
+            <dl className="a-facts">
+              <dt>TABS WITH A LANGUAGE</dt>
+              <dd>
+                {fmtInt(langTabs)} <small>OF {fmtInt(rec.session)}</small>
+              </dd>
+              <dt>NOT IN ENGLISH</dt>
+              <dd>{langTabs ? fmtPct((langTabs - langEnglish) / langTabs) : '—'}</dd>
+              <dt>LANGUAGES IN USE</dt>
+              <dd>
+                {langUsed} <small>OF {LOCALES.length}</small>
+              </dd>
+            </dl>
+          </Panel>
+        </div>
+      </Section>
+
       <div className="a-cols">
-        <Section n={9} title="RECENT SEARCHES">
+        <Section n={10} title="RECENT SEARCHES">
           {s.recentSearches.length ? (
             <ul className="a-feed">
               {s.recentSearches.map((x, i) => (
@@ -537,7 +567,7 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
             <p className="a-empty">No searches in this range.</p>
           )}
         </Section>
-        <Section n={10} title="RECENT ERRORS">
+        <Section n={11} title="RECENT ERRORS">
           {s.recentErrors.length ? (
             <ul className="a-feed">
               {s.recentErrors.map((x, i) => (

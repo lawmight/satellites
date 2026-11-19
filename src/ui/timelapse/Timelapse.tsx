@@ -21,10 +21,15 @@
  *
  * It owns Esc (capture phase, preventDefault) and a back-stack layer, and follows the overlay contract
  * (<html data-overlay="timelapse">) so the globe rests under it.
+ *
+ * Its words are the `timelapse` namespace (src/i18n/en/timelapse.ts), dates passed to it as numbers so each language
+ * writes its own; only the Copernicus licence credit stays English here, as the data policy words it.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { FRAME_HALF_KM, type Frame, type Timelapse as TimelapseData } from '@/imagery/timelapse'
+import enTimelapse from '@/i18n/en/timelapse'
+import { msgs, useMsgs } from '@/i18n/runtime'
+import { ARCHIVE_START, FRAME_HALF_KM, MIN_FRAMES, type Frame, type Timelapse as TimelapseData } from '@/imagery/timelapse'
 import { useBackLayer } from '@/lib/backStack'
 import { track } from '@/lib/telemetry'
 import type { TimelapseFrom } from '@/state/timelapse'
@@ -42,13 +47,17 @@ const LAST_HOLD_MS = 2800
 const TAP_SLOP_PX = 8
 /** Two year labels on the time line closer than this share of its width would run into each other. */
 const MIN_LABEL_GAP = 0.1
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** The archive's first year, which the copy names ("since 2015"). */
+const SINCE = new Date(ARCHIVE_START).getUTCFullYear()
+
+type Msgs = typeof enTimelapse
 
 const yearOf = (date: string) => date.slice(0, 4)
-const monthOf = (date: string) => MONTHS[Number(date.slice(5, 7)) - 1]
-const fmtDate = (date: string) => `${Number(date.slice(8, 10))} ${monthOf(date)} ${yearOf(date)}`
+/** A frame's local calendar day ("YYYY-MM-DD") as the catalog takes dates: its UTC midnight, ms (a date-only ISO
+ * string parses as UTC). */
+const dayMs = (date: string) => Date.parse(date)
 const pad2 = (n: number) => String(n).padStart(2, '0')
-/** "2015–2026", or the one year when every frame is from it. */
+/** "2015–2026", or the one year when every frame is from it (the licence credit's years, which stays English). */
 const yearSpan = (frames: readonly Frame[]) => {
   const a = yearOf(frames[0].date)
   const b = yearOf(frames[frames.length - 1].date)
@@ -56,7 +65,8 @@ const yearSpan = (frames: readonly Frame[]) => {
 }
 
 export interface TimelapseProps {
-  place: { label: string; lat: number; lon: number }
+  /** `label` as shown; `canonicalLabel`: a curated place's English name, which the share link carries */
+  place: { label: string; canonicalLabel?: string; lat: number; lon: number }
   from: TimelapseFrom
   mobile: boolean
   onClose: () => void
@@ -67,6 +77,7 @@ export function Timelapse(props: TimelapseProps) {
 }
 
 function Player({ place, from, mobile, onClose }: TimelapseProps) {
+  const m = useMsgs(enTimelapse)
   const rootRef = useRef<HTMLDivElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -202,25 +213,25 @@ function Player({ place, from, mobile, onClose }: TimelapseProps) {
   )
   const note = (
     <p className={s.note}>
-      {frame ? (
-        <span className={s.noteText}>
-          Each frame is the same {FRAME_HALF_KM * 2} km square, taken by Sentinel-2 and toned like every photo here. Each year aims for a different season; a
-          year with no clear look is left out.
-        </span>
-      ) : null}
-      <span className={s.credit}>{frames?.length ? `Contains modified Copernicus Sentinel data ${yearSpan(frames)}` : 'Copernicus Sentinel-2, via Planetary Computer'}</span>
+      {/* A single-season loop (war zones, glaciers) must not say the years turn through the seasons. */}
+      {frame ? <span className={s.noteText}>{data?.season ? m.noteOneSeason(FRAME_HALF_KM * 2) : m.note(FRAME_HALF_KM * 2)}</span> : null}
+      {/* The licence credit stays as the Copernicus data policy words it, in English, in every language. */}
+      <span className={s.credit} lang={frames?.length ? 'en' : undefined}>
+        {frames?.length ? `Contains modified Copernicus Sentinel data ${yearSpan(frames)}` : m.source}
+      </span>
     </p>
   )
   return (
-    <div ref={rootRef} className={cx(s.overlay, mobile && s.mobile, reduced && s.reduced)} role="dialog" aria-modal="true" aria-label={`Time-lapse of ${place.label}`} tabIndex={-1}>
+    <div ref={rootRef} className={cx(s.overlay, mobile && s.mobile, reduced && s.reduced)} role="dialog" aria-modal="true" aria-label={m.dialog(place.label)} tabIndex={-1}>
       <header className={s.bar}>
         <span className={s.barLabel}>
-          Time-lapse <span className={s.dim}>/ </span>
+          {`${m.title} `}
+          <span className={s.dim}>/ </span>
           <span className={s.place}>{place.label}</span>
         </span>
-        <button type="button" className={s.close} onClick={onClose} aria-label="Close" aria-keyshortcuts="Escape">
-          <span className={s.closeText}>Close</span>
-          <Kbd className={s.closeKbd}>Esc</Kbd>
+        <button type="button" className={s.close} onClick={onClose} aria-label={m.close} aria-keyshortcuts="Escape">
+          <span className={s.closeText}>{m.close}</span>
+          <Kbd className={s.closeKbd}>{m.escKey}</Kbd>
           <Glyph name="close" size={14} />
         </button>
       </header>
@@ -230,14 +241,14 @@ function Player({ place, from, mobile, onClose }: TimelapseProps) {
           <Stage frames={frames} i={i} under={at.under} run={run} scrubbing={scrubbing} onScrub={setScrubbing} onTap={() => n > 1 && setPlaying((p) => !p)} onJump={jump} onRetry={() => setAttempt((a) => a + 1)} />
 
           <div className={s.controls}>
-            <button type="button" className={s.play} onClick={() => setPlaying((p) => !p)} disabled={n < 2} aria-label={playing ? 'Pause' : 'Play'} aria-keyshortcuts="Space">
+            <button type="button" className={s.play} onClick={() => setPlaying((p) => !p)} disabled={n < 2} aria-label={playing ? m.pause : m.play} aria-keyshortcuts="Space">
               <Glyph name={playing && n > 1 ? 'pause' : 'play'} size={14} />
             </button>
             <Scrubber run={run} i={i} onJump={jump} onScrub={setScrubbing} />
           </div>
 
           <p className={s.caption} aria-live="polite">
-            {caption(run, data)}
+            {caption(run, data, m)}
           </p>
           {mobile ? tools : null}
           {mobile ? note : null}
@@ -247,12 +258,12 @@ function Player({ place, from, mobile, onClose }: TimelapseProps) {
           <aside className={s.side}>
             {tools}
             {frames ? (
-              <ol className={s.log} aria-label="Frames">
+              <ol className={s.log} aria-label={m.frameList}>
                 {frames.map((f, k) => (
                   <li key={f.scene.id}>
                     <button type="button" className={s.logRow} aria-current={k === i || undefined} onClick={() => jump(k)}>
                       <span className={s.logYear}>{yearOf(f.date)}</span>
-                      <span className={s.logDate}>{`${Number(f.date.slice(8, 10))} ${monthOf(f.date)}`}</span>
+                      <span className={s.logDate}>{m.dayMonth(dayMs(f.date))}</span>
                       <span className={s.logSat}>{f.scene.platform.replace('Sentinel-', 'S')}</span>
                     </button>
                   </li>
@@ -270,12 +281,12 @@ function Player({ place, from, mobile, onClose }: TimelapseProps) {
 }
 
 /** One line under the time line: what is on screen, or what the instrument is doing. */
-function caption(run: RunState, data: TimelapseData | undefined): string {
+function caption(run: RunState, data: TimelapseData | undefined, m: Msgs): string {
   // A war zone's frames are all of one season (seasonRegions.ts): say which, so the change reads as the war's.
-  if (data) return `${data.frames.length} clear looks · ${data.season ? `one each ${data.season}` : 'one a year'}`
-  if (run.phase === 'short') return 'No time-lapse for this place'
-  if (run.phase === 'error') return 'The archive did not answer'
-  return 'One clear look a year · since 2015'
+  if (data) return data.season ? m.captionSeason(data.frames.length, data.season) : m.captionYearly(data.frames.length)
+  if (run.phase === 'short') return m.captionShort
+  if (run.phase === 'error') return m.captionError
+  return m.captionGathering(SINCE)
 }
 
 // ── The picture ────────────────────────────────────────────────────────────────────────────
@@ -293,6 +304,7 @@ interface StageProps {
 }
 
 function Stage({ frames, i, under, run, scrubbing, onScrub, onTap, onJump, onRetry }: StageProps) {
+  const m = useMsgs(enTimelapse)
   const drag = useRef<{ x: number; from: number; moved: boolean; id: number } | null>(null)
   const n = frames?.length ?? 0
   const frame = frames?.[i]
@@ -339,16 +351,14 @@ function Stage({ frames, i, under, run, scrubbing, onScrub, onTap, onJump, onRet
           <Reticle size={34} className={s.reticle} />
           <div className={s.readout} aria-live="off">
             <span className={s.big}>{yearOf(frame.date)}</span>
-            <span className={s.small}>
-              {fmtDate(frame.date)} · {frame.scene.platform}
-            </span>
+            <span className={s.small}>{m.readout(dayMs(frame.date), frame.scene.platform)}</span>
           </div>
           <span className={s.count}>
             <span className={s.countLead}>{pad2(i + 1)}</span> / {pad2(n)}
           </span>
           {/* What a screen reader hears: the frame on view, when it changes by hand (not on every played step). */}
           <span className={s.srOnly} aria-live="polite">
-            {scrubbing ? '' : `Frame ${i + 1} of ${n}: ${fmtDate(frame.date)}`}
+            {scrubbing ? '' : m.frameSpoken(i + 1, n, dayMs(frame.date))}
           </span>
         </>
       ) : (
@@ -360,14 +370,13 @@ function Stage({ frames, i, under, run, scrubbing, onScrub, onTap, onJump, onRet
 
 /** The stage before there is a picture: what is being done, in counts, with a hairline bar; or why there is none. */
 function Waiting({ run, onRetry }: { run: RunState; onRetry: () => void }) {
+  const m = useMsgs(enTimelapse)
   if (run.phase === 'short') {
     return (
       <div className={s.wait}>
         <div className={s.waitPanel}>
-          <p className={s.waitHead}>Too cloudy here for a time-lapse.</p>
-          <p className={s.waitLine}>
-          {run.frames === 0 ? 'No clear look' : run.frames === 1 ? '1 clear look' : `${run.frames} clear looks`} since 2015 · 3 needed
-          </p>
+          <p className={s.waitHead}>{m.tooCloudy}</p>
+          <p className={s.waitLine}>{m.tooFew(run.frames, SINCE, MIN_FRAMES)}</p>
         </div>
       </div>
     )
@@ -376,10 +385,10 @@ function Waiting({ run, onRetry }: { run: RunState; onRetry: () => void }) {
     return (
       <div className={s.wait}>
         <div className={s.waitPanel}>
-          <p className={s.waitHead}>The archive did not answer.</p>
-          <p className={s.waitLine}>Planetary Computer could not be reached</p>
+          <p className={s.waitHead}>{m.noAnswer}</p>
+          <p className={s.waitLine}>{m.unreachable}</p>
           <Button size="sm" onClick={onRetry} onPointerDown={(e) => e.stopPropagation()} className={s.retry}>
-            Try again
+            {m.retry}
           </Button>
         </div>
       </div>
@@ -388,13 +397,16 @@ function Waiting({ run, onRetry }: { run: RunState; onRetry: () => void }) {
   // Three steps; the bar fills across all of them.
   const step = run.phase === 'listing' ? 0 : run.phase === 'choosing' ? 1 : 2
   const part = run.phase === 'choosing' ? run.done / Math.max(1, run.total) : run.phase === 'loading' ? run.loaded / Math.max(1, run.dates.length) : 0
-  const status = run.phase === 'listing' ? 'Listing the archive' : run.phase === 'choosing' ? 'Choosing clear looks' : 'Developing frames'
-  const count = run.phase === 'choosing' ? `${pad2(run.done)} / ${pad2(run.total)}` : run.phase === 'loading' ? `${pad2(run.loaded)} / ${pad2(run.dates.length)}` : ''
+  const status = run.phase === 'listing' ? m.listing : run.phase === 'choosing' ? m.choosing : m.developing
+  const progress = run.phase === 'choosing' ? { done: run.done, total: run.total } : run.phase === 'loading' ? { done: run.loaded, total: run.dates.length } : undefined
+  const count = progress ? `${pad2(progress.done)} / ${pad2(progress.total)}` : ''
+  // What a screen reader hears: the step and its count as one sentence per step (each language says it whole).
+  const name = !progress ? status : run.phase === 'choosing' ? m.choosingProgress(progress.done, progress.total) : m.developingProgress(progress.done, progress.total)
   // The strip: a cell for every year asked about, then for every frame chosen, each taking its picture as it lands.
   const cells: { key: string; year?: string; src?: string }[] =
     run.phase === 'loading' ? run.dates.map((d) => ({ key: `f${d.t}`, year: d.date.slice(2, 4), src: d.src })) : run.phase === 'choosing' ? Array.from({ length: run.total }, (_, k) => ({ key: `s${k}` })) : []
   return (
-    <div className={s.wait} role="status" aria-label={`${status}${count ? `, ${count.replace(' / ', ' of ')}` : ''}`}>
+    <div className={s.wait} role="status" aria-label={name}>
       <span className={s.scan} aria-hidden />
       <div className={s.mark}>
         <svg className={s.word} viewBox={WORDMARK_BOX.join(' ')} aria-hidden focusable="false">
@@ -431,6 +443,7 @@ interface Tick {
 }
 
 function Scrubber({ run, i, onJump, onScrub }: { run: RunState; i: number; onJump: (to: number) => void; onScrub: (on: boolean) => void }) {
+  const m = useMsgs(enTimelapse)
   const ref = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   const ticks = useMemo<Tick[]>(() => {
@@ -479,11 +492,11 @@ function Scrubber({ run, i, onJump, onScrub }: { run: RunState; i: number; onJum
         className={cx(s.scrub, live && s.scrubLive)}
         role="slider"
         tabIndex={live ? 0 : -1}
-        aria-label="Frame"
+        aria-label={m.slider}
         aria-valuemin={1}
         aria-valuemax={Math.max(1, ticks.length)}
         aria-valuenow={live ? i + 1 : undefined}
-        aria-valuetext={live && ticks[i] ? fmtDate(ticks[i].date) : undefined}
+        aria-valuetext={live && ticks[i] ? m.date(dayMs(ticks[i].date)) : undefined}
         aria-disabled={!live || undefined}
         onPointerDown={(e) => {
           if (!live) return
@@ -511,8 +524,8 @@ function Scrubber({ run, i, onJump, onScrub }: { run: RunState; i: number; onJum
       </div>
       {!labelled && ticks.length > 1 ? (
         <div className={s.ends}>
-          <span>{fmtDate(ticks[0].date)}</span>
-          <span>{fmtDate(ticks[ticks.length - 1].date)}</span>
+          <span>{m.date(dayMs(ticks[0].date))}</span>
+          <span>{m.date(dayMs(ticks[ticks.length - 1].date))}</span>
         </div>
       ) : null}
     </div>
@@ -522,6 +535,7 @@ function Scrubber({ run, i, onJump, onScrub }: { run: RunState; i: number; onJum
 // ── The link ───────────────────────────────────────────────────────────────────────────────
 
 function CopyLink({ place, ready }: { place: TimelapseProps['place']; ready: boolean }) {
+  const m = useMsgs(enTimelapse)
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
@@ -534,7 +548,7 @@ function CopyLink({ place, ready }: { place: TimelapseProps['place']; ready: boo
     // A phone's own share sheet when it has one (called inside the press, as Safari requires); else the clipboard.
     const coarse = window.matchMedia?.('(pointer: coarse)').matches
     if (coarse && typeof navigator.share === 'function') {
-      navigator.share({ title: `${place.label}, year by year`, url }).catch(() => undefined)
+      navigator.share({ title: m.shareTitle(place.label), url }).catch(() => undefined)
       return
     }
     const done = () => setCopied(true)
@@ -543,7 +557,7 @@ function CopyLink({ place, ready }: { place: TimelapseProps['place']; ready: boo
   return (
     <Button size="sm" onClick={press} disabled={!ready} aria-live="polite" className={s.copy}>
       <Glyph name="share" size={11} />
-      {copied ? 'Link copied' : 'Share'}
+      {copied ? m.linkCopied : m.share}
     </Button>
   )
 }
@@ -561,6 +575,7 @@ type VideoState = { phase: 'idle' } | { phase: 'busy'; done: number } | { phase:
  * and the press that started the rendering is long over by the time the file exists.
  */
 function VideoButton({ frames, place, mobile, onStart }: { frames: Frame[]; place: TimelapseProps['place']; mobile: boolean; onStart: () => void }) {
+  const m = useMsgs(enTimelapse)
   const [state, setState] = useState<VideoState>({ phase: 'idle' })
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
@@ -578,9 +593,10 @@ function VideoButton({ frames, place, mobile, onStart }: { frames: Frame[]; plac
     try {
       const { renderVideo, videoFileName } = await import('./video')
       // A phone's frames are 640 px: 720 keeps them honest. A laptop's are the scene's own 1000.
-      const v = await renderVideo(frames, { side: mobile ? 720 : 1080, place: place.label, signal: ctl.signal, onProgress: (done) => !ctl.signal.aborted && setState({ phase: 'busy', done }) })
+      const words = msgs(enTimelapse) // read now, in the language of the press
+      const v = await renderVideo(frames, { side: mobile ? 720 : 1080, place: place.label, words, signal: ctl.signal, onProgress: (done) => !ctl.signal.aborted && setState({ phase: 'busy', done }) })
       if (ctl.signal.aborted) return
-      setState({ phase: 'ready', file: new File([v.blob], videoFileName(place.label, frames), { type: 'video/mp4' }), everywhere: v.codec === 'avc' })
+      setState({ phase: 'ready', file: new File([v.blob], videoFileName(place.label, frames, msgs(enTimelapse).fileNamePlace), { type: 'video/mp4' }), everywhere: v.codec === 'avc' })
     } catch (err) {
       if (ctl.signal.aborted) return
       console.error(err)
@@ -592,7 +608,7 @@ function VideoButton({ frames, place, mobile, onStart }: { frames: Frame[]; plac
     track('timelapse_share', { action: 'video' })
     const coarse = window.matchMedia?.('(pointer: coarse)').matches
     if (coarse && navigator.canShare?.({ files: [file] })) {
-      navigator.share({ files: [file], title: `${place.label}, year by year` }).catch(() => undefined)
+      navigator.share({ files: [file], title: m.shareTitle(place.label) }).catch(() => undefined)
       return
     }
     const url = URL.createObjectURL(file)
@@ -607,9 +623,9 @@ function VideoButton({ frames, place, mobile, onStart }: { frames: Frame[]; plac
 
   if (state.phase === 'ready') {
     return (
-      <Button size="sm" variant="primary" onClick={() => save(state.file)} className={s.video} title={state.everywhere ? undefined : 'This browser has no H.264 encoder: the file plays in Chrome and Firefox'}>
+      <Button size="sm" variant="primary" onClick={() => save(state.file)} className={s.video} title={state.everywhere ? undefined : m.noH264}>
         <Glyph name="download" size={11} />
-        Save video
+        {m.saveVideo}
       </Button>
     )
   }
@@ -617,11 +633,11 @@ function VideoButton({ frames, place, mobile, onStart }: { frames: Frame[]; plac
   return (
     <Button size="sm" onClick={make} disabled={busy} aria-live="polite" className={cx(s.video, busy && s.videoBusy)} style={busy ? ({ '--done': state.done } as CSSProperties) : undefined}>
       {busy ? (
-        <span className={s.videoPct}>Rendering {pad2(Math.min(99, Math.round(state.done * 100)))}%</span>
+        <span className={s.videoPct}>{m.rendering(Math.min(99, Math.round(state.done * 100)))}</span>
       ) : (
         <>
           <Glyph name="play" size={10} />
-          {state.phase === 'failed' ? 'Video failed' : 'Video'}
+          {state.phase === 'failed' ? m.videoFailed : m.video}
         </>
       )}
     </Button>

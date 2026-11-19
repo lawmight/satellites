@@ -30,11 +30,14 @@
  * React renders at mount, at scan start, at the centre lock and at the end. The box size comes from a
  * ResizeObserver, never from layout reads in a commit.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { DUR } from '@/lib/ease'
 import { useApp } from '@/state/store'
 import { Button, LiveDot, cx, useReducedMotion } from '@/ui/system'
 import { sceneClock } from '@/state/sceneClock'
+import { useMsgs } from '@/i18n/runtime'
+import enGallery from '@/i18n/en/gallery'
+import { isStrong, plain } from '../../../api/_lib/i18n/parts'
 import { awaitCountdown, useCaptureMoment } from './capture'
 import { lineLabel, motionVector, REVEAL_MS, sweepRange } from './lib/pushbroom'
 import { Img } from './Img'
@@ -116,6 +119,7 @@ export function PushbroomReveal({
   frameClassName,
   onPhase,
 }: Props) {
+  const m = useMsgs(enGallery)
   const reduced = useReducedMotion()
   const boxRef = useRef<HTMLDivElement>(null)
   const sweepRef = useRef<HTMLDivElement | null>(null)
@@ -377,17 +381,18 @@ export function PushbroomReveal({
         {phase === 'loading' ? (
           <div className={s.state} role="status">
             <span className={s.stateMain}>
-              Acquiring<span className={s.caret} aria-hidden />
+              {m.acquiring}
+              <span className={s.caret} aria-hidden />
             </span>
-            <span className={s.stateNote}>{slow ? 'Still rendering. Large scenes can take 10 s or more.' : acquiringNote}</span>
+            <span className={s.stateNote}>{slow ? m.stillRendering : acquiringNote}</span>
           </div>
         ) : null}
         {phase === 'error' ? (
           <div className={s.state} role="alert">
-            <span className={s.stateMain}>No image returned</span>
-            <span className={s.stateNote}>The archive did not send this crop. It may be busy; the image itself still exists.</span>
+            <span className={s.stateMain}>{m.noImage}</span>
+            <span className={s.stateNote}>{m.cropMissing}</span>
             <Button size="sm" onClick={() => setAttempt((n) => n + 1)} className={s.retry}>
-              Retry
+              {m.retry}
             </Button>
           </div>
         ) : null}
@@ -396,11 +401,20 @@ export function PushbroomReveal({
         <span className={cx(s.scanChip, phase === 'revealing' && s.scanChipOn)} aria-hidden data-scan-chip>
           {/* A fixed slot: the dot leaving at the end must not move the counter (U-2). */}
           <span className={s.dotSlot}>{phase === 'revealing' ? <LiveDot className={s.dot} /> : null}</span>
-          Line <b ref={lineRef}>{lineLabel(0)}</b> → {lineLabel(lines)}
+          {/* The live line number is the message's strong part: one <b>, written per frame through lineRef. */}
+          {m.scanLine(lineLabel(0), lineLabel(lines)).map((p, i) =>
+            isStrong(p) ? (
+              <b key={i} ref={lineRef}>
+                {plain(p.strong)}
+              </b>
+            ) : (
+              <Fragment key={i}>{plain([p])}</Fragment>
+            ),
+          )}
         </span>
         {startAt === 'capture' && tc !== undefined ? (
           <span className={cx(s.awaitChip, phase === 'waiting' && s.scanChipOn)} aria-hidden>
-            Awaiting {awaiting}
+            {m.awaiting[awaiting]}
             <b ref={countRef}>{awaitText(tc)}</b>
           </span>
         ) : null}

@@ -15,6 +15,7 @@
  * app carries on without the feature.
  */
 import type { Capture, CaptureCollection, Pass, Place } from '@/types'
+import { curatedId, curatedPlace } from '@/ui/landing/places'
 
 // ── Types ───────────────────────────────────────────────────────────────────────────────────
 
@@ -211,11 +212,34 @@ export function cityLevelLabel(place: Pick<Place, 'label' | 'sublabel'>): string
   return city && !specific(city) ? city.slice(0, 80) : undefined
 }
 
+/** The place fields that name it, as the stats read them. `source` and `canonicalLabel` tell a curated place. */
+type Named = Pick<Place, 'label' | 'sublabel'> & Partial<Pick<Place, 'source' | 'canonicalLabel'>>
+
+/**
+ * A place as the usage stats name it (record_lookup, the search event), so one example chip is one row in every
+ * language. A curated place (an example chip or a Surprise me pick, shown in the visitor's language by
+ * ui/landing/curated.ts) takes its English label AND sublabel from the curated table itself (ui/landing/places.ts),
+ * not from what is on screen; a deep link's curated place (source 'url', no sublabel: app/links.ts linkPlaceIn) takes
+ * its English label, canonicalLabel. Any other place is returned as it is (geocoder names are data, kept as they
+ * came), and so is every place in English.
+ */
+export function canonicalPlace<P extends Named>(place: P): P {
+  const { label, source, canonicalLabel } = place
+  const id = source ? curatedId({ label, source, canonicalLabel }) : undefined
+  if (id) {
+    const en = curatedPlace(id)
+    return en.label === label && en.sublabel === place.sublabel ? place : { ...place, label: en.label, sublabel: en.sublabel }
+  }
+  return canonicalLabel === undefined || canonicalLabel === label ? place : { ...place, label: canonicalLabel }
+}
+
 /**
  * The label record_lookup stores ("by town", About page): a street, building or address the geocoder flagged
- * (`Place.streetLevel`, e.g. "Kalverstraat", "Rijksmuseum") is saved as its city, never by its own name.
+ * (`Place.streetLevel`, e.g. "Kalverstraat", "Rijksmuseum") is saved as its city, never by its own name. A curated
+ * place is named in English (canonicalPlace).
  */
-export function lookupLabel(place: Pick<Place, 'label' | 'sublabel' | 'streetLevel'>): string | undefined {
+export function lookupLabel(shown: Named & Pick<Place, 'streetLevel'>): string | undefined {
+  const place = canonicalPlace(shown)
   if (!place.streetLevel) return cityLevelLabel(place)
   const city = place.sublabel?.split(',').map((s) => s.trim()).find((s) => s && !/\d/.test(s))
   return city ? city.slice(0, 80) : undefined

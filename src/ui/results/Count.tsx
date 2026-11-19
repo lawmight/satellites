@@ -10,11 +10,14 @@
  * Every frame writes textContent through refs; React renders this once. While it counts up, a hidden copy of the
  * final value holds the box at its final width (U-2), so the unit or words beside it never move. Local adapter for the
  * shell's planned Num `countKey` / `tick` props (S7).
+ *
+ * Digits are grouped the visitor's way ("1,715" / "1.715" / "1 715"); a language switch rewrites them in place.
  */
 import { useLayoutEffect, useRef } from 'react'
+import { fmt } from '../../../api/_lib/i18n/format'
+import { useLocale } from '@/i18n/runtime'
 import { DUR, easeOut } from '@/lib/ease'
 import { prefersReducedMotion } from '@/ui/system'
-import { int } from './lib/copy'
 import { markSeen, wasSeen } from './once'
 import s from './Count.module.css'
 
@@ -26,19 +29,21 @@ interface Props {
   delay?: number
   /** Roll + flash when the value changes after first display (default true) */
   tick?: boolean
+  /** Default: a whole number, grouped in the visitor's language */
   format?: (n: number) => string
   className?: string
 }
 
-export function Count({ value, countKey, duration = DUR.count, delay = 0, tick = true, format = int, className }: Props) {
+export function Count({ value, countKey, duration = DUR.count, delay = 0, tick = true, format, className }: Props) {
+  const locale = useLocale()
   const rootRef = useRef<HTMLSpanElement>(null)
   const curRef = useRef<HTMLSpanElement>(null)
   const oldRef = useRef<HTMLSpanElement>(null)
   const ghostRef = useRef<HTMLSpanElement>(null)
   const shown = useRef<number | null>(null)
   const raf = useRef(0)
-  const fmt = useRef(format)
-  fmt.current = format
+  const formatRef = useRef(format ?? fmt(locale).int)
+  formatRef.current = format ?? fmt(locale).int
 
   useLayoutEffect(() => {
     const cur = curRef.current
@@ -46,7 +51,7 @@ export function Count({ value, countKey, duration = DUR.count, delay = 0, tick =
     const root = rootRef.current
     if (!cur || !old || !root) return
     const reduced = prefersReducedMotion()
-    const f = fmt.current
+    const f = formatRef.current
     const prev = shown.current
     cancelAnimationFrame(raf.current)
 
@@ -91,7 +96,8 @@ export function Count({ value, countKey, duration = DUR.count, delay = 0, tick =
       a.cancel()
     }
     void reduced
-  }, [value, countKey, duration, delay, tick])
+    // `locale`: a language switch rewrites the digits (as an unchanged value: no count, no crossfade).
+  }, [value, countKey, duration, delay, tick, locale])
 
   useLayoutEffect(() => () => cancelAnimationFrame(raf.current), [])
 

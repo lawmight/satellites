@@ -9,8 +9,13 @@
  * the card their followers will see. Pure TypeScript with no DOM or Node APIs: the browser app
  * imports it by relative path, the serverless functions import it directly.
  *
+ * The words come from the card catalog in the card's language (cardMessages(locale), api/_lib/i18n/card/), which
+ * every builder takes explicitly: the browser builds the sharer's card in the app's language, the server the same
+ * card in the language a link names (`l=`), and a test holds the two specs equal. The headline is rich parts in that
+ * language's order (each top-level part a block: text in the condensed face, the accent, the place, in the serif).
+ *
  *   ┌──────────── 630 ────────────┬──────────────── 570 ───────────────┐
- *   │ SENTINEL-2C · MSI · 10 M  ├1 KM┤│ Watched.      SUN 1 NOV 2026 · 11:21 EST│
+ *   │ SENTINEL-2C · MSI · 10 m  ├1 km┤│ Watched.      SUN 1 NOV 2026 · 11:21 EST│
  *   │                             │ ─────────────────────────────────── │
  *   │                             │                                     │
  *   │            ⊕                │ 7 satellites                        │
@@ -18,12 +23,20 @@
  *   │                             │ Waterloo.                           │
  *   │                             │ ─────────────────────────────────── │
  *   │                             │ ALTITUDE    OFF-NADIR     PIXEL      │
- *   │ CONTAINS MODIFIED COPERNICUS│ 795 KM      5.3°          10 M       │
+ *   │ CONTAINS MODIFIED COPERNICUS│ 795 km      5.3°          10 m       │
  *   │                             │ SEE WHAT WATCHED YOU  www.watched.earth│
  *   └─────────────────────────────┴─────────────────────────────────────┘
  *
- * Text is stored in sentence case; mono rows are uppercased by the renderers (as CSS does).
+ * Text is stored in sentence case; mono rows are uppercased by the renderers, in the card's language (as CSS does),
+ * except the licence credit, which is English and uppercased as English (Chip.lang). Units keep their case in every
+ * renderer ("10 m", "1 km", a readout's "km": ./i18n/units.ts).
  */
+import { cardMessages, type CardMessages } from './i18n/card/index.js'
+import { fmt } from './i18n/format.js'
+import { DEFAULT_LOCALE, LOCALE_INFO, type Locale } from './i18n/locales.js'
+import { isAccent, plain, type Part, type Rich } from './i18n/parts.js'
+
+export type { Locale, Rich }
 
 export type Verdict = 'imaged' | 'likely' | 'could' | 'overhead'
 
@@ -97,12 +110,30 @@ export const PANEL = {
 
 /** Lead line height, place line height and gap (in em of their own font sizes): .place { line-height: .9; margin-top: .1em } */
 export const HEAD = { leadLH: 0.94, placeScale: 1.06, placeLH: 0.9, placeGap: 0.1, subGap: 16, subLH: 1.3 } as const
+/**
+ * Chinese, Japanese and Korean headlines (CardSpec.cjk): full-height glyphs need real leading (at 0.94 two lines'
+ * characters touched), and each text part of the headline is one phrase on one line, never broken inside: the
+ * translations split their headline into line-sized phrases ("この1週間、" "256基の衛星が" "見ていた"), so a particle
+ * is never left alone on a line and a word is never cut ("注 / 视过"). headlineSize picks the size they all fit at.
+ */
+export const HEAD_CJK = { leadLH: 1.12, placeLH: 1.1 } as const
+
+/**
+ * The headline's tracking in em, by script, as the page's --track-display (src/styles/scripts.css): Latin −0.02,
+ * Cyrillic's denser lowercase −0.015, CJK −0.01, Arabic none (tracking breaks its joins). The place's serif −0.01,
+ * none in Arabic. Every renderer of the card reads these, so the preview, the PNG and the unfurl agree.
+ */
+export function headTracking(locale: Locale): { lead: number; place: number } {
+  const script = LOCALE_INFO[locale].script
+  return script === 'arabic' ? { lead: 0, place: 0 } : { lead: script === 'cyrillic' ? -0.015 : script === 'cjk' ? -0.01 : -0.02, place: -0.01 }
+}
 
 // ── Spec ────────────────────────────────────────────────────────────────────────────────────
 
 export interface Readout {
   label: string
   value: string
+  /** A unit symbol ("km", "m", "km/s", "км"): every renderer draws it as it is, never in capitals */
   unit?: string
 }
 
@@ -114,12 +145,17 @@ export interface Chip {
   segs: ChipSeg[]
   size: number
   pos: { left?: number; right?: number; top?: number; bottom?: number }
+  /**
+   * 'en' on the licence credit only: its words are English in every language (creditFor), so each renderer
+   * uppercases it with English rules, not the card's (Turkish would print "CONTAİNS MODİFİED").
+   */
+  lang?: 'en'
 }
 
 export interface ScaleBar {
   /** bar length, px */
   px: number
-  /** "1 KM", "500 M" */
+  /** "1 km", "500 m" (its unit keeps its case in the caps) */
   label: string
 }
 
@@ -184,17 +220,31 @@ export type Plate = ImagePlate | PlanPlate
 
 export interface CardSpec {
   verdict: Verdict
+  /** The card's language: every word below is in it, and the renderers uppercase and break lines in it */
+  locale: Locale
   /** Top right: "Sun 1 Nov 2026 · 11:21 EST" ("" when unknown) */
   stamp: string
-  /** "7 satellites watched" (owner: every card leads with the week's N; the satellite's own name when N is unknown) */
+  /**
+   * The headline as rich parts, in the language's order; every renderer lays the top-level parts out as blocks, one
+   * after the other: a text part in the condensed display face (S, up to three lines), the accent (the place and the
+   * words on its line) in the serif (S × 1.06), with P × HEAD.placeGap between blocks. English:
+   * ["7 satellites watched", accent("Waterloo", ".")] (owner: every card leads with the week's N; the satellite's own
+   * sentence when N is unknown).
+   */
+  head: Rich
+  /**
+   * Plain-text views of `head`, for tests and logs (no renderer reads them): the text blocks ("7 satellites watched"),
+   * the accent's first part (the place as inserted: "Waterloo") and the rest of the accent ("." / " this week." / "").
+   */
   lead: string
   place: string
-  /** "." after the place (" this week." on the summary card), or "" when the place was cut short with an ellipsis */
   tail: string
   /** Clouded: cloudWords().sub, e.g. "Mostly cloud: 81% of the scene." */
   sub?: string
   /** Headline font size, px */
   size: number
+  /** A Chinese, Japanese or Korean headline: HEAD_CJK's leading, and each text part on one line (see HEAD_CJK) */
+  cjk?: true
   readouts: Readout[]
   /** Readout value size, px (default CARD_FS.readout; four columns use a smaller one) */
   readoutSize?: number
@@ -219,7 +269,11 @@ export interface CardCaptureInput {
 
 export interface CardInput {
   verdict: Verdict
-  satName: string
+  /**
+   * The satellite's name ("Sentinel-2C", "NORAD 60989"); undefined when the share kept neither (the sentences then say
+   * "a satellite" in their own words, the chips and the callout print the catalog's `aSatellite`).
+   */
+  satName?: string
   placeLabel: string
   /**
    * N: the satellites that watched the place that week (the results headline's number). The card then reads
@@ -250,8 +304,10 @@ export interface CardInput {
 }
 
 /**
- * The one verdict vocabulary (docs/DESIGN.md §7; mirrors src/ui/results/lib/meta.ts, kept equal by a test).
- * Owner override (latest): user-facing copy says "watched", never "photographed".
+ * The one verdict vocabulary in English (docs/DESIGN.md §7; mirrors src/ui/results/lib/meta.ts, kept equal by a test).
+ * Owner override (latest): user-facing copy says "watched", never "photographed". Nothing prints these words: the card
+ * and the share page say whole sentences from the card catalog (headlineBy, crossed, withinView), which spec.test.ts
+ * holds to this vocabulary.
  */
 export const VERDICT_WORDS: Record<Verdict, { title: string; verb: string }> = {
   imaged: { title: 'Watched', verb: 'watched' },
@@ -260,12 +316,8 @@ export const VERDICT_WORDS: Record<Verdict, { title: string; verb: string }> = {
   overhead: { title: 'Passed overhead', verb: 'passed over' },
 }
 
-export const FOOT_LEFT = 'See what watched you'
-/** og:image:alt for the default (root link) card: index.html uses the same words (core K9). */
-export const DEFAULT_CARD_ALT =
-  'A real Sentinel-2 satellite photograph of Palm Jumeirah, Dubai, beside the line: Something watched you this week. Enter any place on Earth.'
-/** The card's sub-line when the scene is ≥ OVERCAST_PCT cloud (cloudWords' strongest case). */
-export const CLOUDED_LINE = 'Clouded over. It saw only cloud.'
+/** og:image:alt for the default (root link) card, in English: index.html uses the same words (core K9). */
+export const DEFAULT_CARD_ALT = cardMessages(DEFAULT_LOCALE).defaultAlt
 /** Scene cloud cover at or above which the card calls the picture clouded (as results' isClouded). */
 export const CLOUDED_PCT = 70
 /** Scene cloud cover at or above which "it saw only cloud" is true (as PassDetail's overcast line). */
@@ -290,43 +342,74 @@ export interface CloudWords {
  * say what the picture shows: only cloud (≥ 90 %), mostly cloud (70–89 %), or cloud over the spot itself
  * (the place's pixel is cloud while the scene is clearer). Undefined when the picture isn't clouded.
  */
-export function cloudWords(pct?: number, spot?: SpotCloudLike | string): CloudWords | undefined {
+export function cloudWords(pct?: number, spot?: SpotCloudLike | string, locale: Locale = DEFAULT_LOCALE): CloudWords | undefined {
+  const c = cardMessages(locale).cloud
   const known = pct !== undefined && Number.isFinite(pct)
   const p = known ? Math.round(pct) : 0
-  if (known && pct >= OVERCAST_PCT) {
-    return { sub: CLOUDED_LINE, chip: `Clouded over · ${p}%`, post: 'It saw only cloud.', desc: `It saw only cloud (${p}%).` }
-  }
-  if (known && pct >= CLOUDED_PCT) {
-    return { sub: `Mostly cloud: ${p}% of the scene.`, chip: `Mostly cloud · ${p}%`, post: `It saw mostly cloud (${p}%).`, desc: `It saw mostly cloud (${p}%).` }
-  }
-  if (spot === 'cloud') {
-    return { sub: 'Cloud over the spot itself.', chip: 'Cloud over the spot', post: 'Cloud covered the spot.', desc: 'Cloud covered the spot.' }
-  }
+  if (known && pct >= OVERCAST_PCT) return { sub: c.only.sub(p), chip: c.only.chip(p), post: c.only.post(p), desc: c.only.desc(p) }
+  if (known && pct >= CLOUDED_PCT) return { sub: c.mostly.sub(p), chip: c.mostly.chip(p), post: c.mostly.post(p), desc: c.mostly.desc(p) }
+  if (spot === 'cloud') return { ...c.spot }
   return undefined
 }
 
 const PLACE_MAX = 48
 
-export function headlineParts(verdict: Verdict, satName: string, placeLabel: string): { lead: string; place: string; tail: string } {
+/** The place as the card sets it: at most 48 code points, cut short with an ellipsis. */
+export function cardPlace(placeLabel: string): string {
   const cps = Array.from(placeLabel)
-  const place = cps.length > PLACE_MAX ? `${cps.slice(0, PLACE_MAX - 1).join('').trimEnd()}…` : placeLabel
-  // "…." reads as a typo: a place already cut short ends on the ellipsis alone.
-  return { lead: `${satName} ${VERDICT_WORDS[verdict].verb}`, place, tail: place.endsWith('…') ? '' : '.' }
+  return cps.length > PLACE_MAX ? `${cps.slice(0, PLACE_MAX - 1).join('').trimEnd()}…` : placeLabel
+}
+
+/** A place that ends on an ellipsis was cut short: each language decides what its headline does then (English drops the full stop). */
+const isCut = (place: string) => place.endsWith('…')
+
+/**
+ * A pass's headline (owner): the week's N, "7 satellites watched | Waterloo.", the same words as the results headline;
+ * the satellite's own sentence ("Sentinel-2C watched | Waterloo.") only when N isn't known (older shares). `place` as
+ * it is printed: cardPlace(label) on the card, the whole label in the share page's title.
+ */
+export function passHeadline(m: CardMessages, verdict: Verdict, satName: string | undefined, place: string, satellites?: number): Rich {
+  const n = satellites
+  return n !== undefined && Number.isFinite(n) && n >= 1 ? m.headline(Math.round(n), place, isCut(place)) : m.headlineBy[verdict](satName, place, isCut(place))
+}
+
+/** One top-level headline part as plain text. */
+const blockText = (p: Part) => (isAccent(p) ? plain(p.accent) : plain([p]))
+
+/**
+ * The headline as one line of plain text (the share page's title, the post): its blocks joined with a space, or with
+ * nothing in Chinese and Japanese.
+ */
+export function headText(head: Rich, locale: Locale): string {
+  return head.map(blockText).join(LOCALE_INFO[locale].sentenceGap)
+}
+
+/** The spec's plain-text views of its headline (CardSpec.lead / place / tail). */
+export function headPieces(head: Rich, locale: Locale): { lead: string; place: string; tail: string } {
+  const a = head.find(isAccent)
+  return {
+    lead: head.filter((p) => !isAccent(p)).map(blockText).join(LOCALE_INFO[locale].sentenceGap),
+    place: a ? plain(a.accent.slice(0, 1)) : '',
+    tail: a ? plain(a.accent.slice(1)) : '',
+  }
 }
 
 /**
- * A pass card's headline (owner): the week's N, "7 satellites watched | Waterloo | .", the same words as the results
- * headline; the satellite's own sentence ("Sentinel-2C watched | Waterloo | .") only when N isn't known (older shares).
+ * What the headline's serif lines must hold: the accent's words (the place, and whatever words the language set on its
+ * line), without a last part that is only punctuation (a full stop is too small to count). English: "Waterloo" on a
+ * pass card, "Waterloo this week." on the week's.
  */
-export function passHeadlineParts(i: Pick<CardInput, 'verdict' | 'satName' | 'placeLabel' | 'satellites'>): { lead: string; place: string; tail: string } {
-  const h = headlineParts(i.verdict, i.satName, i.placeLabel)
-  const n = i.satellites
-  return n !== undefined && Number.isFinite(n) && n >= 1 ? { ...h, lead: watchedLead(n) } : h
+export function accentText(head: Rich, locale: Locale): string {
+  const counted = (parts: Part[]) => parts.filter((p, i) => !(i > 0 && i === parts.length - 1 && typeof p === 'string' && /^[\s\p{P}]+$/u.test(p)))
+  return head
+    .filter(isAccent)
+    .map((a) => plain(counted(a.accent)))
+    .join(LOCALE_INFO[locale].sentenceGap)
 }
 
 /**
  * Headline size so the lead wraps to at most three condensed lines and the serif place to at most
- * two in the 466px column: the smaller of what the lead and the place each allow.
+ * two in the 466px column: the smaller of what the lead and the place (accentText) each allow.
  */
 export function headlineSize(lead: string, place: string): number {
   const n = lead.length
@@ -336,11 +419,42 @@ export function headlineSize(lead: string, place: string): number {
   return Math.min(byLead, byPlace)
 }
 
-// ── Numbers and places ──────────────────────────────────────────────────────────────────────
+/** Width in em of text in the card's faces: a Han, kana or hangul character (or full-width punctuation) is a full em. */
+export function cjkEm(text: string): number {
+  let em = 0
+  for (const ch of text) em += /[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : /\s/.test(ch) ? 0.25 : 0.52
+  return em
+}
 
-const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-const int = (n: number) => nf0.format(Math.round(n))
-const fixed = (n: number, d: number) => n.toFixed(d)
+/**
+ * A Chinese, Japanese or Korean headline's size: the largest (84 px down, in 2 px steps) at which every text part
+ * fits one line of the column, the place fits two, and the whole block, sub-line included, fits its band.
+ */
+export function headlineSizeCjk(head: Rich, sub?: string): number {
+  const texts = head.filter((p): p is string => typeof p === 'string').map((t) => t.trim()).filter(Boolean)
+  const places = head.filter(isAccent).map((p) => plain(p.accent))
+  const widest = Math.max(0, ...texts.map(cjkEm))
+  const subH = sub ? HEAD.subGap + Math.ceil((cjkEm(sub) * CARD_FS.sub) / PANEL.w) * CARD_FS.sub * HEAD.subLH : 0
+  for (let S = 84; S > 36; S -= 2) {
+    const P = S * HEAD.placeScale
+    if (widest * S * 0.98 > PANEL.w) continue
+    // Whole characters per line (a line never holds a fraction of one), so 11 at 78 px take three lines, not 1.85.
+    const perLine = Math.max(1, Math.floor(PANEL.w / P))
+    const placeLines = places.map((t) => Math.ceil(cjkEm(t) / perLine))
+    if (placeLines.some((n) => n > 2)) continue
+    const blocks = texts.length + places.length
+    const h = texts.length * S * HEAD_CJK.leadLH + placeLines.reduce((a, n) => a + n * P * HEAD_CJK.placeLH, 0) + Math.max(0, blocks - 1) * P * HEAD.placeGap + subH
+    if (h <= PANEL.headBottom - PANEL.headTop - 8) return S
+  }
+  return 36
+}
+
+/** The headline's size and script flags for a card in `locale` (English and every other script: headlineSize). */
+function headSizing(locale: Locale, head: Rich, lead: string, sub?: string): { size: number; cjk?: true } {
+  return LOCALE_INFO[locale].script === 'cjk' ? { size: headlineSizeCjk(head, sub), cjk: true } : { size: headlineSize(lead, accentText(head, locale)) }
+}
+
+// ── Numbers and places ──────────────────────────────────────────────────────────────────────
 
 export function fmtCoords(lat: number, lon: number): string {
   return `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`
@@ -353,9 +467,9 @@ export function niceLength(max: number): number {
   return p
 }
 
-/** "1 KM" / "500 M" */
-export function fmtKm(km: number): string {
-  return km >= 1 ? `${km} km` : `${Math.round(km * 1000)} m`
+/** "1 km" / "500 m": a scale bar's round length, in the card's language */
+export function fmtKm(km: number, locale: Locale = DEFAULT_LOCALE): string {
+  return cardMessages(locale).scale(km)
 }
 
 // ── Time at the place ───────────────────────────────────────────────────────────────────────
@@ -386,8 +500,6 @@ const PARTS_OPTS: Intl.DateTimeFormatOptions = {
   second: '2-digit',
   hourCycle: 'h23',
 }
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
 interface Parts {
   year: number
   month: number
@@ -432,7 +544,11 @@ const FIXED_ABBR: Record<string, string> = {
   'Asia/Calcutta': 'IST',
   'Asia/Hong_Kong': 'HKT',
   'Asia/Singapore': 'SGT',
+  // Indonesia's three zones, as Indonesians write them (Bali and Makassar are WITA, Papua WIT; owner, 2026-11-19)
   'Asia/Jakarta': 'WIB',
+  'Asia/Pontianak': 'WIB',
+  'Asia/Makassar': 'WITA',
+  'Asia/Jayapura': 'WIT',
   'Europe/Moscow': 'MSK',
   'Australia/Perth': 'AWST',
 }
@@ -468,10 +584,15 @@ export function zoneAbbr(ms: number, timeZone: string): string {
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
-/** "Sun 1 Nov 2026 · 11:21 EST" at the place (the card is the one place a human date carries the year). */
-export function localStamp(ms: number, timeZone = 'UTC'): string {
+/** "11:21": the 24-hour time at the place (international: the same in every language). */
+export function localClock(ms: number, timeZone = 'UTC'): string {
   const p = parts(ms, timeZone)
-  return `${p.weekday} ${p.day} ${MONTHS[p.month - 1] ?? ''} ${p.year} · ${pad2(p.hour)}:${pad2(p.minute)} ${zoneAbbr(ms, timeZone)}`
+  return `${pad2(p.hour)}:${pad2(p.minute)}`
+}
+
+/** "Sun 1 Nov 2026 · 11:21 EST" at the place (the card is the one place a human date carries the year). */
+export function localStamp(ms: number, timeZone = 'UTC', locale: Locale = DEFAULT_LOCALE): string {
+  return cardMessages(locale).stamp(ms, timeZone, localClock(ms, timeZone), zoneAbbr(ms, timeZone))
 }
 
 // ── Imagery: crop, sensor, credit ───────────────────────────────────────────────────────────
@@ -494,11 +615,6 @@ export const isGeoCollection = (collection: string) => /^(gibs-(goes-east|goes-w
 /** The square the app shows of such a frame, and so the card: ±400 km around the place. */
 export const GEO_HALF_KM = 400
 
-/** "10 m" / "0.31 m" / "2 km": a pixel, as the chips and readouts say it. */
-function pixelText(gsd: number): string {
-  return gsd >= 1000 ? `${int(gsd / 1000)} km` : `${gsd < 1 ? fixed(gsd, 2) : int(gsd)} m`
-}
-
 export interface CardCrop {
   collection: string
   itemId?: string
@@ -510,7 +626,7 @@ export interface CardCrop {
 
 /**
  * The card's crop: one output pixel = one native pixel (10 m for Sentinel-2 → a 6.3 km square: 630 of the scene's
- * own pixels, the very ones the app's photo shows), so the "10 M" on the chip is literally what each pixel is.
+ * own pixels, the very ones the app's photo shows), so the "10 m" on the chip is literally what each pixel is.
  * Landsat's 30 m is soft at 1:1 on a phone, so it renders at 15 m per pixel: an exact 2× of 315 native pixels
  * (9.45 km), as the app's Landsat photo is (500 native pixels at 1000 px), so the card shows the photo's pixels.
  */
@@ -536,7 +652,10 @@ export function sensorName(c: Pick<CardCaptureInput, 'collection' | 'platform'>)
   return 'ABI'
 }
 
-/** Attribution the archive asks for when its imagery is redistributed (the card is redistribution). */
+/**
+ * Attribution the archive asks for when its imagery is redistributed (the card is redistribution). English in every
+ * language: the data policies word it so (the licence credits are not translated).
+ */
 export function creditFor(c: Pick<CardCaptureInput, 'collection' | 'datetime'>, fallbackMs?: number): string {
   if (c.collection === 'sentinel-2-l2a' || c.collection === 'sentinel-1-rtc') {
     const t = c.datetime ?? fallbackMs
@@ -553,9 +672,9 @@ export function creditFor(c: Pick<CardCaptureInput, 'collection' | 'datetime'>, 
   return 'NASA GIBS / EOSDIS'
 }
 
-function scaleFor(metresPerPx: number, maxPx = 150): ScaleBar {
+function scaleFor(m: CardMessages, metresPerPx: number, maxPx = 150): ScaleBar {
   const km = niceLength((maxPx * metresPerPx) / 1000)
-  return { px: Math.round((km * 1000) / metresPerPx), label: fmtKm(km) }
+  return { px: Math.round((km * 1000) / metresPerPx), label: m.scale(km) }
 }
 
 // ── Plate chips (positions shared by every renderer) ────────────────────────────────────────
@@ -564,6 +683,11 @@ const INSET = 24
 
 function plateChip(text: string, pos: Chip['pos'], tone: Tone = 'bone', size: number = CARD_FS.chip): Chip {
   return { segs: [{ text, tone }], size, pos }
+}
+
+/** The licence credit at the plate's bottom left: English in every language, and cased as English (Chip.lang). */
+function creditChip(c: Pick<CardCaptureInput, 'collection' | 'datetime'>, fallbackMs?: number): Chip {
+  return { ...plateChip(creditFor(c, fallbackMs), { left: INSET, bottom: INSET }, 'bone2', CARD_FS.micro), lang: 'en' }
 }
 
 /** The place reticle: thin ring, four ticks, centre dot, in signal (DESIGN §6). Strokes ≥ 2px so it survives a 600px unfurl. */
@@ -649,7 +773,8 @@ export function verdictGlyphPrims(v: Verdict, s = 14): Prim[] {
  * itself, to scale. The place is the reticle at the centre; the ground track passes at the real
  * closest-approach distance and azimuth, in the real direction of travel. North is up.
  */
-export function planPlate(input: Pick<CardInput, 'pass' | 'satName'>, note: string): PlanPlate {
+export function planPlate(input: Pick<CardInput, 'pass' | 'satName'>, note: string, locale: Locale = DEFAULT_LOCALE): PlanPlate {
+  const m = cardMessages(locale)
   const S = PLATE
   const c = S / 2
   const p = input.pass
@@ -703,12 +828,12 @@ export function planPlate(input: Pick<CardInput, 'pass' | 'satName'>, note: stri
       const side = dx * (px - c) + dy * (py - c) >= 0 ? 1 : -1 // keep the label off the track
       const lx = mx - dx * 16 * side
       const ly = my - dy * 16 * side
-      chips.push(plateChip(`${int(dist ?? 0)} km`, lx >= c ? { left: r1(lx), top: r1(ly - 14) } : { right: r1(S - lx), top: r1(ly - 14) }))
+      chips.push(plateChip(m.distance(dist ?? 0), lx >= c ? { left: r1(lx), top: r1(ly - 14) } : { right: r1(S - lx), top: r1(ly - 14) }))
     }
     // The satellite at closest approach and its callout (leader line + chip).
     prims.push({ t: 'circle', cx: r1(px), cy: r1(py), r: 6, fill: CARD_COLOR.ink1, stroke: CARD_COLOR.bone, width: 2 })
-    const alt = p.altitudeKm !== undefined ? `${int(p.altitudeKm)} km` : null
-    const name = input.satName
+    const alt = p.altitudeKm !== undefined ? m.distance(p.altitudeKm) : null
+    const name = input.satName ?? m.aSatellite
     // Mono 13px with +0.08em tracking ≈ 9.2 px per glyph, plus chip padding and gap.
     const calloutW = (name.length + (alt ? alt.length : 0)) * 9.2 + 34
     const away = px >= c ? 1 : -1
@@ -723,18 +848,18 @@ export function planPlate(input: Pick<CardInput, 'pass' | 'satName'>, note: stri
   }
 
   prims.push(...reticlePrims(c, c, 18))
-  chips.unshift(plateChip('Pass geometry · north up', { left: INSET, top: INSET }, 'bone2'))
+  chips.unshift(plateChip(m.geometry, { left: INSET, top: INSET }, 'bone2'))
   chips.push(plateChip(note, { left: INSET, bottom: INSET }, 'bone2'))
-  const scale: ScaleBar = { px: Math.round(c / 2), label: fmtKm(halfKm / 2) }
+  const scale: ScaleBar = { px: Math.round(c / 2), label: m.scale(halfKm / 2) }
   prims.push(...plateFrame(chips, scale, CARD_COLOR.bone3Mark))
   return { kind: 'plan', prims, chips, scale }
 }
 
-function planNote(verdict: Verdict, imageMiss?: 'transient' | 'permanent'): string {
-  if (verdict === 'imaged') return imageMiss === 'permanent' ? 'Image opens in the app' : 'Image unavailable right now'
-  if (verdict === 'could') return 'Commercial archive, not public'
-  if (verdict === 'likely') return 'In swath, no public image yet'
-  return 'Ground track at closest approach'
+function planNote(m: CardMessages, verdict: Verdict, imageMiss?: 'transient' | 'permanent'): string {
+  if (verdict === 'imaged') return imageMiss === 'permanent' ? m.note.imageInApp : m.note.imageUnavailable
+  if (verdict === 'could') return m.note.commercial
+  if (verdict === 'likely') return m.note.inSwath
+  return m.note.groundTrack
 }
 
 // ── The spec ────────────────────────────────────────────────────────────────────────────────
@@ -744,41 +869,63 @@ export function isCloudedCapture(c: Pick<CardCaptureInput, 'cloudCoverPct' | 'sp
   return c?.spot === 'cloud' || (c?.cloudCoverPct ?? 0) >= CLOUDED_PCT
 }
 
-function readoutsFor(input: CardInput): Readout[] {
+function readoutsFor(input: CardInput, m: CardMessages, locale: Locale): Readout[] {
   const p = input.pass
-  const dash = (v: number | undefined, fmt: (n: number) => string, unit?: string): Pick<Readout, 'value' | 'unit'> =>
-    v === undefined || !Number.isFinite(v) ? { value: '—' } : { value: fmt(v), unit }
-  const out: Readout[] = [{ label: 'Altitude', ...dash(p.altitudeKm, int, 'km') }]
+  const int = fmt(locale).int
+  const dec = m.decimal
+  const dash = (v: number | undefined, show: (n: number) => string, unit?: string): Pick<Readout, 'value' | 'unit'> =>
+    v === undefined || !Number.isFinite(v) ? { value: '—' } : { value: show(v), unit }
+  const out: Readout[] = [{ label: m.readout.altitude, ...dash(p.altitudeKm, int, m.unit.km) }]
   if (input.verdict === 'overhead') {
-    out.push({ label: 'Elevation', ...dash(p.elevationDeg, (n) => `${int(n)}°`) }, { label: 'Speed', ...dash(p.groundSpeedKmS, (n) => fixed(n, 2), 'km/s') })
+    out.push({ label: m.readout.elevation, ...dash(p.elevationDeg, (n) => `${int(n)}°`) }, { label: m.readout.speed, ...dash(p.groundSpeedKmS, (n) => dec(n, 2), m.unit.kmPerSecond) })
     return out
   }
-  out.push({ label: 'Off-nadir', ...dash(p.offNadirDeg, (n) => `${fixed(n, 1)}°`) })
+  out.push({ label: m.readout.offNadir, ...dash(p.offNadirDeg, (n) => `${dec(n, 1)}°`) })
   const c = input.verdict === 'imaged' ? input.capture : undefined
   if (c) {
     const gsd = c.gsdM ?? NATIVE_GSD_M[c.collection]
     const mosaic = c.collection.startsWith('gibs-') && !isGeoCollection(c.collection)
-    if (gsd !== undefined && gsd >= 1000) out.push({ label: 'Pixel', value: int(gsd / 1000), unit: 'km' })
-    else out.push({ label: mosaic ? 'Mosaic pixel' : 'Pixel', ...dash(gsd, (n) => (n < 1 ? fixed(n, 2) : int(n)), 'm') })
-  } else out.push({ label: 'Closest', ...dash(p.groundDistanceKm, int, 'km') })
+    if (gsd !== undefined && gsd >= 1000) out.push({ label: m.readout.pixel, value: int(gsd / 1000), unit: m.unit.km })
+    else out.push({ label: mosaic ? m.readout.mosaicPixel : m.readout.pixel, ...dash(gsd, (n) => (n < 1 ? dec(n, 2) : int(n)), m.unit.m) })
+  } else out.push({ label: m.readout.closest, ...dash(p.groundDistanceKm, int, m.unit.km) })
   return out
 }
 
-/** Build the card from a normalised input (client: the selected pass; server: the stored share). */
-export function buildCardSpec(input: CardInput): CardSpec {
-  const h = passHeadlineParts(input)
+/**
+ * Build the card from a normalised input (client: the selected pass; server: the stored share), in `locale`: the
+ * sharer's language (the app's when they share, the link's `l=` on the server). English by default, for callers
+ * that only ever print English (scripts, older tests).
+ */
+/**
+ * The card's fonts have no narrow no-break space (U+202F) or thin space (U+2009): satori sends a character its fonts lack
+ * to Google Fonts for a subset (two requests, up to 4 s each) before the card renders, and the canvas draws it in a
+ * system face. French puts U+202F before ; ! ? and inside « », so every card's text takes a no-break space for them
+ * instead (docs/i18n/fr.md). English has neither, so an English card is unchanged.
+ */
+function cardSpaces<T>(v: T): T {
+  if (typeof v === 'string') return v.replace(/[\u202f\u2009]/g, '\u00a0') as T
+  if (Array.isArray(v)) return v.map(cardSpaces) as T
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cardSpaces(x)])) as T
+  return v
+}
+
+export function buildCardSpec(input: CardInput, locale: Locale = DEFAULT_LOCALE): CardSpec {
+  const m = cardMessages(locale)
+  const place = cardPlace(input.placeLabel)
+  const head = passHeadline(m, input.verdict, input.satName, place, input.satellites)
+  const pieces = headPieces(head, locale)
   const c = input.capture
   const clouded = input.verdict === 'imaged' && !!c && (input.clouded ?? isCloudedCapture(c))
   // The words for a clouded picture (R2SH3). A caller that calls it clouded on evidence the capture
   // doesn't carry gets the most modest wording: cloud over the spot.
-  const words = clouded ? (cloudWords(c?.cloudCoverPct, c?.spot) ?? cloudWords(undefined, 'cloud')) : undefined
+  const words = clouded ? (cloudWords(c?.cloudCoverPct, c?.spot, locale) ?? cloudWords(undefined, 'cloud', locale)) : undefined
   let plate: Plate
   if (input.verdict === 'imaged' && c && input.imageMiss !== 'permanent') {
     const crop = cardCrop(c)
     const gsd = c.gsdM ?? NATIVE_GSD_M[c.collection] ?? crop.metresPerPx
-    const chip = plateChip(`${input.satName} · ${sensorName(c)} · ${pixelText(gsd)}`, { left: INSET, top: INSET }, 'bone', CARD_FS.chipLead)
-    const credit = plateChip(creditFor(c, input.tClosest), { left: INSET, bottom: INSET }, 'bone2', CARD_FS.micro)
-    const scale = scaleFor(crop.metresPerPx)
+    const chip = plateChip(`${input.satName ?? m.aSatellite} · ${sensorName(c)} · ${m.pixelSize(gsd)}`, { left: INSET, top: INSET }, 'bone', CARD_FS.chipLead)
+    const credit = creditChip(c, input.tClosest)
+    const scale = scaleFor(m, crop.metresPerPx)
     plate = {
       kind: 'image',
       crop,
@@ -787,23 +934,24 @@ export function buildCardSpec(input: CardInput): CardSpec {
       scale,
       clouded: words ? plateChip(words.chip, { left: INSET, bottom: INSET + 38 }, 'warn') : undefined,
       overlay: imageOverlay([chip, credit], scale),
-      fallback: planPlate(input, planNote('imaged', 'transient')),
+      fallback: planPlate(input, planNote(m, 'imaged', 'transient'), locale),
     }
-  } else plate = planPlate(input, planNote(input.verdict, input.imageMiss))
+  } else plate = planPlate(input, planNote(m, input.verdict, input.imageMiss), locale)
 
-  return {
+  return cardSpaces({
     verdict: input.verdict,
-    stamp: input.tClosest !== undefined ? localStamp(input.tClosest, input.timeZone) : '',
-    lead: h.lead,
-    place: h.place,
-    tail: h.tail,
+    locale,
+    stamp: input.tClosest !== undefined ? localStamp(input.tClosest, input.timeZone, locale) : '',
+    head,
+    ...pieces,
     sub: words?.sub,
-    size: headlineSize(h.lead, h.place),
-    readouts: readoutsFor(input),
-    footLeft: FOOT_LEFT,
+    // The place's lines hold the place and any words the language sets beside it (its full stop is too small to count).
+    ...headSizing(locale, head, pieces.lead, words?.sub),
+    readouts: readoutsFor(input, m, locale),
+    footLeft: m.invite,
     host: input.host,
     plate,
-  }
+  })
 }
 
 // ── Summary card (share SH6): the week at a place, with its closest look ────────────────────
@@ -832,7 +980,11 @@ export interface SummaryInput {
    * clear look from before the week, the least cloudy when every photo is clouded, a radar image in a week with no
    * photo; `plain` for a first image the gallery tags with nothing. Missing `look` reads as the closest look.
    */
-  best?: { satName: string; tClosest?: number; capture: CardCaptureInput; look?: SummaryLook }
+  /**
+   * `satName` is missing when the image's satellite has no name: the chip then prints the catalog's `aSatellite`, and
+   * the share page's sentences say "a satellite" in their own words.
+   */
+  best?: { satName?: string; tClosest?: number; capture: CardCaptureInput; look?: SummaryLook }
   host: string
 }
 
@@ -846,106 +998,112 @@ export const lookOfCode = (code: string | null): SummaryLook | undefined =>
 
 /**
  * The summary plate's chip, in the gallery's own words: "Closest look · Sentinel-2B · 10 m", "Last clear look · 3 Nov ·
- * Landsat 9 · 30 m" (from before the week, so its day is said), "Clouded over · …", "Radar · Sentinel-1D · 20 m".
+ * Landsat 9" (from before the week, so its day is said; its pixel size gave way to the scale chip, summaryLookFit),
+ * "Clouded over · …", "Radar · Sentinel-1D · 20 m".
  */
-export function summaryLookChip(best: NonNullable<SummaryInput['best']>, timeZone = 'UTC'): string {
+export function summaryLookChip(best: NonNullable<SummaryInput['best']>, timeZone = 'UTC', locale: Locale = DEFAULT_LOCALE): string {
+  return summaryLookFit(best, timeZone, locale).text
+}
+
+/**
+ * The summary plate's chip and its scale bar, fitted together: the chip must end before the scale chip at the plate's
+ * top right ("LAST CLEAR LOOK · 3 NOV · LANDSAT 9 · 30 m" ran 72 px under it, in English). First the bar takes a
+ * shorter round length (it may be anything up to 150 px), then the chip gives up the pixel size, the satellite's
+ * name, and last the day, which says the picture is from before the week.
+ */
+export function summaryLookFit(best: NonNullable<SummaryInput['best']>, timeZone = 'UTC', locale: Locale = DEFAULT_LOCALE): { text: string; scale: ScaleBar } {
+  const m = cardMessages(locale)
   const c = best.capture
-  const gsd = c.gsdM ?? NATIVE_GSD_M[c.collection] ?? cardCrop(c).metresPerPx
-  const tail = `${best.satName} · ${pixelText(gsd)}`
-  switch (best.look ?? 'closest') {
-    case 'closest':
-      return `Closest look · ${tail}`
-    case 'lastClear': {
-      if (best.tClosest === undefined) return `Last clear look · ${tail}`
-      const p = parts(best.tClosest, timeZone)
-      return `Last clear look · ${p.day} ${MONTHS[p.month - 1] ?? ''} · ${tail}`
-    }
-    case 'clouded':
-      return `Clouded over · ${tail}`
-    case 'radar':
-      return `Radar · ${tail}`
-    default:
-      return tail
-  }
+  const mpp = cardCrop(c).metresPerPx
+  const gsd = c.gsdM ?? NATIVE_GSD_M[c.collection] ?? mpp
+  const look = best.look ?? 'closest'
+  const lead = look === 'closest' || look === 'lastClear' || look === 'clouded' || look === 'radar' ? m.look[look] : undefined
+  const day = look === 'lastClear' && best.tClosest !== undefined ? m.lookDay(best.tClosest, timeZone) : undefined
+  const sat = best.satName ?? m.aSatellite
+  // Mono chip segments joined by the card's " · " (DESIGN: label · data · data, the same in every language).
+  const texts = [[lead, day, sat, m.pixelSize(gsd)], [lead, day, sat], [lead, day], [lead]].map((t) => t.filter((x): x is string => !!x).join(' · '))
+  const fits = (text: string, scale: ScaleBar) => INSET + monoWidth(text, CARD_FS.chipLead) + 2 * CHIP_BOX.padX + 2 + 8 <= PLATE - INSET - chipWidth(scale)
+  const scales = [scaleFor(m, mpp), scaleFor(m, mpp, 80)]
+  for (const text of texts) for (const scale of scales) if (fits(text, scale)) return { text, scale }
+  return { text: texts[texts.length - 1], scale: scales[1] }
 }
 
-const SHORT: Record<Verdict, string> = { imaged: 'Photo', likely: 'Likely', could: 'Could', overhead: 'Overhead' }
-
-/** The headline's lead (owner F, latest): "31 satellites watched" / "1 satellite watched" / "No satellite we track watched". */
-export function watchedLead(n: number): string {
-  const v = Math.max(0, Math.round(n))
-  return v > 0 ? `${int(v)} ${v === 1 ? 'satellite' : 'satellites'} watched` : 'No satellite we track watched'
-}
-
-/** The archive outage, as the results' second line says it (src/ui/results/lib/copy.ts ARCHIVE_DOWN_LINE). */
-export const ARCHIVE_DOWN_LINE = 'The image archives didn’t answer, so we can’t count the public images right now.'
-/** The same, where the card's sub-line has room for one line. */
-export const ARCHIVE_DOWN_SHORT = 'The image archives didn’t answer.'
+/**
+ * A mono caps chip's text width: the card's mono face advances 0.65 em a character, plus the label tracking (a CJK
+ * character, from a fallback face, about a full em).
+ */
+const monoWidth = (t: string, size: number) =>
+  [...t].reduce((w, ch) => w + (/[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch) ? 1 : 0.65) * size + TRACK.label * size, 0)
+/** The scale chip's width: its bar, the gap, its label, padding and border (api/_lib/card.ts scaleBar). */
+const chipWidth = (s: ScaleBar) => s.px + CHIP_BOX.gap + monoWidth(s.label, CARD_FS.chip) + 2 * CHIP_BOX.padX + 2
 
 /**
  * The second line (owner F): "31 images were made public." / "1 image was made public." / "At least 4 images were made
  * public." (one count: photos, weather mosaics and radar images alike). The results panel's photosLine words, except a
  * zero: the summary's first sentence already says "this week", so it reads "No images were made public." rather than
- * repeating it.
+ * repeating it. With the archives down, the results' outage line (src/ui/results/lib/copy.ts ARCHIVE_DOWN_LINE; `short`
+ * where the card's sub-line has room for one line).
  */
-export function photosSentence(k: number, opts: { archiveDown?: boolean; partial?: boolean; short?: boolean } = {}): string {
-  if (opts.archiveDown) return opts.short ? ARCHIVE_DOWN_SHORT : ARCHIVE_DOWN_LINE
-  const v = Math.max(0, Math.round(k))
-  if (v <= 0) return 'No images were made public.'
-  const lead = opts.partial ? 'At least ' : ''
-  return v === 1 ? `${lead}1 image was made public.` : `${lead}${int(v)} images were made public.`
+export function photosSentence(k: number, opts: { archiveDown?: boolean; partial?: boolean; short?: boolean } = {}, locale: Locale = DEFAULT_LOCALE): string {
+  const m = cardMessages(locale)
+  if (opts.archiveDown) return opts.short ? m.archiveDownShort : m.archiveDown
+  return m.photos(Math.max(0, Math.round(k)), !!opts.partial)
 }
 
 /** "31 satellites watched Waterloo this week." (R3-13: the summary share's first sentence, everywhere it is printed) */
-export function summaryHeadline(i: Pick<SummaryInput, 'satellites' | 'placeLabel'>): string {
-  return `${watchedLead(i.satellites)} ${i.placeLabel} this week.`
+export function summaryHeadline(i: Pick<SummaryInput, 'satellites' | 'placeLabel'>, locale: Locale = DEFAULT_LOCALE): string {
+  return headText(cardMessages(locale).headlineWeek(Math.max(0, Math.round(i.satellites)), i.placeLabel, false), locale)
 }
 
 /** "31 satellites watched Waterloo this week. 12 images were made public." (R3-13, owner F) */
-export function summarySentences(i: Pick<SummaryInput, 'satellites' | 'placeLabel' | 'counts' | 'archiveDown' | 'partial'>): string {
-  return `${summaryHeadline(i)} ${photosSentence(i.counts.imaged, i)}`
+export function summarySentences(i: Pick<SummaryInput, 'satellites' | 'placeLabel' | 'counts' | 'archiveDown' | 'partial'>, locale: Locale = DEFAULT_LOCALE): string {
+  return [summaryHeadline(i, locale), photosSentence(i.counts.imaged, i, locale)].join(LOCALE_INFO[locale].sentenceGap)
 }
 
-/** "31 satellites watched *Waterloo this week.*" + "12 images were made public." over the gallery's first image, with the four verdict counts. */
-export function buildSummarySpec(i: SummaryInput): CardSpec {
+/**
+ * "31 satellites watched *Waterloo this week.*" + "12 images were made public." over the gallery's first image, with
+ * the four verdict counts, in `locale` (as buildCardSpec).
+ */
+export function buildSummarySpec(i: SummaryInput, locale: Locale = DEFAULT_LOCALE): CardSpec {
+  const m = cardMessages(locale)
+  const int = fmt(locale).int
   const n = Math.max(0, Math.round(i.satellites))
-  const cps = Array.from(i.placeLabel)
-  const place = cps.length > PLACE_MAX ? `${cps.slice(0, PLACE_MAX - 1).join('').trimEnd()}…` : i.placeLabel
+  const place = cardPlace(i.placeLabel)
   // The results headline, in the card's two type faces (R3-13): the condensed lead, then the serif place.
-  const lead = watchedLead(n)
-  const tail = place.endsWith('…') ? '' : ' this week.'
+  const head = m.headlineWeek(n, place, isCut(place))
+  const pieces = headPieces(head, locale)
   let plate: Plate
   const c = i.best?.capture
   if (c && i.best) {
     const crop = cardCrop(c)
-    const chip = plateChip(summaryLookChip(i.best, i.timeZone), { left: INSET, top: INSET }, 'bone', CARD_FS.chipLead)
-    const credit = plateChip(creditFor(c, i.best.tClosest), { left: INSET, bottom: INSET }, 'bone2', CARD_FS.micro)
-    const scale = scaleFor(crop.metresPerPx)
-    plate = { kind: 'image', crop, chip, credit, scale, overlay: imageOverlay([chip, credit], scale), fallback: emptyPlate(planNote('imaged', 'transient')) }
+    const fit = summaryLookFit(i.best, i.timeZone, locale)
+    const chip = plateChip(fit.text, { left: INSET, top: INSET }, 'bone', CARD_FS.chipLead)
+    const credit = creditChip(c, i.best.tClosest)
+    const scale = fit.scale
+    plate = { kind: 'image', crop, chip, credit, scale, overlay: imageOverlay([chip, credit], scale), fallback: emptyPlate(planNote(m, 'imaged', 'transient')) }
   } else {
     // Say "no public photo" only when K says so: with the archives down (K unknown) or a count but no picture in the link,
     // the plate stays neutral beside the sub-line ("The image archives didn’t answer." / "1 image was made public.").
     const none = !i.archiveDown && Math.round(i.counts.imaged) <= 0
-    plate = emptyPlate(none ? 'No public photo this week' : 'No photo to show')
+    plate = emptyPlate(none ? m.noPublicPhoto : m.noPhoto)
   }
-  const day = i.windowEnd !== undefined ? localStamp(i.windowEnd, i.timeZone).split(' · ')[0] : ''
-  const readouts: Readout[] = (['imaged', 'likely', 'could', 'overhead'] as const).map((v) => ({ label: SHORT[v], value: int(i.counts[v]) }))
-  return {
+  const readouts: Readout[] = (['imaged', 'likely', 'could', 'overhead'] as const).map((v) => ({ label: m.lane[v], value: int(i.counts[v]) }))
+  return cardSpaces({
     verdict: n > 0 ? 'imaged' : 'overhead',
-    stamp: day ? `7 days to ${day}` : 'Last 7 days',
-    lead,
-    place,
-    tail,
-    sub: photosSentence(i.counts.imaged, { ...i, short: true }),
-    // The tail sets on the place line, so it counts toward what the place line must hold.
-    size: headlineSize(lead, `${place}${tail}`),
+    locale,
+    stamp: i.windowEnd !== undefined ? m.weekTo(i.windowEnd, i.timeZone ?? 'UTC') : m.lastWeek,
+    head,
+    ...pieces,
+    sub: photosSentence(i.counts.imaged, { ...i, short: true }, locale),
+    // The words on the place's line ("Waterloo this week.") count toward what it must hold.
+    ...headSizing(locale, head, pieces.lead, photosSentence(i.counts.imaged, { ...i, short: true }, locale)),
     readouts,
     // Four columns of 116px: a six-character count ("12,345") steps down so it clears the next rule.
     readoutSize: readouts.some((r) => r.value.length > 5) ? 21 : 26,
-    footLeft: FOOT_LEFT,
+    footLeft: m.invite,
     host: i.host,
     plate,
-  }
+  })
 }
 
 /** No picture to show (none this week, or the archive was slow): the instrument face alone (grid, reticle, a plain note). */

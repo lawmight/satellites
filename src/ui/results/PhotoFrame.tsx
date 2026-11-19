@@ -13,6 +13,9 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { cx, fmtLat, fmtLon, useReducedMotion } from '@/ui/system'
+import { withUnits } from '@/i18n/Rich'
+import { useMsgs } from '@/i18n/runtime'
+import enGallery from '@/i18n/en/gallery'
 import { useCaptureMoment } from './capture'
 import { decodedPhoto, hasPhotoElement, loadPhoto } from './images'
 import { Img } from './Img'
@@ -22,10 +25,10 @@ import { Reticle } from './Reticle'
 import { cropWidthKm, cardUrl, cardSpec, photoHeadingDeg, type Photo } from './lib/photos'
 import { northInCropDeg } from '../../../api/_lib/toneRender'
 import { scaleBarKm, sensorName } from './lib/captures'
-import { int } from './lib/copy'
 import { motionVector } from './lib/pushbroom'
 import { markSeen, wasSeen } from './once'
 import type { ResultsModel } from './model'
+import { placeName } from './placeName'
 import s from './Gallery.module.css'
 
 export interface PhotoFrameProps {
@@ -59,6 +62,7 @@ export interface PhotoFrameProps {
 export const seenKeyOf = (p: Photo) => `capture:${p.capture.itemId}`
 
 export function PhotoFrame({ photo, model, view, load, current, reveal, chips, echo, reticle, gateOnVisible, onExpand, className, tag, note }: PhotoFrameProps) {
+  const m = useMsgs(enGallery)
   const reduced = useReducedMotion()
   const { capture, pass } = photo
   const url = cardUrl(capture)
@@ -110,7 +114,7 @@ export function PhotoFrame({ photo, model, view, load, current, reveal, chips, e
   const bar = scaleBarKm(widthKm)
   const northDeg = chips ? northInCropDeg(url) : 0
   const dim = photo.clouded ? ((capture.cloudCoverPct ?? 0) >= 90 ? s.dimOvercast : s.dimCloud) : undefined
-  const alt = `${model.meta(pass?.norad ?? capture.norad ?? 0).name} image of ${model.report.place.label}. The place is at the centre.`
+  const alt = m.photoAlt(model.meta(pass?.norad ?? capture.norad ?? 0).name, placeName(model.report.place))
   const expand = () => frameRef.current && onExpand?.(frameRef.current)
 
   return (
@@ -148,12 +152,13 @@ export function PhotoFrame({ photo, model, view, load, current, reveal, chips, e
             <div className={s.waiting} role={img === 'loading' || img === 'error' ? 'status' : undefined}>
               {img === 'loading' ? (
                 <span className={s.waitMain}>
-                  Acquiring<span className={s.caret} aria-hidden />
+                  {m.acquiring}
+                  <span className={s.caret} aria-hidden />
                 </span>
               ) : null}
               {img === 'error' ? (
                 <>
-                  <span className={s.waitMain}>No image returned</span>
+                  <span className={s.waitMain}>{m.noImage}</span>
                   <button
                     type="button"
                     className={s.retry}
@@ -162,7 +167,7 @@ export function PhotoFrame({ photo, model, view, load, current, reveal, chips, e
                       setAttempt((n) => n + 1)
                     }}
                   >
-                    Retry
+                    {m.retry}
                   </button>
                 </>
               ) : null}
@@ -181,14 +186,14 @@ export function PhotoFrame({ photo, model, view, load, current, reveal, chips, e
           </span>
           <span className={s.scale} style={{ width: `${(bar / widthKm) * 100}%` }}>
             <span className={s.scaleBar} />
-            <span className={s.scaleText}>{bar >= 1 ? int(bar) : bar} km</span>
+            <span className={s.scaleText}>{withUnits(m.scaleKm(bar))}</span>
           </span>
           <span className={cx(s.chip, s.br)}>
             {/* True north, turned from the photo's up (grid north on a native crop) by the meridian convergence. */}
             <svg width="8" height="10" viewBox="0 0 8 10" style={northDeg ? { transform: `rotate(${northDeg.toFixed(1)}deg)` } : undefined}>
               <path d="M4 0.5 7.5 9.5 4 7.2 0.5 9.5Z" fill="currentColor" />
             </svg>
-            N
+            {m.north}
           </span>
         </span>
       ) : null}
@@ -198,8 +203,8 @@ export function PhotoFrame({ photo, model, view, load, current, reveal, chips, e
         <button
           type="button"
           className={s.expand}
-          aria-label="Expand the photo"
-          title="Expand (F)"
+          aria-label={m.expandLabel}
+          title={m.expandTitle}
           tabIndex={current ? 0 : -1}
           onClick={(e) => {
             e.stopPropagation()
@@ -248,5 +253,5 @@ function playEcho(frame: HTMLElement | null, echo: HTMLElement | null, headingDe
   }
 }
 
-/** "43.4723°N 80.5449°W": the coordinate format the globe's place label uses. */
+/** "43.4723°N 80.5449°W": the coordinate format the globe's place label uses (international notation, every language). */
 export const coordsOf = (lat: number, lon: number) => `${fmtLat(lat, 4)} ${fmtLon(lon, 4)}`

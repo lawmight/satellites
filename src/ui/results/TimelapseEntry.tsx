@@ -10,10 +10,13 @@
  * the download, so a press usually finds it there.
  */
 import { useEffect, useState, type ComponentType } from 'react'
+import enResults from '@/i18n/en/results'
+import { useLocale, useMsgs } from '@/i18n/runtime'
 import { useTimelapseUi } from '@/state/timelapse'
 import { Glyph } from '@/ui/system'
 import type { TimelapseProps } from '@/ui/timelapse'
 import type { ResultsModel } from './model'
+import { placeName } from './placeName'
 import s from './TimelapseEntry.module.css'
 
 let chunk: Promise<typeof import('@/ui/timelapse')> | undefined
@@ -31,6 +34,7 @@ export function hasTimelapse(model: Pick<ResultsModel, 'report'>): boolean {
 }
 
 export function TimelapseRow({ model }: { model: ResultsModel }) {
+  const m = useMsgs(enResults).timelapse
   if (!hasTimelapse(model)) return null
   const warm = () => void loadTimelapse().catch(() => undefined)
   return (
@@ -43,8 +47,8 @@ export function TimelapseRow({ model }: { model: ResultsModel }) {
         <i />
       </span>
       <span className={s.text}>
-        <span className={s.title}>Time-lapse</span>
-        <span className={s.sub}>This place, year by year</span>
+        <span className={s.title}>{m.title}</span>
+        <span className={s.sub}>{m.sub}</span>
       </span>
       <Glyph name="arrow-right" size={12} className={s.arrow} />
     </button>
@@ -56,6 +60,8 @@ export function TimelapseLayer({ model, mobile }: { model: ResultsModel | undefi
   const open = useTimelapseUi((t) => t.open)
   const pending = useTimelapseUi((t) => t.pending)
   const [Player, setPlayer] = useState<ComponentType<TimelapseProps> | null>(null)
+  // The place's name is worded in the active language (placeName), so a switch renames it in the player too.
+  useLocale()
 
   useEffect(() => {
     if (!pending || !model) return
@@ -82,5 +88,14 @@ export function TimelapseLayer({ model, mobile }: { model: ResultsModel | undefi
 
   if (!open || !model || !Player) return null
   const { place } = model.report
-  return <Player place={{ label: place.label, lat: place.lat, lon: place.lon }} from={open.from} mobile={mobile} onClose={useTimelapseUi.getState().close} />
+  // `label` as shown, in the active language; canonicalLabel: the place's English name (a curated place's, else its
+  // label as it came), which the time-lapse's share link carries (never the sender's language).
+  return (
+    <Player
+      place={{ label: placeName(place), canonicalLabel: place.canonicalLabel ?? place.label, lat: place.lat, lon: place.lon }}
+      from={open.from}
+      mobile={mobile}
+      onClose={useTimelapseUi.getState().close}
+    />
+  )
 }

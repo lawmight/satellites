@@ -17,9 +17,23 @@
  *  - The video says what it is on its own, away from the site: the year large, the frame's date and satellite, the
  *    place, the wordmark and the Copernicus credit, each on the same ink chip the player uses. Square, because the
  *    pictures are and every feed takes it.
+ *  - Its words are the player's, in the visitor's language (src/i18n/en/timelapse.ts), in capitals: a canvas has no
+ *    CSS to uppercase them, so they are uppercased here by the language's own rules (Turkish i → İ). The licence
+ *    credit stays English, as the Copernicus data policy words it. A long place name is shortened a whole character
+ *    at a time (an accented letter, an emoji, an Arabic cluster is never split).
+ *  - A canvas has no `dir` or per-script CSS either, so the two lines that can be in a right-to-left script say so
+ *    themselves: the date line runs the way the visitor's language does, the place the way its own first letter does
+ *    (as dir="auto" would), and neither is tracked when it is in a joining script such as Arabic (tracking pulls the
+ *    joined letters apart: docs/I18N.md). Latin, Cyrillic and CJK keep the mono's tracking; English is as it was.
  */
 import { ArrayBufferTarget, Muxer } from 'mp4-muxer'
+// The words come from the caller, the time-lapse, which already holds its catalog: a type here, so the catalog stays in
+// the time-lapse's chunk instead of a chunk of its own that both would load.
+import type enTimelapse from '@/i18n/en/timelapse'
+import { currentLocale } from '@/i18n/runtime'
+import { SPELLED } from '@/imagery/placeKey'
 import type { Frame } from '@/imagery/timelapse'
+import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
 import { WORDMARK_BOX, WORDMARK_DOT, WORDMARK_PATH } from '../../../api/_lib/wordmark'
 
 export const VIDEO_FPS = 30
@@ -34,8 +48,13 @@ const BONE = '#ece8e0'
 const BONE_2 = 'rgba(236, 232, 224, 0.72)'
 const SIGNAL = '#ff6a1a'
 const CHIP = 'rgba(7, 8, 10, 0.82)'
-const MONO = "'Martian Mono Variable', 'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace"
-const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+const MONO_LATIN = "'Martian Mono Variable', 'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace"
+/** The page's mono stack for the active script (src/styles/scripts.css adds Arabic or CJK faces after Martian Mono). */
+let MONO = MONO_LATIN
+function readMono() {
+  const css = typeof getComputedStyle === 'function' && typeof document !== 'undefined' ? getComputedStyle(document.documentElement) : null
+  MONO = css?.getPropertyValue('--font-mono').trim() || MONO_LATIN
+}
 
 type MuxCodec = 'avc' | 'vp9' | 'av1'
 /** Encoder settings to try, best supported first: H.264 High, Main and Baseline at level 4, then VP9, then AV1. */
@@ -70,22 +89,67 @@ export function planVideo(n: number): VideoPlan {
   return { steps }
 }
 
-/** "watched-groom-lake-2015-2026.mp4" */
-export function videoFileName(label: string, frames: readonly Pick<Frame, 'date'>[]): string {
-  const slug =
-    label
-      .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'place'
+/**
+ * A name's Latin letters and digits as a file-name slug ("São Paulo" → "sao-paulo"); empty when it has none. Letters
+ * with no decomposition are spelled as the place search spells them (placeKey's SPELLED: "Łódź" → "lodz",
+ * "Kırıkkale" → "kirikkale"), not dropped into a hyphen. Cut at 40 characters, and a hyphen the cut leaves at the end
+ * goes too, so the name never reads "…drobwll--2015".
+ */
+const slugOf = (label: string) =>
+  label
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, (c) => SPELLED[c] ?? c)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '')
+
+/**
+ * "watched-groom-lake-2015-2026.mp4". A place named in another script (東京) takes the catalog's word for a place,
+ * `placeWord` (the time-lapse's `fileNamePlace` in the visitor's language: "watched-place-2015-2026.mp4").
+ */
+export function videoFileName(label: string, frames: readonly Pick<Frame, 'date'>[], placeWord: string): string {
+  const slug = slugOf(label) || slugOf(placeWord)
   const a = frames[0]?.date.slice(0, 4)
   const b = frames[frames.length - 1]?.date.slice(0, 4)
-  return `watched-${slug}${a ? `-${a}${b && b !== a ? `-${b}` : ''}` : ''}.mp4`
+  return `watched${slug ? `-${slug}` : ''}${a ? `-${a}${b && b !== a ? `-${b}` : ''}` : ''}.mp4`
 }
 
-const fmtDate = (date: string) => `${Number(date.slice(8, 10))} ${MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`
+const anyOf = (scripts: string[]) => `[${scripts.map((n) => `\\p{Script=${n}}`).join('')}]`
+/** Scripts whose letters join, which tracking would pull apart. */
+const JOINING = new RegExp(anyOf(['Arabic', 'Syriac', 'Nko', 'Adlam', 'Mandaic', 'Mongolian']), 'u')
+/** A first letter in a right-to-left script (anything that is not a letter before it is skipped, as bidi does). */
+const RTL_FIRST = new RegExp(`^\\P{L}*${anyOf(['Arabic', 'Hebrew', 'Syriac', 'Thaana', 'Nko', 'Adlam', 'Mandaic', 'Samaritan'])}`, 'u')
+
+/** Whether `s` has letters that join (Arabic, Syriac…), so it must be drawn without tracking. Pure. */
+export const joins = (s: string): boolean => JOINING.test(s)
+
+/** Which way `s` runs, decided by its first letter as dir="auto" decides it: a place's name can be in any script. Pure. */
+export const textDir = (s: string): CanvasDirection => (RTL_FIRST.test(s) ? 'rtl' : 'ltr')
+
+let segmenter: Intl.Segmenter | undefined
+/** The string's user-perceived characters: an accented letter, a flag, an Arabic or Devanagari cluster stay whole. */
+function graphemes(s: string): string[] {
+  if (typeof Intl.Segmenter !== 'function') return Array.from(s)
+  segmenter ??= new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+  return Array.from(segmenter.segment(s), (g) => g.segment)
+}
+
+/**
+ * Shortened from its end behind an ellipsis, a whole character at a time, until `fits` says so (and never below three
+ * characters, the ellipsis included). Pure.
+ */
+export function fitText(s: string, fits: (s: string) => boolean): string {
+  let out = s
+  let g = graphemes(out)
+  while (g.length > 3 && !fits(out)) {
+    out = `${g.slice(0, -2).join('').trimEnd()}…`
+    g = graphemes(out)
+  }
+  return out
+}
 
 async function chooseCodec(side: number, bitrate: number): Promise<{ config: VideoEncoderConfig; mux: MuxCodec } | undefined> {
   for (const c of CODECS) {
@@ -111,32 +175,45 @@ interface Art {
   side: number
   /** One 1080th of the side: every size below is in these */
   u: number
+  /** The place, in capitals */
   place: string
+  /** Which way the place runs (its own first letter) and its tracking, px (none in a joining script) */
+  placeDir: CanvasDirection
+  placeTrack: number
+  /** Which way the date lines run (the visitor's language) and their tracking, px: one value for every frame, so
+   * the chip never changes its type as the loop plays */
+  subDir: CanvasDirection
+  subTrack: number
   credit: string
   wordmark: Path2D
 }
 
 /** The site's mono: its 87.5 % width and tracking, where the browser's canvas has them (elsewhere a little wider). */
-function setType(ctx: CanvasRenderingContext2D, size: number, spacing: number) {
+function setType(ctx: CanvasRenderingContext2D, size: number, spacing: number, dir: CanvasDirection) {
   const c = ctx as CanvasRenderingContext2D & { letterSpacing?: string; fontStretch?: string }
   c.font = `400 ${size}px ${MONO}`
   c.fontStretch = 'semi-condensed'
   c.letterSpacing = `${spacing}px`
+  // Said every time: a detached canvas inherits no direction from the page.
+  ctx.direction = dir
 }
 
-function text(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string, spacing = 0) {
-  setType(ctx, size, spacing)
+/** Draws `s` with its left edge at `x`, whichever way it runs ('start' would put right-to-left text's right edge there). */
+function text(ctx: CanvasRenderingContext2D, s: string, x: number, y: number, size: number, color: string, spacing = 0, dir: CanvasDirection = 'ltr') {
+  setType(ctx, size, spacing, dir)
+  ctx.textAlign = 'left'
   ctx.fillStyle = color
   ctx.fillText(s, x, y)
 }
 
-function widthOf(ctx: CanvasRenderingContext2D, s: string, size: number, spacing = 0): number {
-  setType(ctx, size, spacing)
+function widthOf(ctx: CanvasRenderingContext2D, s: string, size: number, spacing = 0, dir: CanvasDirection = 'ltr'): number {
+  setType(ctx, size, spacing, dir)
   return ctx.measureText(s).width
 }
 
-/** Everything over the picture: the same chips, reticle and readout the player shows, at the video's size. */
-function drawChrome(a: Art, frame: Frame) {
+/** Everything over the picture: the same chips, reticle and readout the player shows, at the video's size. `sub` is
+ * the line under the year (the frame's date and satellite, in capitals). */
+function drawChrome(a: Art, frame: Frame, sub: string) {
   const { ctx, side, u } = a
   const m = 28 * u
   ctx.textBaseline = 'alphabetic'
@@ -190,24 +267,22 @@ function drawChrome(a: Art, frame: Frame) {
   // Top right: the place (shortened to fit, never past the wordmark).
   const ps = 19 * u
   const maxPlace = side - 2 * m - ww - 36 * u - 24 * u - 32 * u
-  let place = a.place.toUpperCase()
-  while (place.length > 3 && widthOf(ctx, place, ps, 1.6 * u) > maxPlace) place = `${place.slice(0, -2).trimEnd()}…`
-  const pw = widthOf(ctx, place, ps, 1.6 * u)
+  const place = fitText(a.place, (s) => widthOf(ctx, s, ps, a.placeTrack, a.placeDir) <= maxPlace)
+  const pw = widthOf(ctx, place, ps, a.placeTrack, a.placeDir)
   ctx.fillStyle = CHIP
   ctx.fillRect(side - m - pw - 32 * u, m, pw + 32 * u, 50 * u)
-  text(ctx, place, side - m - pw - 16 * u, m + 32 * u, ps, BONE, 1.6 * u)
+  text(ctx, place, side - m - pw - 16 * u, m + 32 * u, ps, BONE, a.placeTrack, a.placeDir)
 
   // Bottom left: the year, and under it the frame's own date and satellite.
   const year = frame.date.slice(0, 4)
-  const sub = `${fmtDate(frame.date)} · ${frame.scene.platform.toUpperCase()}`
   const yw = widthOf(ctx, year, 92 * u, -2 * u)
-  const sw = widthOf(ctx, sub, 19 * u, 1.6 * u)
+  const sw = widthOf(ctx, sub, 19 * u, a.subTrack, a.subDir)
   const cw = Math.max(yw, sw) + 44 * u
   const ch = 152 * u
   ctx.fillStyle = CHIP
   ctx.fillRect(m, side - m - ch, cw, ch)
   text(ctx, year, m + 20 * u, side - m - ch + 92 * u, 92 * u, BONE, -2 * u)
-  text(ctx, sub, m + 22 * u, side - m - 24 * u, 19 * u, BONE_2, 1.6 * u)
+  text(ctx, sub, m + 22 * u, side - m - 24 * u, 19 * u, BONE_2, a.subTrack, a.subDir)
 
   // Bottom right: the credit the data asks for, at the largest of three sizes that clears the year's chip (always
   // drawn: at the smallest it may come close to it, never over it for a four-digit year).
@@ -223,6 +298,8 @@ export interface VideoOptions {
   /** The video's side, px (even) */
   side: number
   place: string
+  /** The time-lapse's words in the visitor's language (its `readout` under each frame's year) */
+  words: Pick<typeof enTimelapse, 'readout'>
   signal?: AbortSignal
   /** 0..1 as the frames are drawn and encoded */
   onProgress?: (done: number) => void
@@ -241,9 +318,22 @@ export async function renderVideo(frames: readonly Frame[], opts: VideoOptions):
   const chosen = canExportVideo() ? await chooseCodec(side, side >= 1000 ? 8_000_000 : 5_000_000) : undefined
   if (!chosen) throw new Error('No video encoder in this browser')
 
+  // The words, in the visitor's language and in capitals by its rules (a canvas has no CSS text-transform).
+  const m = opts.words
+  const info = LOCALE_INFO[currentLocale()]
+  const upper = (s: string) => s.toLocaleUpperCase(info.intl)
+  const place = upper(opts.place)
+  const subs = frames.map((f) => upper(m.readout(Date.parse(f.date), f.scene.platform)))
+  const a = frames[0].date.slice(0, 4)
+  const b = frames[frames.length - 1].date.slice(0, 4)
+  // The licence credit, as the data policy words it: English in every language.
+  const credit = `CONTAINS MODIFIED COPERNICUS SENTINEL DATA ${a === b ? a : `${a}–${b}`}`
+
   const images = await Promise.all(frames.map((f) => loadImage(f.src)))
-  // The chips' font must be in before the first frame is drawn, or the first second is in a fallback face.
-  await Promise.all([document.fonts?.load(`400 92px ${MONO}`), document.fonts?.load(`400 19px ${MONO}`)]).catch(() => undefined)
+  // The chips' font must be in before the first frame is drawn, or the first second is in a fallback face; given the
+  // words, the browser also fetches the subsets they need beyond Latin (Łódź, Київ).
+  readMono()
+  await Promise.all([document.fonts?.load(`400 92px ${MONO}`), document.fonts?.load(`400 19px ${MONO}`, [place, ...subs, credit].join(' '))]).catch(() => undefined)
   opts.signal?.throwIfAborted()
 
   const canvas = document.createElement('canvas')
@@ -252,9 +342,22 @@ export async function renderVideo(frames: readonly Frame[], opts: VideoOptions):
   const ctx = canvas.getContext('2d', { alpha: false })
   if (!ctx) throw new Error('No canvas')
   ctx.imageSmoothingQuality = 'high'
-  const a = frames[0].date.slice(0, 4)
-  const b = frames[frames.length - 1].date.slice(0, 4)
-  const art: Art = { ctx, side, u: side / 1080, place: opts.place, credit: `CONTAINS MODIFIED COPERNICUS SENTINEL DATA ${a === b ? a : `${a}–${b}`}`, wordmark: new Path2D(WORDMARK_PATH) }
+  const u = side / 1080
+  // The mono's tracking, except on letters that join (an Arabic readout, an Arabic place name in any language).
+  const track = 1.6 * u
+  const subTrack = info.script === 'arabic' || subs.some(joins) ? 0 : track
+  const art: Art = {
+    ctx,
+    side,
+    u,
+    place,
+    placeDir: textDir(place),
+    placeTrack: joins(place) ? 0 : track,
+    subDir: info.dir,
+    subTrack,
+    credit,
+    wordmark: new Path2D(WORDMARK_PATH),
+  }
 
   const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: chosen.mux, width: side, height: side, frameRate: VIDEO_FPS }, fastStart: 'in-memory' })
   let failed: unknown
@@ -281,7 +384,8 @@ export async function renderVideo(frames: readonly Frame[], opts: VideoOptions):
         ctx.globalAlpha = 1
       }
       // The readout changes with the picture: the incoming frame's once it is more than half in.
-      drawChrome(art, frames[st.over !== undefined && st.alpha >= 0.5 ? st.over : st.base])
+      const k = st.over !== undefined && st.alpha >= 0.5 ? st.over : st.base
+      drawChrome(art, frames[k], subs[k])
       const vf = new VideoFrame(canvas, { timestamp: Math.round(n * micros), duration: Math.round(micros) })
       encoder.encode(vf, { keyFrame: n % (VIDEO_FPS * 2) === 0 })
       vf.close()

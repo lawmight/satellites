@@ -9,7 +9,8 @@
  * Dependency-free: the build script runs it under Node.
  */
 
-const SPELLED: Record<string, string> = { ł: 'l', ø: 'o', æ: 'ae', œ: 'oe', ß: 'ss', đ: 'd', ð: 'd', þ: 'th', ı: 'i', ħ: 'h' }
+/** Lowercase letters with no Unicode decomposition, spelled as someone would type them (also file-name slugs). */
+export const SPELLED: Record<string, string> = { ł: 'l', ø: 'o', æ: 'ae', œ: 'oe', ß: 'ss', đ: 'd', ð: 'd', þ: 'th', ı: 'i', ħ: 'h' }
 
 export function placeKey(s: string): string {
   return s

@@ -61,7 +61,7 @@
     background-color var(--d-hover) var(--ease-out);
 }
 .rate + .rate {
-  border-left: 1px solid var(--line);
+  border-inline-start: 1px solid var(--line);
 }
 .rate:active {
   background: var(--ink-3);
@@ -90,7 +90,7 @@
   }
 }
 .clock {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -113,9 +113,11 @@
 }
 
 /* ── scrubber ─────────────────────────────────────────────────── */
+/* A time axis: earlier on the left in every language, the native range input too (docs/I18N.md, Right to left). */
 .scrub {
   position: relative;
   height: 24px;
+  direction: ltr;
 }
 .track {
   position: absolute;
@@ -190,8 +192,10 @@
   outline-offset: 10px;
 }
 
+/* The axis's own labels: its first second under its left end, its last under its right end. */
 .legend {
   display: flex;
+  direction: ltr;
   justify-content: space-between;
   gap: 8px;
   font-family: var(--font-mono);
@@ -218,14 +222,17 @@
   display: inline-block;
   width: 1px;
   height: 9px;
-  margin-left: 8px;
+  margin-inline-start: 8px;
   background: var(--bone-2);
 }
 
+/* Two groups, key and words, 22 px apart; the second wraps under the first when the panel is too narrow for both
+   (it was clipped at the panel's edge in every language, and the squeezed SPACE cap ran into its words). */
 .keys {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 22px;
   padding-top: 4px;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
@@ -235,8 +242,18 @@
   color: var(--bone-3);
   white-space: nowrap;
 }
-.keysGap {
-  width: 10px;
+.keyPair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* A key cap is never squeezed below its label */
+.keyPair kbd {
+  flex: none;
+}
+/* The ← → pair: one row of the keys line in left to right (see right to left below). */
+.arrows {
+  display: contents;
 }
 
 /* ── phone header strip ───────────────────────────────────────── */
@@ -275,4 +292,30 @@
   .rate {
     transition: none;
   }
+}
+
+/* ── right to left ────────────────────────────────────────────── */
+/* The row, the rates and the keys line follow the reading (play first, on the right); the scrubber and its legend
+   do not. The clocks and the rates are left-to-right runs («02:17:15 UTC» would otherwise read «UTC 02:17:15», and
+   «30×» «×30»); the words between the legend's ends read right to left again; the arrow keys keep their physical
+   order, ← then →, as on the keyboard (docs/i18n/ar.md §6.2, 8). */
+:root[dir='rtl'] :is(.tminus, .utc, .stripClock, .rate) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+:root[dir='rtl'] .stripClock {
+  text-align: left;
+}
+/* A rate is laid out left to right inside, so its separator is placed by the row's side, not its own. */
+:root[dir='rtl'] .rate + .rate {
+  border-left: 0;
+  border-right: 1px solid var(--line);
+}
+:root[dir='rtl'] .legendMid {
+  direction: rtl;
+}
+:root[dir='rtl'] .arrows {
+  display: inline-flex;
+  gap: 6px;
+  direction: ltr;
 }

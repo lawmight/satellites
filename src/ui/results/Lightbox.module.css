@@ -41,7 +41,18 @@
 .top > * {
   pointer-events: auto;
 }
+/* The lead and the position share a line where they fit. Where they do not (beside the time-lapse button on a phone:
+   "CLOSEST LOOK · 1 / 40" at 360 px, "VISTA MAIS PRÓXIMA" at 390) the position moves under the lead, whole ("1 /"
+   never parts from "40"), and the separator, drawn in the gap before it, is clipped off the start of that line: no
+   line ends or opens on a dangling '·', and the lead keeps its words. */
 .counter {
+  /* the width of " · " in the label face, as the text separator was */
+  --counter-sep: calc(3ch + 3 * var(--track-label));
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--counter-sep);
+  min-width: 0;
+  overflow-x: clip;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
   font-size: var(--fs-label);
@@ -51,23 +62,43 @@
   color: var(--bone-2);
 }
 .counterLead {
+  /* alone on its line, a lead longer than the bar's room still ends in an ellipsis rather than overflowing */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--bone);
 }
-.counterLead.warn {
+.counterPos {
+  position: relative;
+  white-space: nowrap;
+}
+.counterLead + .counterPos::before {
+  content: '·';
+  content: '·' / '';
+  position: absolute;
+  inset-inline-end: 100%;
+  width: var(--counter-sep);
+  text-align: center;
+  color: var(--bone);
+}
+.counterLead.warn,
+.counterLead.warn + .counterPos::before {
   color: var(--warn);
 }
 /* The time-lapse's way in: on the right, before the zoom control (laptops) or the close button (phones). */
 .lapse {
   flex: none;
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .lapse + .zoomCtl {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
 .zoomCtl {
   display: inline-flex;
   align-items: center;
-  margin-left: auto;
+  margin-inline-start: auto;
   border: 1px solid var(--line-strong);
 }
 .ctl {
@@ -366,7 +397,7 @@
 .status {
   flex: none;
   min-width: 14ch;
-  text-align: right;
+  text-align: end;
   color: var(--bone-2);
 }
 .warn,
@@ -403,11 +434,33 @@
 }
 /* Phones: one fact group per line (MetaStrip's phone form); a line too long for its column ends in an ellipsis. */
 .metaLine {
+  /* holds the pieces the clock's fit sets aside (below), clipped with the line */
+  position: relative;
   display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* The clock ends the first line when that line holds it whole, else it opens the second, where how long ago and then
+   the status give way; the weekday gives way where the head alone would be cut (Gallery.tsx useClockFit writes the
+   attributes). A piece set aside stays measurable: out of flow, unpainted, unspoken. */
+.clockFit:not([data-short-day]) [data-fit='dayShort'],
+.clockFit[data-short-day] [data-fit='day'],
+.clockFit:not([data-below]) [data-fit='clock2'],
+.clockFit[data-below] [data-fit='clock1'],
+.clockFit[data-no-ago] [data-fit='ago'],
+.clockFit[data-no-status] [data-fit='status'] {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+/* how long ago opens the second line when the clock is not there before it */
+.clockFit:not([data-below]) .sepBelow {
+  display: none;
 }
 .metaName {
   font-weight: 400;
@@ -532,4 +585,46 @@
   content: '';
   position: absolute;
   inset: -6px 0;
+}
+
+/*
+ * Right to left (docs/I18N.md). The bar mirrors: the counter on the right, the controls and the close button on the
+ * left. The photos are a sequence, as in the gallery: the < > keep their sides, a swipe to the left brings the next
+ * photo, ← steps back, and the filmstrip runs left to right with the dates inside each slot read as Arabic. The
+ * chips that are words (sensor, pixel) trade corners like the gallery's; the scale bar and the north arrow are
+ * drawn on the ground and stay where the picture puts them.
+ */
+:root[dir='rtl'] .mobile .top {
+  padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
+}
+:root[dir='rtl'] .tl {
+  left: auto;
+  right: 10px;
+}
+:root[dir='rtl'] .tr {
+  right: auto;
+  left: 10px;
+}
+:root[dir='rtl'] .br,
+:root[dir='rtl'] .scale {
+  direction: ltr;
+}
+:root[dir='rtl'] .scaleText {
+  direction: rtl;
+}
+:root[dir='rtl'] .thumbs {
+  direction: ltr;
+}
+:root[dir='rtl'] .thumbs > * {
+  direction: rtl;
+}
+/* The archive's credit is English: it ends (and is cut) on the right, set flush with the Arabic lines above it. */
+:root[dir='rtl'] .credit {
+  direction: ltr;
+  text-align: right;
+}
+/* Phones: a line too long for its column ends in an ellipsis. Cut inside, the clock's island leaves a fragment that
+   reads as a number of its own ("5-" of "11:21 UTC-5"): it is dropped whole instead. */
+:root[dir='rtl'] .metaLine [data-num] {
+  display: inline-block;
 }

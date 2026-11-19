@@ -3,6 +3,7 @@
  * A daily bucket starts at Eastern midnight (from 0016) or UTC midnight (before): Eastern midnight is 04:00 or 05:00 UTC
  * the same date, so either way the bucket's UTC date is the day it counts, and it is labelled by that.
  */
+import { LOCALE_INFO, isLocale } from '../../api/_lib/i18n/locales'
 
 const INT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
 const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
@@ -120,6 +121,11 @@ export const TIMELAPSE_FROM_NAMES: Record<string, string> = { results: 'Row unde
 export const TIMELAPSE_ACTION_NAMES: Record<string, string> = { video: 'Video saved', link: 'Link shared' }
 
 export const DEVICE_NAMES: Record<string, string> = { desktop: 'Desktop', phone: 'Phone', tablet: 'Tablet' }
+
+/** A tab's language (0027) by its English name: 'pt-BR' → 'Portuguese'; an unknown code as it is. */
+export function languageName(code: string): string {
+  return isLocale(code) ? LOCALE_INFO[code].english : code
+}
 
 export const VERDICT_NAMES: Record<string, string> = { imaged: 'Watched', likely: 'Likely watched', could: 'Could have pointed here', overhead: 'Passed overhead' }
 

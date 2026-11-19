@@ -62,10 +62,14 @@ Self-hosted via `@fontsource-variable/*`, imported in `src/styles/fonts.css`.
 
 - **Display:** *Instrument Sans Variable* at `font-stretch: 75%` (condensed), weight 520–600, tracking `-0.02em`, leading `0.92`. Sentence case. Big: `clamp(44px, 7.2vw, 128px)`.
 - **Body:** *Instrument Sans Variable* at `font-stretch: 100%`, weight 400, 15px/1.5. Secondary 13px.
-- **Mono / data:** *Martian Mono Variable* at `font-stretch: 87.5%`, weight 300–400. Labels are 10.5px uppercase with tracking `+0.08em`. Readouts are 12–13px. Always `font-variant-numeric: tabular-nums`.
+- **Mono / data:** *Martian Mono Variable* at `font-stretch: 87.5%`, weight 300–400. Labels are 10.5px uppercase with tracking `+0.08em`, their units aside (below). Readouts are 12–13px. Always `font-variant-numeric: tabular-nums`.
 - **Serif accent:** *Instrument Serif* italic. At most **one** phrase per screen, for the human moment ("*you*.", "*this week*"). Never for UI.
 
-Numbers are always mono. Units are smaller and in `--bone-3`: `786.2 KM`, `7.46 KM/S`, `98.6°`.
+Numbers are always mono. Units are smaller and in `--bone-3`: `786.2 km`, `7.46 km/s`, `98.6°`. A unit keeps its case in a
+caps row, in every language (owner, 2026-11-19): `786 km`, `10 m`, never `786 KM` (m is the metre, M is mega). A unit that
+is its own part sits in a `[data-unit]` span, which `base.css` keeps out of `text-transform`; a finished string goes
+through `withUnits` (`src/i18n/Rich.tsx`), and the renderers with no CSS (the card's canvas and satori) through
+`capsExceptUnits` (`api/_lib/i18n/units.ts`, which lists the symbols). The words around a unit stay in capitals.
 
 **Type scale tokens** (desktop / phone). Use only these; no raw font-size px in components.
 
@@ -196,7 +200,7 @@ busy main thread never makes them late.
 
 Wide chase alongside a small spacecraft model (true SGP4 position, nadir-pointing, fading orbit trail) → the
 sensor's light curtain sweeps the ground with a bright scan line → ~1 s dive onto the place → the real image
-develops onto the globe line by line → capture shockwave at the reticle + "ACQUIRED 11:21:21 EST · 10 M" →
+develops onto the globe line by line → capture shockwave at the reticle + "ACQUIRED 11:21:21 EST · 10 m" →
 1.2 s settle to a near top-down view where the globe photo and the panel photo line up. Replay is explicit;
 gallery swipes only re-frame quietly: no clock runs and no camera chases, but the image never pops. The one on the
 ground stays until the next has loaded, then that one develops over it in a single 0.9 s sweep along its pass's

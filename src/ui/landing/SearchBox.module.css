@@ -21,7 +21,7 @@
 }
 /* The "/" key cap sits in the line's trailing slot, before "Use my location". */
 .kbd {
-  margin-right: 6px;
+  margin-inline-end: 6px;
 }
 .clear {
   width: 28px;
@@ -61,6 +61,18 @@
 @keyframes go-in {
   from {
     clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+/* Mirrored right to left: it still opens from its outer edge (the line's end). */
+:root[dir='rtl'] .go {
+  animation-name: go-in-rtl;
+}
+@keyframes go-in-rtl {
+  from {
+    clip-path: inset(0 100% 0 0);
   }
   to {
     clip-path: inset(0 0 0 0);
@@ -129,7 +141,8 @@
   justify-content: space-between;
   gap: 16px;
   min-height: var(--row-h);
-  padding: 8px 16px 8px 18px;
+  padding: 8px 16px 8px;
+  padding-inline-start: 18px;
   border-top: 1px solid var(--line);
   cursor: pointer;
 }
@@ -142,7 +155,7 @@
 .active::before {
   content: '';
   position: absolute;
-  left: 0;
+  inset-inline-start: 0;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -179,6 +192,11 @@
   color: var(--bone-3);
   white-space: nowrap;
 }
+/* Coordinates are Latin notation: one left-to-right island (a pair reads lat then lon in every language). */
+:root[dir='rtl'] .optCoord {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
 .active .optCoord {
   color: var(--bone-2);
 }
@@ -203,7 +221,8 @@
   .clear {
     width: 44px;
     height: 44px;
-    margin: -8px -8px -8px 0;
+    margin: -8px 0;
+    margin-inline-end: -8px;
   }
   .go {
     width: 44px;

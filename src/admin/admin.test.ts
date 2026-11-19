@@ -3,7 +3,8 @@ import { searchSource } from '@/app/telemetry'
 import type { Place } from '@/types'
 import { isTimeout, liveFor, parseLive, parseStats, RANGES } from './api'
 import { mockLive, mockStats } from './fixture'
-import { fmtBucket, fmtPct, funnelShares, niceMax, SOURCE_NAMES, type FunnelStage } from './format'
+import { fmtBucket, fmtPct, funnelShares, languageName, niceMax, SOURCE_NAMES, type FunnelStage } from './format'
+import { LOCALE_INFO, LOCALES } from '../../api/_lib/i18n/locales'
 import { liveSeries } from './live'
 import { dotRadius, GRID_STEP, legendCounts, placeGrid } from './placeGrid'
 
@@ -129,6 +130,21 @@ describe('the time-lapse in the stats (0024)', () => {
     const m = mockStats('7d', Date.UTC(2026, 10, 13, 12))
     expect(m.totals.timelapse_open).toBe(m.series.reduce((a, p) => a + p[4], 0))
     expect(m.top['timelapse_open.from'].map((r) => r[0])).toEqual(['results', 'viewer', 'link'])
+  })
+})
+
+describe('languages (0027)', () => {
+  it('names each of the app\'s languages in English, and shows an unknown code as it is', () => {
+    for (const l of LOCALES) expect(languageName(l)).toBe(LOCALE_INFO[l].english)
+    expect(languageName('pt-BR')).toBe('Portuguese')
+    expect(languageName('xx')).toBe('xx')
+  })
+  it('is in the fixture: all 16, fewer tabs than sessions, nothing cut', () => {
+    const m = mockStats('7d', Date.UTC(2026, 10, 19, 12))
+    const rows = m.top['session.lang']
+    expect(rows.map((r) => r[0]).sort()).toEqual([...LOCALES].sort())
+    expect(m.dimTotals['session.lang']).toBe(rows.reduce((a, r) => a + r[1], 0))
+    expect(m.dimTotals['session.lang']).toBeLessThanOrEqual(m.recorded.session)
   })
 })
 

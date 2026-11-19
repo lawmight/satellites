@@ -267,6 +267,10 @@ a {
 .a-panel > .a-label {
   margin-bottom: var(--s-3);
 }
+/* Two columns of a grid (the languages: 16 rows read as two short lists), the whole row once the grid has two. */
+.a-panel-wide {
+  grid-column: span 2;
+}
 .a-note,
 .a-empty {
   margin: var(--s-3) 0 0;
@@ -446,6 +450,13 @@ a {
   display: block;
   height: 1px;
   background: var(--bone-2);
+}
+.a-rank-cols {
+  columns: 2;
+  column-gap: var(--s-6);
+}
+.a-rank-cols li {
+  break-inside: avoid;
 }
 
 /* ── funnel ── */
@@ -759,6 +770,12 @@ a {
   .a-grid3,
   .a-places-lists {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .a-panel-wide {
+    grid-column: auto;
+  }
+  .a-rank-cols {
+    columns: 1;
   }
   .a-funnel li {
     grid-template-columns: 112px minmax(0, 1fr) 52px 40px;

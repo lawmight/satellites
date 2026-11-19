@@ -16,6 +16,18 @@
   border: 1px solid var(--line-strong);
   background: var(--ink-0);
 }
+/* The preview is the picture card.ts and api/og.tsx draw, and they lay the card out left to right in every language:
+   so does this, or the preview and the shared image differ. Inside its box each text is one paragraph in its own
+   direction, read from its first letter outside isolates (card.ts rtlRun; ShareCard.tsx isolates clocks, percentages
+   and Latin names as the PNG does, bidi.ts), and starts at the box's left edge, as the canvas draws it. unicode-bidi
+   is not inherited: each box that holds text, the chip's segments and the scale's label included, takes it. */
+:root[dir='rtl'] .wrap {
+  direction: ltr;
+}
+:root[dir='rtl'] .wrap :is(.row, .cell, .lead, .place, .sub, .valueNum, .unit, .chip > span:not(.bar)) {
+  unicode-bidi: plaintext;
+  text-align: left;
+}
 .card {
   position: absolute;
   left: 0;
@@ -175,8 +187,8 @@
 }
 .lead {
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   color: var(--bone);
 }
 /* The serif place sits on its own line box with clear space above it: descenders of the condensed
@@ -215,9 +227,11 @@
   font-variant-numeric: tabular-nums;
   color: var(--bone);
 }
+/* A readout's unit is a unit symbol ("km", "m", "km/s"): it keeps its case, as the PNG and the server card draw it. */
 .unit {
   font-size: 14px;
   line-height: 1;
+  text-transform: none;
   color: rgb(236 232 224 / 0.52);
 }
 

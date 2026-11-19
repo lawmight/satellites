@@ -7,7 +7,7 @@
   min-height: 44px;
   padding: 9px 12px;
   border: 1px solid var(--line-strong);
-  text-align: left;
+  text-align: start;
   color: var(--bone-2);
   transition:
     border-color var(--d-hover) var(--ease-out),
@@ -30,10 +30,12 @@
   outline: 1px solid var(--signal);
   outline-offset: 2px;
 }
-/* Five frames of a strip, the last one lit: what the row opens. */
+/* Five frames of a strip, the last one lit: what the row opens. The years run left to right in every language, as
+   the time-lapse's own slider does (docs/I18N.md), so the newest stays on the right. */
 .mark {
   flex: none;
   display: inline-flex;
+  direction: ltr;
   gap: 2px;
 }
 .mark i {

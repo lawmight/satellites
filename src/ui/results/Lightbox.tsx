@@ -23,8 +23,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { createPortal } from 'react-dom'
 import type { Pass } from '@/types'
 import { Button, Glyph, cx, prefersReducedMotion, useMediaQuery } from '@/ui/system'
+import { msgs, useLocale, useMsgs } from '@/i18n/runtime'
+import enGallery from '@/i18n/en/gallery'
+import enLightbox from '@/i18n/en/lightbox'
+import { withUnits, writeUnits } from '@/i18n/Rich'
 import { Ago } from './Ago'
-import { credit, galleryCtl } from './Gallery'
+import { credit, galleryCtl, useClockFit } from './Gallery'
 import { Mark } from './Mark'
 import { PushbroomReveal } from './PushbroomReveal'
 import { Reticle } from './Reticle'
@@ -39,9 +43,9 @@ import { decodedPhoto, hasPhotoElement, loadPhoto } from './images'
 import { Img } from './Img'
 import { cardSpec, cardUrl, cropWidthKm, filterPhotos, HIRES_INTENT_ZOOM, hiResHelps, hiResUrl, photoHeadingDeg, placeOffset, thumbUrl, type Photo } from './lib/photos'
 import { pixelLabel, productLabel, scaleBarKm, sensorName } from './lib/captures'
-import { dec1, int } from './lib/copy'
-import { fmtLocalDay, fmtLocalTime, zoneAbbr } from './lib/time'
+import { fmtDayMonth, fmtLocalDay, fmtLocalTime, fmtWeekdayShort, zoneAbbr } from './lib/time'
 import type { ResultsModel } from './model'
+import { placeName } from './placeName'
 import { wasSeen } from './once'
 import s from './Lightbox.module.css'
 
@@ -54,6 +58,8 @@ const CLOSE_MS = 280
 const FADE_MS = 160
 const NAV_MS = 260
 const GAP = 24
+/** The ground pixel of a Landsat photo's pan-sharpened layer, written like any capture's pixel (lib/captures pixelLabel). */
+const PAN_PIXEL = { gsdM: 15 }
 /** Laptops: the photo side from which the metadata strip fits both Replay and the word Share. */
 const SHARE_WORD_MIN_SIDE = 660
 
@@ -118,6 +124,8 @@ interface ViewerProps {
 }
 
 function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered }: ViewerProps) {
+  const lm = useMsgs(enLightbox)
+  const gm = useMsgs(enGallery)
   const coveredRef = useRef(covered)
   coveredRef.current = covered
   const filter = useGallery((g) => g.filter)
@@ -173,10 +181,11 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
       const visKm = cropWidthKm(p.capture) / k
       const km = scaleBarKm(visKm)
       barRef.current.style.width = `${Math.round((km / visKm) * side)}px`
-      const txt = `${km >= 1 ? int(km) : km} km`
-      if (barTextRef.current.textContent !== txt) barTextRef.current.textContent = txt
+      // Written per frame, outside React: the messages are read now (the active language).
+      const txt = msgs(enGallery).scaleKm(km)
+      writeUnits(barTextRef.current, txt)
     }
-    if (zoomTextRef.current) zoomTextRef.current.textContent = `${k.toFixed(1)}×`
+    if (zoomTextRef.current) zoomTextRef.current.textContent = msgs(enLightbox).zoom(k)
     const box = boxRef.current
     if (box) box.dataset.zoomed = k > 1.001 ? 'true' : 'false'
     // The first zoom intent asks for this photo's sharper layer (one render per photo, not per frame), so it is
@@ -231,7 +240,9 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [mobile])
-  useLayoutEffect(() => apply(), [apply, layout, index])
+  // The locale too: a language switch rewrites the scale bar and zoom readout in the new language.
+  const locale = useLocale()
+  useLayoutEffect(() => apply(), [apply, layout, index, locale])
 
   // ── open: FLIP from the panel's frame ───────────────────────────────────────────────────
   useLayoutEffect(() => {
@@ -596,12 +607,13 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
   const meta = model.meta(photo.pass?.norad ?? photo.capture.norad ?? 0)
   const windowItems = items.filter((p) => !!p.pass)
   const pos = photo.pass ? windowItems.indexOf(photo) + 1 : 0
-  const counter = photo.pass ? `${pos} / ${windowItems.length}` : 'Last clear look'
+  const counter = photo.pass ? gm.position(pos, windowItems.length) : gm.lead.lastClear
   // Why the cover leads ("Closest look" / "Clouded over") rides on the counter, where there is room: in the metadata
   // strip it cut the first row short ("… 2 D…") whenever a Replay button and a status shared it.
   const why = model.cover?.photo.key === photo.key ? model.cover.why : undefined
-  const lead = photo.pass ? (why === 'closest' ? 'Closest look' : why === 'clouded' ? 'Clouded over' : undefined) : undefined
-  const spoken = photo.pass ? `Photo ${pos} of ${windowItems.length}${lead ? `, ${lead.toLowerCase()}` : ''}` : 'The last clear look, from before this week'
+  const leadKind = photo.pass && (why === 'closest' || why === 'clouded') ? why : undefined
+  const lead = leadKind ? gm.lead[leadKind] : undefined
+  const spoken = photo.pass ? lm.spokenPosition(pos, windowItems.length, leadKind) : lm.spokenLastClear
   const side = layout.side
   const boxStyle: CSSProperties = { left: layout.left, top: layout.top, width: side, height: side }
   // Shown larger than the card in device pixels already at 1×: every photo viewed gets its sharper layer.
@@ -615,36 +627,36 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
   // The place's time-lapse, from the viewer's bar: where people are already looking at its photos.
   const timelapse = hasTimelapse(model)
   return (
-    <div ref={rootRef} className={cx(s.root, mobile && s.mobile, closing && s.closing)} role="dialog" aria-modal="true" aria-label="Photos" tabIndex={-1}>
+    <div ref={rootRef} className={cx(s.root, mobile && s.mobile, closing && s.closing)} role="dialog" aria-modal="true" aria-label={lm.dialogLabel} tabIndex={-1}>
       <div ref={scrimRef} className={s.scrim} onClick={close} />
 
       <div ref={setChrome(0)} className={s.top}>
         <span className={s.counter}>
-          {lead ? <span className={cx(s.counterLead, why === 'clouded' && s.warn)}>{lead} · </span> : null}
-          {counter}
+          {lead ? <span className={cx(s.counterLead, why === 'clouded' && s.warn)}>{lead}</span> : null}
+          <span className={s.counterPos}>{counter}</span>
           <span className="sr-only" aria-live="polite">
             {spoken}
           </span>
         </span>
         {timelapse ? (
-          <Button size="sm" className={s.lapse} onClick={() => useTimelapseUi.getState().show('viewer')} onPointerEnter={warmTimelapse} onPointerDown={warmTimelapse} aria-label="Time-lapse of this place, year by year">
-            Time-lapse
+          <Button size="sm" className={s.lapse} onClick={() => useTimelapseUi.getState().show('viewer')} onPointerEnter={warmTimelapse} onPointerDown={warmTimelapse} aria-label={lm.timelapseLabel}>
+            {lm.timelapse}
           </Button>
         ) : null}
         {!mobile ? (
           <span className={s.zoomCtl}>
-            <button type="button" className={s.ctl} onClick={() => tweenZoom(z.current.s / 1.6)} aria-label="Zoom out" title="Zoom out (−)">
+            <button type="button" className={s.ctl} onClick={() => tweenZoom(z.current.s / 1.6)} aria-label={lm.zoomOut} title={lm.zoomOutTitle}>
               −
             </button>
             <span ref={zoomTextRef} className={s.zoomText}>
-              1.0×
+              {lm.zoom(1)}
             </span>
-            <button type="button" className={s.ctl} onClick={() => tweenZoom(z.current.s * 1.6)} aria-label="Zoom in" title="Zoom in (+)">
+            <button type="button" className={s.ctl} onClick={() => tweenZoom(z.current.s * 1.6)} aria-label={lm.zoomIn} title={lm.zoomInTitle}>
               +
             </button>
           </span>
         ) : null}
-        <button type="button" className={s.close} onClick={close} aria-label="Close the photo viewer" title="Close (Esc)">
+        <button type="button" className={s.close} onClick={close} aria-label={lm.close} title={lm.closeTitle}>
           <Glyph name="close" size={14} />
         </button>
       </div>
@@ -669,8 +681,8 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
         <span className={cx(s.chip, s.tl)}>
           {meta.name} · {sensorName(photo.capture)}
         </span>
-        <span className={cx(s.chip, s.tr)} title={panKeys.has(photo.key) ? "Pan-sharpened with Landsat's 15 m band" : undefined}>
-          {panKeys.has(photo.key) ? '15 m' : pixelLabel(photo.capture)} / pixel
+        <span className={cx(s.chip, s.tr)} title={panKeys.has(photo.key) ? lm.panTitle : undefined}>
+          {withUnits(lm.perPixel(pixelLabel(panKeys.has(photo.key) ? PAN_PIXEL : photo.capture)))}
         </span>
         <span className={s.scale}>
           <span ref={barRef} className={s.scaleBar} />
@@ -681,7 +693,7 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
           <svg width="8" height="10" viewBox="0 0 8 10" style={{ transform: `rotate(${photoHeadingDeg(photo.capture, 0).toFixed(1)}deg)` }}>
             <path d="M4 0.5 7.5 9.5 4 7.2 0.5 9.5Z" fill="currentColor" />
           </svg>
-          N
+          {gm.north}
         </span>
       </div>
 
@@ -692,7 +704,7 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
             className={cx(s.arrow, s.prev)}
             onClick={() => go(-1)}
             disabled={index <= 0}
-            aria-label="Previous photo"
+            aria-label={gm.prevPhoto}
             ref={(el) => {
               if (el) chromeRef.current[3] = el as unknown as HTMLDivElement
             }}
@@ -704,7 +716,7 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
             className={cx(s.arrow, s.next)}
             onClick={() => go(1)}
             disabled={index >= n - 1}
-            aria-label="Next photo"
+            aria-label={gm.nextPhoto}
             ref={(el) => {
               if (el) chromeRef.current[4] = el as unknown as HTMLDivElement
             }}
@@ -728,17 +740,17 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
                   useGallery.getState().closeLightbox()
                   onReplay(pass)
                 }}
-                aria-label="Replay this pass on the globe"
+                aria-label={lm.replayLabel}
                 className={s.replay}
               >
                 <Glyph name="play" size={11} />
-                Replay
+                {lm.replay}
               </Button>
             ) : null}
             {onShare ? (
-              <Button size="sm" onClick={() => onShare(photo.pass!)} aria-label="Share this photo" title="Share this photo" className={cx(s.replay, shareGlyphOnly && s.actIcon)}>
+              <Button size="sm" onClick={() => onShare(photo.pass!)} aria-label={lm.shareLabel} title={lm.shareLabel} className={cx(s.replay, shareGlyphOnly && s.actIcon)}>
                 <Glyph name="share" size={shareGlyphOnly ? 13 : 11} />
-                {shareGlyphOnly ? null : 'Share'}
+                {shareGlyphOnly ? null : lm.share}
               </Button>
             ) : null}
           </div>
@@ -746,7 +758,7 @@ function Viewer({ id, model, mobile, startKey, from, onReplay, onShare, covered 
       </div>
 
       {!mobile ? (
-        <div ref={setChrome(2)} className={s.film} role="listbox" aria-label="All photos" aria-activedescendant={`lb-thumb-${index}`}>
+        <div ref={setChrome(2)} className={s.film} role="listbox" aria-label={lm.filmstripLabel} aria-activedescendant={`lb-thumb-${index}`}>
           <Filmstrip items={items} index={index} onPick={goTo} tz={model.tz} />
         </div>
       ) : null}
@@ -776,6 +788,7 @@ function LbPhoto({
   /** The photo's pan-sharpened layer (15 m) is the one shown */
   onPanShown?: (key: string) => void
 }) {
+  const gm = useMsgs(enGallery)
   const base = cardUrl(photo.capture)
   const hi = hiResUrl(photo.capture)
   const [baseOk, setBaseOk] = useState(() => !!decodedPhoto(base) || hasPhotoElement('lightbox', base))
@@ -813,7 +826,7 @@ function LbPhoto({
   useEffect(() => {
     if (hiShown && hi && decodedPhoto(hi)?.dataset.pan === '15') onPanShown?.(photo.key)
   }, [hiShown, hi, photo.key, onPanShown])
-  const alt = `${model.meta(photo.pass?.norad ?? photo.capture.norad ?? 0).name} image of ${model.report.place.label}. The place is at the centre.`
+  const alt = gm.photoAlt(model.meta(photo.pass?.norad ?? photo.capture.norad ?? 0).name, placeName(model.report.place))
   const dim = photo.clouded ? ((photo.capture.cloudCoverPct ?? 0) >= 90 ? s.dimOvercast : s.dimCloud) : undefined
   const hiLayer = hiOk && hi ? <Img view="lightbox-hi" url={hi} alt="" ariaHidden className={cx(s.img, dim)} fadeClass={hiFade ? s.hiFade : undefined} /> : null
   if (reveal && photo.pass)
@@ -836,7 +849,7 @@ function LbPhoto({
     )
   return (
     <>
-      {baseOk ? <Img view="lightbox" url={base} alt={alt} className={cx(s.img, dim)} /> : <span className={s.acquiring}>Acquiring</span>}
+      {baseOk ? <Img view="lightbox" url={base} alt={alt} className={cx(s.img, dim)} /> : <span className={s.acquiring}>{gm.acquiring}</span>}
       {baseOk ? hiLayer : null}
     </>
   )
@@ -845,48 +858,71 @@ function LbPhoto({
 /**
  * Under the photo: who and when, what the picture shows at the place, the product line and the archive's credit. The
  * first row never truncates: the relative time ("· 2 days ago") is dropped whole when the row is too narrow for it
- * (it wraps into a clipped second line), so the satellite, day and time always read in full.
+ * (it wraps into a clipped second line), so the satellite, day and time always read in full. The clock with its zone
+ * and the coordinates are each one `data-num` island: in Arabic text "16:14 UTC−5" would otherwise come apart and
+ * read "UTC−5 16:14".
  */
 function MetaStrip({ photo, model, mobile, pan }: { photo: Photo; model: ResultsModel; mobile: boolean; pan?: boolean }) {
+  const lm = useMsgs(enLightbox)
+  const gm = useMsgs(enGallery)
   const { capture, pass } = photo
   const meta = model.meta(pass?.norad ?? capture.norad ?? 0)
   const tz = model.tz
   const t = pass ? model.times(pass) : { day: fmtLocalDay(capture.datetime, tz), time: fmtLocalTime(capture.datetime, tz), zone: zoneAbbr(capture.datetime, tz) }
   const w = cropWidthKm(capture)
   // A daily mosaic says so once, in the product line ('Daily mosaic · 250 m'), not again as its status (PH-11).
-  const status = photo.kind === 'mosaic' ? undefined : photo.clouded ? `Clouded${capture.cloudCoverPct !== undefined ? ` · ${int(capture.cloudCoverPct)}%` : ''}` : capture.spot === 'clear' ? 'Clear at your spot' : capture.spot === 'cirrus' ? 'Thin cirrus' : undefined
-  const km = `${w >= 100 ? int(w) : dec1(w)} km`
-  const ago = <Ago t={pass?.tClosest ?? capture.datetime} base={model.clock} />
-  if (mobile)
+  const status = photo.kind === 'mosaic' ? undefined : photo.clouded ? lm.status.clouded(capture.cloudCoverPct) : capture.spot === 'clear' ? lm.status.clearAtSpot : capture.spot === 'cirrus' ? gm.status.cirrus : undefined
+  const km = withUnits(gm.cropKm(w))
+  const product = withUnits(pan ? lm.panProduct(pixelLabel(PAN_PIXEL)) : productLabel(capture))
+  const when = pass?.tClosest ?? capture.datetime
+  const ago = <Ago t={when} base={model.clock} />
+  const linesRef = useRef<HTMLDivElement>(null)
+  useClockFit(linesRef, mobile)
+  if (mobile) {
     // Phones (PH-11): one fact group per line, never wrapped like prose ('15:24 / EST', '240 / KM', a line opening on
     // a dangling '·'): who and when · how long ago (and the status) · the product · the place · the credit.
+    // The clock ends the first line when it fits there whole; where it does not (a 360 px phone, a long day: "SUN 1
+    // NOV · 11:…", "الأحد، 1 نوفمبر"), it opens the second, and how long ago gives way to it (Gallery's useClockFit).
+    const clock = <span data-num>{t.time} {t.zone}</span>
     return (
-      <div className={s.metaText}>
-        <span className={s.metaLine}>
-          <b className={s.metaName}>{meta.name}</b> · {t.day} · {t.time} {t.zone}
+      <div ref={linesRef} className={cx(s.metaText, s.clockFit)}>
+        <span className={s.metaLine} data-fit-line="">
+          {/* the weekday gives way where the head alone would be cut (Polish at 390 px: "NIEDZ., 1 LI…") */}
+          <span data-fit="head">
+            <b className={s.metaName}>{meta.name}</b> · <span data-fit="day">{t.day}</span>
+            <span data-fit="dayShort">{fmtDayMonth(when, tz)}</span>
+          </span>
+          <span data-fit="clock1"> · {clock}</span>
         </span>
-        <span className={cx(s.metaLine, s.dim)}>
-          {ago}
+        <span className={cx(s.metaLine, s.dim)} data-fit-line="">
+          <span data-fit="clock2">{clock}</span>
+          <span data-fit="ago">
+            <span className={s.sepBelow}>{' · '}</span>
+            {ago}
+          </span>
           {status ? (
-            <>
+            <span data-fit="status">
               {' · '}
               <span className={cx(s.statusInline, photo.clouded && s.warn)}>{status}</span>
-            </>
+            </span>
           ) : null}
         </span>
         <span className={s.metaLine}>
-          {pan ? 'Landsat C2 L2 + L1 pan · 15 m' : productLabel(capture)} · {km}
+          {product} · {km}
         </span>
-        <span className={s.metaLine}>{coordsOf(model.report.place.lat, model.report.place.lon)}</span>
-        <span className={s.credit}>{credit(capture)}</span>
+        <span className={s.metaLine}>
+          <span data-num>{coordsOf(model.report.place.lat, model.report.place.lon)}</span>
+        </span>
+        <span className={s.credit} lang="en">{credit(capture)}</span>
       </div>
     )
+  }
   return (
     <div className={s.metaText}>
       <span className={s.metaRow}>
         <span className={cx(s.metaMain, s.metaFit)}>
           <span className={s.metaKeep}>
-            <b>{meta.name}</b> · {t.day} · {t.time} {t.zone}
+            <b>{meta.name}</b> · {t.day} · <span data-num>{t.time} {t.zone}</span>
           </span>
           <span className={cx(s.dim, s.metaOpt)}>
             {'\u00a0· '}
@@ -897,15 +933,16 @@ function MetaStrip({ photo, model, mobile, pan }: { photo: Photo; model: Results
       </span>
       <span className={s.metaRow}>
         <span className={s.metaMain}>
-          {pan ? 'Landsat C2 L2 + L1 pan · 15 m' : productLabel(capture)} · {km} · <span className={s.nowrap}>{coordsOf(model.report.place.lat, model.report.place.lon)}</span>
+          {product} · {km} · <span className={s.nowrap} data-num>{coordsOf(model.report.place.lat, model.report.place.lon)}</span>
         </span>
       </span>
-      <span className={s.credit}>{credit(capture)}</span>
+      <span className={s.credit} lang="en">{credit(capture)}</span>
     </div>
   )
 }
 
 function Filmstrip({ items, index, onPick, tz }: { items: Photo[]; index: number; onPick: (i: number) => void; tz: string }) {
+  const lm = useMsgs(enLightbox)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = ref.current?.children[index] as HTMLElement | undefined
@@ -922,10 +959,10 @@ function Filmstrip({ items, index, onPick, tz }: { items: Photo[]; index: number
           aria-selected={i === index}
           className={cx(s.thumb, i === index && s.thumbOn, p.clouded && s.thumbCloud)}
           onClick={() => onPick(i)}
-          aria-label={`Photo ${i + 1}`}
+          aria-label={lm.thumbLabel(i + 1)}
           tabIndex={i === index ? 0 : -1}
         >
-          <Thumb url={thumbUrl(p.capture)} near={Math.abs(i - index) <= 12} day={fmtLocalDay(p.capture.datetime, tz)} />
+          <Thumb url={thumbUrl(p.capture)} near={Math.abs(i - index) <= 12} at={p.capture.datetime} tz={tz} />
         </button>
       ))}
     </div>
@@ -936,7 +973,9 @@ function Filmstrip({ items, index, onPick, tz }: { items: Photo[]; index: number
  * A filmstrip thumbnail: loads when near the current photo, then stays. Until then the slot is an instrument tag with
  * the photo's local day (LAP-07: a row of empty dark boxes read as unfinished).
  */
-function Thumb({ url, near, day }: { url: string; near: boolean; day: string }) {
+function Thumb({ url, near, at, tz }: { url: string; near: boolean; at: number; tz: string }) {
+  // Dates come from lib/time in the active language: re-render with it.
+  useLocale()
   const [ok, setOk] = useState(() => !!decodedPhoto(url) || hasPhotoElement('film', url))
   useEffect(() => {
     if (ok || !near) return
@@ -949,12 +988,13 @@ function Thumb({ url, near, day }: { url: string; near: boolean; day: string }) 
     }
   }, [url, near, ok])
   if (ok) return <Img view="film" url={url} alt="" />
-  // 'Sat 31 Oct' → 'SAT' / '31 OCT'
-  const [wd, ...rest] = day.split(' ')
+  // 'SAT' / '31 OCT': the weekday and the day, each from the instant itself (never the formatted day split apart)
+  const wd = fmtWeekdayShort(at, tz)
+  const dm = fmtDayMonth(at, tz)
   return (
     <span className={s.thumbPh} aria-hidden>
       <span>{wd}</span>
-      <span>{rest.join(' ')}</span>
+      <span>{dm}</span>
     </span>
   )
 }

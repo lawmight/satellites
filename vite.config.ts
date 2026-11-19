@@ -1,6 +1,9 @@
-import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { defineConfig, loadEnv, minifySync, type IndexHtmlTransformContext, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
+import { LOCALE_INFO } from './api/_lib/i18n/locales.ts'
+import { bootLocale, type BootData } from './src/i18n/boot.ts'
+import { BOOT_TEXT } from './src/i18n/bootText.ts'
 
 /**
  * Production origin for absolute link-preview URLs (og:url, og:image): VITE_SITE_ORIGIN, else Vercel's
@@ -36,6 +39,22 @@ const PURE_IMAGERY_MODULES = /src[\\/]imagery[\\/](image|pixels|pixelsClient|gib
 /** lib/geo's Vector3 helpers (three's math classes): the globe's, never the first screen's (see src/lib/geo.ts). */
 const PURE_LIB_MODULES = /src[\\/]lib[\\/]geo3\.ts$/
 
+/**
+ * The i18n core and the few modules the first screen shares with the 15 locale chunks (every catalog formats with
+ * them): Rolldown cut each into its own sliver, because the locale chunks import them too, and English's first load
+ * went from 17 files to 23. Held in one chunk instead. Only zustand's own entry: its `traditional` one (and
+ * use-sync-external-store under it) is React Three Fiber's, and taking it here pulled the globe into the first load.
+ */
+const I18N_CORE =
+  /src[\\/]i18n[\\/](ns|accentFont|runtime|Rich)\.tsx?$|api[\\/]_lib[\\/]i18n[\\/](locales|parts|format|units)\.ts$|src[\\/]ui[\\/]system[\\/]format\.ts$|src[\\/]imagery[\\/]placeKey\.ts$|src[\\/]i18n[\\/]en[\\/]time\.ts$|src[\\/]ui[\\/]results[\\/]lib[\\/]time\.ts$|node_modules[\\/]zustand[\\/]esm[\\/](index|vanilla|react)\.mjs$/
+
+/**
+ * The verdicts' English names ride with the results' meta (the results panel and About both load it), not in a chunk
+ * of their own on the results' path. (The time-lapse's words stay in its chunk because its video module takes them from
+ * it: video.ts imports the catalog's type only.)
+ */
+const RESULTS_META = /src[\\/]ui[\\/]results[\\/]lib[\\/]meta\.ts$|src[\\/]i18n[\\/]en[\\/]verdicts\.ts$/
+
 /** The three faces the first screen paints (latin subsets): preloaded so the static boot frame and the hero never swap fonts late. */
 const CRITICAL_FONTS = /^(?:.*\/)?(instrument-sans-latin-standard-normal|martian-mono-latin-standard-normal|instrument-serif-latin-400-italic)-[\w-]+\.woff2$/
 
@@ -46,12 +65,32 @@ const CRITICAL_FONTS = /^(?:.*\/)?(instrument-sans-latin-standard-normal|martian
  *  - <link rel=preload as=font> for the critical woff2 files (hashed names are only known after bundling).
  *  - <link rel=modulepreload> for the lazily imported globe chunk (three.js + R3F) and its static imports,
  *    so it downloads in parallel with the shell instead of after it evaluates.
+ *  - The language: src/i18n/boot.ts inlined right after <meta charset> with the locales and, in a build, each locale's
+ *    messages chunk, so the page's lang/dir/script are set before first paint and a non-English visitor's messages
+ *    download in parallel with the shell (main.tsx awaits them before the first render); and src/i18n/bootText.ts
+ *    inlined after the loading screen, so its few words are in that language too (I18N).
  */
 function overflightHtml(): Plugin {
   let origin = ''
   let base = '/'
   return {
     name: 'overflight-html',
+    // Two chunks that import each other evaluate one before the other has set its exports: the release of 2026-11-19
+    // died on load with "n is not a function" (engine imported the i18n core, which imported a helper Rolldown had put
+    // in engine). Fail the build on any cycle instead of shipping it.
+    generateBundle(_options, bundle) {
+      const imports = new Map<string, string[]>()
+      for (const o of Object.values(bundle)) if (o.type === 'chunk') imports.set(o.fileName, o.imports)
+      const state = new Map<string, 'open' | 'done'>()
+      const visit = (file: string, path: string[]) => {
+        if (state.get(file) === 'done') return
+        if (state.get(file) === 'open') this.error(`chunk import cycle: ${[...path.slice(path.indexOf(file)), file].join(' → ')}`)
+        state.set(file, 'open')
+        for (const next of imports.get(file) ?? []) visit(next, [...path, file])
+        state.set(file, 'done')
+      }
+      for (const file of imports.keys()) visit(file, [])
+    },
     configResolved(config) {
       origin = siteOrigin({ ...process.env, ...loadEnv(config.mode, config.root, '') } as Record<string, string>)
       base = config.base
@@ -60,6 +99,9 @@ function overflightHtml(): Plugin {
       order: 'post',
       handler(html, ctx) {
         html = html.replaceAll('__SITE_ORIGIN__', origin).replaceAll('__APP_VERSION__', appVersion())
+        // The app's page only: the dev server also serves admin.html (?mock=1), which has no boot language or words.
+        if (!/(^|[\\/])index\.html$/.test(ctx.filename)) return html
+        html = withLocaleBoot(html, ctx.bundle ? localePreloads(ctx.bundle, base) : undefined, ctx.bundle ? scriptFonts(ctx.bundle, base) : undefined)
         const bundle = ctx.bundle
         if (!bundle) return html
         const tags: { tag: string; attrs: Record<string, string | boolean>; injectTo: 'head' }[] = []
@@ -83,6 +125,68 @@ function overflightHtml(): Plugin {
       },
     },
   }
+}
+
+type OutputBundle = NonNullable<IndexHtmlTransformContext['bundle']>
+
+/**
+ * Each locale's messages chunk (src/i18n/<locale>/index.ts, a dynamic import of src/i18n/runtime.ts) and the chunks it
+ * imports that the entry doesn't already load, as URLs to modulepreload when the boot script picks that locale.
+ */
+function localePreloads(bundle: OutputBundle, base: string): Record<string, string[]> {
+  const entry = Object.values(bundle).find((o) => o.type === 'chunk' && o.isEntry)
+  const have = new Set(entry && entry.type === 'chunk' ? [entry.fileName, ...entry.imports] : [])
+  const out: Record<string, string[]> = {}
+  for (const o of Object.values(bundle)) {
+    if (o.type !== 'chunk' || !o.isDynamicEntry || !o.facadeModuleId) continue
+    const m = /[\\/]src[\\/]i18n[\\/]([A-Za-z-]+)[\\/]index\.ts$/.exec(o.facadeModuleId)
+    if (!m || !(m[1] in LOCALE_INFO)) continue
+    out[m[1]] = [o.fileName, ...o.imports.filter((f) => !have.has(f))].map((f) => base + f)
+  }
+  return out
+}
+
+/**
+ * A script's faces the first screen paints (src/styles/scripts.css), preloaded by the boot script only for that
+ * script: the hero is the largest paint, and its Cyrillic or Arabic face would otherwise be discovered late. The Arabic
+ * accent (one word) and every Latin page's fonts are not on this list.
+ */
+const LATIN_EXT = /^(?:.*\/)?(instrument-sans-latin-ext-standard-normal|martian-mono-latin-ext-standard-normal|instrument-serif-latin-ext-400-italic)-[\w-]+\.woff2$/
+const SCRIPT_FONTS: Record<string, RegExp> = {
+  cyrillic: /^(?:.*\/)?(noto-sans-cyrillic-wdth-normal|noto-serif-display-cyrillic-italic-320-62)-[\w-]+\.woff2$/,
+  arabic: /^(?:.*\/)?noto-sans-arabic-wght400-700-wdth75-100-[\w-]+\.woff2$/,
+  // Latin languages whose own letters (ł ż ś, ş ğ ı) live in the brand faces' latin-ext files (keyed by locale)
+  pl: LATIN_EXT,
+  tr: LATIN_EXT,
+}
+function scriptFonts(bundle: OutputBundle, base: string): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const o of Object.values(bundle))
+    for (const [script, re] of Object.entries(SCRIPT_FONTS)) if (o.type === 'asset' && re.test(o.fileName)) (out[script] ??= []).push(base + o.fileName)
+  return out
+}
+
+/**
+ * index.html with the boot language script after <meta charset> and the loading screen's words after it. The script
+ * is src/i18n/boot.ts's function itself (serialised), so the build and the tests run the same code.
+ */
+function withLocaleBoot(html: string, preload: Record<string, string[]> | undefined, fonts: Record<string, string[]> | undefined): string {
+  const data: BootData = {
+    locales: Object.fromEntries(Object.values(LOCALE_INFO).map((l) => [l.code, [l.script, l.dir, l.listed ? 1 : 0]])),
+    ...(preload ? { preload } : {}),
+    ...(fonts ? { fonts } : {}),
+  }
+  const json = (v: unknown) => JSON.stringify(v).replace(/</g, '\\u003c')
+  const min = (code: string) => minifySync('boot.js', code, {}).code.trim().replace(/;$/, '')
+  const boot = `<script>${min(`(${bootLocale.toString()})(${json(data)})`)}</script>`
+  const text = Object.fromEntries(Object.entries(BOOT_TEXT).filter(([k]) => k !== 'en'))
+  const words =
+    `<script>(function(t){var e=t[document.documentElement.lang];if(!e)return;var b=document.getElementById('boot-static');` +
+    `if(b){b.setAttribute('aria-label',e.loading);var n=b.querySelector('.bs-note');if(n)n.textContent=e.slow}` +
+    `document.title=e.title})(${json(text)})</script>`
+  const charset = /<meta charset="UTF-8" \/>\n/
+  if (!charset.test(html) || !html.includes('<!-- boot-text -->')) throw new Error('index.html: missing <meta charset> or <!-- boot-text -->')
+  return html.replace(charset, (m) => `${m}    ${boot}\n`).replace('<!-- boot-text -->', words)
 }
 
 /**
@@ -123,6 +227,12 @@ export default defineConfig({
             // The photos' URLs on the place's UTM grid (src/imagery/pcCrop.ts over api/_lib/toneRender.ts + utm.ts) are
             // built once a search starts: their own chunk, so they never ride with the geocoder's endpoints (CR-1).
             { name: 'grid', test: /src[\\/]imagery[\\/](pcCrop|radar)\.ts$|api[\\/]_lib[\\/](toneRender|utm|radar|infrared)\.ts$/, includeDependenciesRecursively: false },
+            // The i18n core with the first screen's shared modules (I18N_CORE), and React with its JSX runtime, which
+            // the locale chunks' imports had split apart: English's first screen loads one file more than before
+            // translations (this core), not seven.
+            { name: 'i18n', test: I18N_CORE, includeDependenciesRecursively: false },
+            { name: 'react', test: /node_modules[\\/]react[\\/]/, includeDependenciesRecursively: false },
+            { name: 'meta', test: RESULTS_META, includeDependenciesRecursively: false },
           ],
         },
       },

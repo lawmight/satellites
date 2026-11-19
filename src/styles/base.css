@@ -63,28 +63,41 @@ img {
   max-width: 100%;
 }
 
+/* Right to left (docs/I18N.md): an arrow that points along the reading points the other way. `scale`, not
+   `transform`, so a component's own rotation (a down arrow) composes with it. */
+:root[dir='rtl'] [data-reading] {
+  scale: -1 1;
+}
+
+/* Units keep their case in mono caps rows: "786 km", "10 m", "7.46 km/s", never "786 KM" (DESIGN §3,
+   api/_lib/i18n/units.ts). Rich and withUnits set each unit symbol in a [data-unit] span; :root lifts this over a
+   component's own `text-transform: uppercase` on the span that holds it. */
+:root [data-unit] {
+  text-transform: none;
+}
+
 /* utility type styles */
 .t-display {
   font-family: var(--font-sans);
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   font-size: var(--fs-display);
   letter-spacing: var(--track-display);
-  line-height: 0.92;
+  line-height: calc(0.92 * var(--lh-k));
 }
 .t-h1 {
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   font-size: var(--fs-h1);
   letter-spacing: var(--track-display);
-  line-height: 0.95;
+  line-height: calc(0.95 * var(--lh-k));
 }
 .t-h2 {
   font-stretch: 80%;
   font-weight: 540;
   font-size: var(--fs-h2);
   letter-spacing: -0.01em;
-  line-height: 1.02;
+  line-height: calc(1.02 * var(--lh-k));
 }
 .t-serif {
   font-family: var(--font-serif);

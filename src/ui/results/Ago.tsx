@@ -5,8 +5,11 @@
  * "Now" is report-relative: the report's end plus however long it has been on screen. In the app
  * that is wall-clock now; for a report computed for an earlier window (a shared pass, a fixture) it
  * stays consistent with "in the last 7 days".
+ *
+ * The words are the visitor's language ('time' namespace): the label re-renders on a language switch too.
  */
 import { useSyncExternalStore } from 'react'
+import { useLocale } from '@/i18n/runtime'
 import { fmtRelative } from './lib/time'
 import type { ReportClock } from './model'
 
@@ -44,6 +47,7 @@ export function useReportNow(base: ReportClock): number {
 export const reportNow = (base: ReportClock) => base.end + Math.max(0, Date.now() - base.at)
 
 export function Ago({ t, base, className }: { t: number; base: ReportClock; className?: string }) {
+  useLocale()
   const n = useReportNow(base)
   return <span className={className}>{fmtRelative(t, n)}</span>
 }

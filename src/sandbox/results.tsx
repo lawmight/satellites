@@ -15,6 +15,9 @@
  *   variant=empty   no passes at all          variant=broken   image renders fail (error + retry state)
  */
 import { Component, useEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { COMPUTE_FAULT } from '@/app/messageRefs'
+import enEngine from '@/i18n/en/engine'
+import { refMaker } from '@/i18n/messageRef'
 import { computeReport, loadCatalog } from '@/engine'
 import { useApp } from '@/state/store'
 import type { Pass, ProgressEvent, Report } from '@/types'
@@ -201,9 +204,11 @@ async function runLive() {
     await show(final)
   } catch (e) {
     console.error(e)
-    useApp.getState().setPhase('error', String(e))
+    useApp.getState().setPhase('error', COMPUTE_FAULT, String(e))
   }
 }
+
+const ref = refMaker<typeof enEngine>('engine')
 
 /** Replays a realistic progress sequence (timings from real engine runs). */
 async function simulateComputing() {
@@ -214,19 +219,20 @@ async function simulateComputing() {
   st.setTimeMode('live')
   st.setCamera({ kind: 'place', lat: WATERLOO.lat, lon: WATERLOO.lon })
   st.setPhase('computing')
+  // The engine's own message refs, so the readout speaks the page's language (?hl=), as in the app.
   const steps: [number, ProgressEvent][] = [
-    [0, { stage: 'catalog', message: 'LOADING ORBITAL CATALOG', fraction: 0.02 }],
-    [180, { stage: 'catalog', message: 'CATALOG · 16,912 OBJECTS', fraction: 0.06 }],
-    [60, { stage: 'propagate', message: 'PROPAGATING 403 ORBITS · 7 DAYS', fraction: 0.06 }],
-    [140, { stage: 'propagate', message: 'PROPAGATING ORBITS · 96 / 403', fraction: 0.21 }],
-    [140, { stage: 'propagate', message: 'PROPAGATING ORBITS · 211 / 403', fraction: 0.39 }],
-    [140, { stage: 'propagate', message: 'PROPAGATING ORBITS · 288 / 403', fraction: 0.52 }],
+    [0, { stage: 'catalog', message: ref('progress.loadingCatalog'), fraction: 0.02 }],
+    [180, { stage: 'catalog', message: ref('progress.catalog', { objects: 16912 }), fraction: 0.06 }],
+    [60, { stage: 'propagate', message: ref('progress.propagateStart', { orbits: 403, days: 7 }), fraction: 0.06 }],
+    [140, { stage: 'propagate', message: ref('progress.propagating', { done: 96, total: 403 }), fraction: 0.21 }],
+    [140, { stage: 'propagate', message: ref('progress.propagating', { done: 211, total: 403 }), fraction: 0.39 }],
+    [140, { stage: 'propagate', message: ref('progress.propagating', { done: 288, total: 403 }), fraction: 0.52 }],
   ]
   const tail: [number, ProgressEvent][] = [
-    [160, { stage: 'propagate', message: 'PROPAGATING ORBITS · 403 / 403', fraction: 0.7 }],
-    [40, { stage: 'archive', message: 'SEARCHING SENTINEL-2 + LANDSAT ARCHIVES', fraction: 0.72 }],
-    [620, { stage: 'match', message: 'MATCHING 5 SCENES TO 1,883 PASSES', fraction: 0.8 }],
-    [80, { stage: 'match', message: 'VERIFYING NASA WEATHER MOSAICS', fraction: 0.86 }],
+    [160, { stage: 'propagate', message: ref('progress.propagating', { done: 403, total: 403 }), fraction: 0.7 }],
+    [40, { stage: 'archive', message: ref('progress.searchingArchives'), fraction: 0.72 }],
+    [620, { stage: 'match', message: ref('progress.matching', { scenes: 5, passes: 1883 }), fraction: 0.8 }],
+    [80, { stage: 'match', message: ref('progress.verifyingWeatherStart'), fraction: 0.86 }],
   ]
   for (const [ms, e] of HOLD ? steps : [...steps, ...tail]) {
     await sleep(ms)

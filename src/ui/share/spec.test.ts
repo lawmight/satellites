@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { Pass, Report } from '@/types'
-import { buildCardSpec, headlineParts, localStamp, zoneAbbr as specZoneAbbr, type CardInput, type CardSpec, type SummaryInput } from '../../../api/_lib/cardSpec'
+import { buildCardSpec, headPieces, localStamp, passHeadline, zoneAbbr as specZoneAbbr, type CardInput, type CardSpec, type SummaryInput, type Verdict } from '../../../api/_lib/cardSpec'
+import { cardMessages } from '../../../api/_lib/i18n/card/index'
 import { waterlooReport } from '../results/__fixtures__/waterloo'
 import { shareHeadline } from '../results/lib/copy'
 import { VERDICT_META, VERDICTS, type SatMeta } from '../results/lib/meta'
@@ -23,6 +24,9 @@ interface ServerShare {
   shareTimeZone: (p: { lat: number; lon: number }) => string
 }
 const server = () => import('../../../api/_lib/share.ts' as string) as Promise<ServerShare>
+
+/** A pass headline's plain pieces, in English: "Sentinel-2C watched" | "Waterloo" | "." */
+const satHeadline = (v: Verdict, sat: string, place: string) => headPieces(passHeadline(cardMessages('en'), v, sat, place), 'en')
 
 const META: Record<number, SatMeta> = {
   60989: { norad: 60989, name: 'Sentinel-2C', category: 'open-optical' },
@@ -101,7 +105,7 @@ describe('share card spec', () => {
     expect(`${client.place}${client.tail}`).toBe('Waterloo this week.')
     expect(client.sub).toMatch(/^\d+ images were made public\.$/)
     expect(client.plate.kind === 'image' && client.plate.chip.segs[0].text).toMatch(/^Closest look · Sentinel-2C · 10 m$/)
-    expect(client.readouts.map((r) => r.label)).toEqual(['Photo', 'Likely', 'Could', 'Overhead'])
+    expect(client.readouts.map((r) => r.label)).toEqual(['Image', 'Likely', 'Could', 'Overhead'])
     expect(summaryPostText({ placeLabel: 'Waterloo', satellites: 7, photos: 12 })).toBe(
       '7 satellites watched Waterloo this week. 12 images were made public.\n\nSomething watched you this week too.\nvia @armaangupt0',
     )
@@ -158,11 +162,11 @@ describe('share card spec', () => {
       overhead: { title: 'Passed overhead', lead: 'Sentinel-2C passed over' },
     }
     for (const v of VERDICTS) {
-      const a = headlineParts(v, 'Sentinel-2C', 'Waterloo')
+      const a = satHeadline(v, 'Sentinel-2C', 'Waterloo')
       const label = VERDICT_WORDS[v].title
       // Owner: the card leads with the week's N when it is known, the satellite's own sentence only without it.
       expect(buildCardSpec({ verdict: v, satName: 'X', placeLabel: 'Y', satellites: 7, lat: 0, lon: 0, pass: {}, host: '' }).lead).toBe('7 satellites watched')
-      expect(buildCardSpec({ verdict: v, satName: 'X', placeLabel: 'Y', lat: 0, lon: 0, pass: {}, host: '' }).lead).toBe(headlineParts(v, 'X', 'Y').lead)
+      expect(buildCardSpec({ verdict: v, satName: 'X', placeLabel: 'Y', lat: 0, lon: 0, pass: {}, host: '' }).lead).toBe(satHeadline(v, 'X', 'Y').lead)
       expect(a.lead).toBe(OWNER[v].lead)
       expect(label).toBe(OWNER[v].title)
       // The results vocabulary says the same once main's 'watched' hotfix (77a2435) is in this branch: until the

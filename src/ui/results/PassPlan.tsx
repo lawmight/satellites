@@ -2,16 +2,18 @@
  * Plan view of a pass that has no image: the place at the centre, the real ground track, the band the
  * instrument could see (swath, or field of regard for agile imagers), the closest-approach line, and the
  * satellite riding the track in sync with replay time. North up, local equirectangular projection.
- * Doubles as the left half of the share card for passes without a picture.
+ * Doubles as the left half of the share card for passes without a picture. Its words: the 'results' namespace (plan).
  */
 import { useId, useMemo, useRef } from 'react'
+import enResults from '@/i18n/en/results'
+import { withUnits } from '@/i18n/Rich'
+import { useMsgs } from '@/i18n/runtime'
 import { sceneClock } from '@/state/sceneClock'
 import { useAfterSceneFrame } from './capture'
 import { useApp } from '@/state/store'
 import type { Pass } from '@/types'
 import { cx } from '@/ui/system'
 import { scaleBarKm } from './lib/captures'
-import { int } from './lib/copy'
 import type { SatMeta } from './lib/meta'
 import { planGeometry, satPosition, type Pt } from './lib/plan'
 import s from './PassPlan.module.css'
@@ -53,6 +55,7 @@ export function PassPlan({ pass: p, meta, lat, lon, live = true, className, labe
   const bar = scaleBarKm(2 * R)
   const pts = (a: Pt[]) => a.map((q) => `${q.x.toFixed(2)},${q.y.toFixed(2)}`).join(' ')
   const prof = meta.profile
+  const m = useMsgs(enResults).plan
 
   return (
     <div className={cx(s.plan, className)}>
@@ -60,7 +63,7 @@ export function PassPlan({ pass: p, meta, lat, lon, live = true, className, labe
         viewBox={`${-R} ${-R} ${2 * R} ${2 * R}`}
         className={s.svg}
         role="img"
-        aria-label={`Plan view: ${meta.name} ground track, ${int(p.groundDistanceKm)} km from the place at closest approach.`}
+        aria-label={m.label(meta.name, p.groundDistanceKm)}
       >
         <defs>
           <clipPath id={clipId}>
@@ -104,15 +107,13 @@ export function PassPlan({ pass: p, meta, lat, lon, live = true, className, labe
       </svg>
       {labels ? (
         <>
-          <span className={cx(s.label, s.tl)}>Plan · north up</span>
-          <span className={cx(s.label, s.tr)}>
-            {g.half ? (prof?.maxOffNadirDeg ? `Field of regard ±${prof.maxOffNadirDeg}°` : `Swath ${int(prof?.swathKm ?? 0)} km`) : 'Ground track'}
-          </span>
+          <span className={cx(s.label, s.tl)}>{m.northUp}</span>
+          <span className={cx(s.label, s.tr)}>{g.half ? (prof?.maxOffNadirDeg ? m.fieldOfRegard(prof.maxOffNadirDeg) : withUnits(m.swath(prof?.swathKm ?? 0))) : m.groundTrack}</span>
           <span className={s.scale} style={{ width: `${(bar / (2 * R)) * 100}%` }}>
             <span className={s.bar} />
-            <span className={s.scaleText}>{bar >= 1 ? int(bar) : bar} km</span>
+            <span className={s.scaleText}>{withUnits(m.scale(bar))}</span>
           </span>
-          <span className={cx(s.label, s.br)}>Closest {p.groundDistanceKm < 1 ? "< 1" : int(p.groundDistanceKm)} km</span>
+          <span className={cx(s.label, s.br)}>{withUnits(m.closest(p.groundDistanceKm))}</span>
         </>
       ) : null}
     </div>

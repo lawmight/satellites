@@ -1,15 +1,18 @@
 /**
  * What the lazily loaded src/app/telemetry.ts needs from the app, handed over by src/main.tsx. The store, the
- * catalog lookup and cityLevelLabel are in the entry chunk already; `arrival` is read here, synchronously at
- * import (before the app boots), because the app soon rewrites the URL (a search writes ?q=&n=, a missing share
- * is dropped) and /s/<id> share pages redirect to /?s=<id>:
+ * catalog lookup, the place-label helpers, the fault notices' English and the active language are in the entry chunk
+ * already; `arrival`
+ * is read here, synchronously at import (before the app boots), because the app soon rewrites the URL (a search
+ * writes ?q=&n=, a missing share is dropped) and /s/<id> share pages redirect to /?s=<id>:
  *  - `?noanalytics=1` opts the whole tab out (sessionStorage, read by src/lib/telemetry.ts);
  *  - how the visit started (landing / deep link / share link), its referrer and query (UTM tags), including
  *    what a /s/ page stashed before redirecting (api/_lib/html.ts).
  */
 export { useApp } from '@/state/store'
 export { getSatInfo } from '@/engine/catalog'
-export { cityLevelLabel } from '@/lib/backend'
+export { canonicalPlace, cityLevelLabel } from '@/lib/backend'
+export { englishOf } from './messageRefs'
+export { currentLocale } from '@/i18n/runtime'
 
 export interface Arrival {
   entry: 'landing' | 'deep_link' | 'share_link'

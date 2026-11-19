@@ -9,6 +9,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { sunElevationDeg } from '@/lib/geo'
 import type { Capture, LatLon, Pass, Place } from '@/types'
+import enEngine from '@/i18n/en/engine'
+import { refText } from '@/i18n/messageRef'
 import { Button, Glyph, Label, Readout, Rule, Tag, fmtAgo, fmtInt, fmtLat, fmtLocal, fmtLon, fmtNorad, fmtNum, fmtUtc } from '@/ui/system'
 import {
   geoImageUrl,
@@ -297,8 +299,8 @@ function Captures({ place, now, tz }: { place: Place; now: number; tz: string })
       {job.state === 'ready' && job.value.degraded.length > 0 ? (
         <ul className="imx-degraded">
           {job.value.degraded.map((d) => (
-            <li key={d} className="t-mono">
-              {d}
+            <li key={d.id} className="t-mono">
+              {refText(d, { engine: enEngine })}
             </li>
           ))}
         </ul>

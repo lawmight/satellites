@@ -1,18 +1,22 @@
 /**
  * "Use my location": geolocation → reverse geocode → onPlace. Drives the store's 'locating' phase.
  * Each attempt has a token so a cancelled or superseded attempt can never submit late.
+ *
+ * A failure is kept as its code, not its sentence: the landing words it in the visitor's language when it renders
+ * ('landing' locateErrors), so a language switch also rewords a notice already on screen.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { LocateError, locateMe, reversePlace } from '@/imagery'
 import { useApp } from '@/state/store'
 import type { Place } from '@/types'
 
+/** Why locating failed: a LocateError's code, or 'other' (the reverse geocoder, the network). */
+export type LocateFailure = LocateError['code'] | 'other'
+
 export type LocateState =
   | { kind: 'idle' }
   | { kind: 'locating'; step: 'position' | 'naming'; t0: number }
-  | { kind: 'error'; message: string }
-
-const FALLBACK_MESSAGE = 'Your position isn’t available right now. Search for a place instead.'
+  | { kind: 'error'; code: LocateFailure }
 
 export function useLocate(onPlace: (p: Place) => void) {
   const [state, setState] = useState<LocateState>({ kind: 'idle' })
@@ -46,7 +50,7 @@ export function useLocate(onPlace: (p: Place) => void) {
     } catch (err) {
       if (token.current !== my) return
       leaveLocatingPhase()
-      setState({ kind: 'error', message: err instanceof LocateError ? err.message : FALLBACK_MESSAGE })
+      setState({ kind: 'error', code: err instanceof LocateError ? err.code : 'other' })
     }
   }, [])
 

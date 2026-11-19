@@ -99,7 +99,7 @@
   gap: 12px;
   height: 36px;
   padding: 0 12px;
-  margin-right: -12px;
+  margin-inline-end: -12px;
   border: 1px solid transparent;
   font: inherit;
   letter-spacing: inherit;
@@ -123,13 +123,13 @@
   border-color: var(--line-strong);
   transition-duration: 0ms;
 }
-/* Touch: a 44 px hit box; the glyph stays on the same right edge. */
+/* Touch: a 44 px hit box; the glyph stays on the same outer edge. */
 @media (pointer: coarse) {
   .close {
     justify-content: center;
     min-width: 44px;
     height: 44px;
-    margin-right: -14px;
+    margin-inline-end: -14px;
   }
 }
 
@@ -166,7 +166,7 @@
   font-size: var(--fs-label);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
-  text-align: left;
+  text-align: start;
   color: var(--bone-3);
   transition: color var(--d-hover) var(--ease-out);
 }
@@ -184,11 +184,11 @@
 .navCurrent .navIdx {
   color: var(--bone-2);
 }
-/* reading head */
+/* reading head, at the row's end (the left, right to left) */
 .navCurrent::after {
   content: '';
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   top: 50%;
   width: 16px;
   height: 1px;
@@ -210,22 +210,24 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  font-stretch: 75%;
-  font-weight: 560;
+  font-stretch: var(--stretch-display);
+  font-weight: var(--w-display);
   font-size: var(--fs-h1);
-  line-height: 0.95;
+  line-height: calc(0.95 * var(--lh-k));
   letter-spacing: var(--track-display);
 }
 .titleLine {
-  padding: 0.04em 0.08em 0.14em 0;
-  margin: -0.04em -0.08em -0.14em 0;
+  padding: 0.04em 0 0.14em;
+  padding-inline-end: 0.08em;
+  margin: -0.04em 0 -0.14em;
+  margin-inline-end: -0.08em;
 }
 .serif {
-  font-family: var(--font-serif);
+  font-family: var(--font-accent);
   font-style: italic;
-  font-weight: 400;
+  font-weight: var(--w-serif);
   font-stretch: 100%;
-  font-size: 1.07em;
+  font-size: calc(1.07em * var(--accent-k));
   line-height: 0;
   letter-spacing: -0.01em;
 }
@@ -233,7 +235,7 @@
   margin: 32px 0 0;
   max-width: min(32em, 580px);
   font-size: clamp(16px, 1.3vw, 19px);
-  line-height: 1.5;
+  line-height: calc(1.5 * var(--lh-text-k));
   color: var(--bone-2);
   text-wrap: pretty;
 }
@@ -269,12 +271,12 @@
   font-stretch: 80%;
   font-weight: 540;
   font-size: var(--fs-h2);
-  line-height: 1.02;
+  line-height: calc(1.02 * var(--lh-k));
   letter-spacing: -0.01em;
 }
 .prose {
   font-size: 16px;
-  line-height: 1.6;
+  line-height: calc(1.6 * var(--lh-text-k));
   color: var(--bone-2);
 }
 .prose > p {
@@ -414,10 +416,11 @@
   color: var(--bone-2);
 }
 
-/* "Watched v0.1 · Built by @handle" left, the disclaimer right (below it when the line is too short). */
+/* "Watched v0.1 · Built by @handle" left, the disclaimer right (below it when the line is too short); mirrored
+   right to left. */
 .byline {
-  margin-right: auto;
-  padding-right: 24px;
+  margin-inline-end: auto;
+  padding-inline-end: 24px;
 }
 .bySep {
   margin: 0 0.7em;
@@ -514,8 +517,8 @@
     gap: 6px;
   }
   .byline {
-    margin-right: 0;
-    padding-right: 0;
+    margin-inline-end: 0;
+    padding-inline-end: 0;
   }
   .bySep {
     display: none;
@@ -538,5 +541,5 @@
   display: inline-block;
   color: var(--bone);
   vertical-align: -2px;
-  margin-right: 0.35em;
+  margin-inline-end: 0.35em;
 }
