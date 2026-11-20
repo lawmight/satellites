@@ -16,8 +16,10 @@
     "directory": "./dist",
     "binding": "ASSETS",
     // The router (worker/router.ts) decides these; every other static file is served without running the Worker,
-    // and a request no file matches reaches the Worker too (the app fallback and 404s, as on Vercel).
-    "run_worker_first": ["/", "/s/*", "/api/*"],
+    // and a request no file matches reaches the Worker too (the app fallback and 404s).
+    // The place pages (/place, /place/<slug>) are static too, but go through the Worker so that a preview host
+    // marks them noindex.
+    "run_worker_first": ["/", "/s/*", "/api/*", "/place", "/place/*"],
   },
   // The Meteosat frame cache (api/_lib/geoFill.ts): each frame is fetched from EUMETSAT once, by the timer below, and
   // kept here as tiles that /api/geo cuts pictures from. No id: `wrangler deploy` creates the namespace the first

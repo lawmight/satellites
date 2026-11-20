@@ -18,17 +18,21 @@
 **Checks and style**
 - `npm test` covers `src/**` only. The serverless functions in `api/` and the Cloudflare Worker in `worker/` have their
   own suite: `npm run test:backend`.
-  Run both, plus `npm run build` (it runs `tsc -b` and two Vite builds: the app and `/admin`).
+  Run both, plus `npm run build` (it runs `tsc -b`, two Vite builds: the app and `/admin`, then
+  `scripts/build-seo.ts`, which writes the place pages, sitemap and robots.txt into `dist/`).
 - There is no Prettier or ESLint config. Never run `npx prettier`: it downloads Prettier and rewrites files in its
   defaults (double quotes, 80 columns). House style: single quotes, no semicolons, ~120 columns, and a doc comment at
   the top of each module saying *why* it works the way it does. Follow `docs/DESIGN.md` for UI: tokens only, no raw
   font sizes or colours.
 
 **Production, data and permissions**
-- The site is served by the Cloudflare Worker; Vercel no longer builds (it still receives each push and cancels the
-  deployment). Every branch push gets a Cloudflare Workers Builds preview, public, at
-  `https://<branch, non-alphanumerics as ->-watched.<account subdomain>.workers.dev` (the subdomain: Cloudflare API
-  `/accounts/<id>/workers/subdomain`). A push to `main` deploys production the same way.
+- Cloudflare is the only host (Workers Builds): a push to `main` runs `npm run build` and `wrangler deploy`; a push
+  to any other branch runs `npm run build` and `wrangler versions upload`, which gives that branch a preview at
+  `https://<branch, non-alphanumerics as ->-watched.<account subdomain>.workers.dev` (the subdomain: Cloudflare API,
+  `/accounts/<id>/workers/subdomain`; a build takes about two minutes:
+  `/accounts/<id>/builds/workers/<tag>/builds`). Previews are `noindex` and write no events. Vercel no longer builds:
+  `vercel.json` is only the switch that tells it not to. Don't delete the Vercel project: it is what redirects the
+  launch address (`overflight-psi.vercel.app`) to the site.
 - Supabase project `etiebfmgepkcewkkbxwi`: use the Management API
   (`POST https://api.supabase.com/v1/projects/etiebfmgepkcewkkbxwi/database/query`; the session proxy adds the token).
   Do NOT use the Supabase MCP connector: it points at an unrelated project (`xcinlndzgpzjmvmeujor`).
@@ -79,7 +83,7 @@
 
 **Testing against the live site** (www.watched.earth)
 - Any probe must block writes so it doesn't pollute analytics: requests matching `rpc/(create_share|record_lookup|log_events)`,
-  `/api/e`, `/_vercel/insights` and `/cdn-cgi/rum` (Cloudflare Web Analytics), plus any non-GET to watched.earth or Supabase. Also add `?noanalytics=1`.
+  `/api/e` and `/cdn-cgi/rum` (Cloudflare Web Analytics), plus any non-GET to watched.earth or Supabase. Also add `?noanalytics=1`.
   Planetary Computer's STAC search must NOT be blocked, or no photos load: it is a GET (no CORS preflight, see
   `src/imagery/stac.ts searchPage`) that falls back to a POST if the archive refuses the GET form.
 - Time a search with User Timing marks: `performance.getEntriesByName('overflight:<name>')`, for `run-report`,
@@ -134,7 +138,25 @@
   two presses, because a share sheet or a download only opens inside a press. Its events (`timelapse_open`,
   `timelapse_share`) are allow-listed in 0022 and charted on the admin page by 0024 (a fifth number in the series,
   `event_hours.timelapse`, and two breakdowns).
-- Back button: layers register with `src/lib/backStack.ts`. Never call `history.pushState` directly.
+- Search engines (`src/seo/`, `scripts/build-seo.ts`, `src/lib/placePage.ts`; docs/ARCHITECTURE.md has the rules):
+  the build writes ~2,100 place pages (`/place/<slug>`: the built index.html with that place's title, canonical,
+  card and the place in a JSON script), their list (`/place`), `sitemap.xml` and `robots.txt`. Keep these true: the
+  set is closed (`src/seo/places.ts` chooses it from the offline place list; never make a page from a typed address
+  or an `n=` label, which would put other people's words in titles here); a slug never changes once given; a place
+  page IS the app opened on that place, and its static text states no count; every `?q=` and `?s=` address is
+  canonical to `/`; the text under the app stays `display: none` while the loading screen is up, so it is never the
+  page's LCP; robots.txt never closes `/api/` (link previews fetch `/api/og`, and X's and Facebook's fetchers obey
+  it). index.html's head between the `seo:head` markers is `headTags(homeMeta())`: change the generator, then the
+  copy (a test compares them). Crawlers run the app on these pages: the client sends no events when the user agent
+  names one (`CRAWLER_RE`), and each rendering is a real search against the archives. `src/app/head.ts` is the only
+  writer of the tab title and the canonical link once the app runs: a place's title is the static page's sentence
+  in English (`pageTitle`) and "<place> · Watched" in any other language, and English's `app.documentTitle` must
+  stay index.html's title (`HOME_TITLE`; tests hold both). The pages themselves are English only (no `hreflang`:
+  a language is a preference, not an address). One page a point: a landmark listed twice at the same coordinates
+  gets the first name's page (`NAMED_TODAY` in `src/seo/places.ts` for the exceptions).
+- Back button: layers register with `src/lib/backStack.ts`. Never call `history.pushState` directly. The address is
+  written through `addressOf` / `homePath` (`src/lib/placePage.ts`): a place page keeps its own path only while its
+  place is on screen.
 - Share has three entry points, each tagged `from` in its events: the headline's second line (the week's summary;
   nothing is stored), the photo viewer, and the pass view (plus the laptop lead photo's icon). The sheet and the
   photo viewer are portals on `<body>`: the app root is `position: fixed`, so nothing inside it can paint over them.
@@ -142,12 +164,12 @@
   and calls `preventDefault()`.
 - iOS: tapping a non-input element blurs the focused field before `click` fires. Choose touch taps on `pointerup`
   (see `SearchBox.tsx`).
-- Vercel functions use the fetch-style handler (`export default { fetch }`) and are registered in `vercel.json`
-  (`maxDuration`). Vercel passes the query string percent-encoded in `req.url`.
-- The site runs on a Cloudflare Worker (`worker/`, `wrangler.jsonc`) with the same handlers as the Vercel functions. Its routes
-  (`worker/router.ts`) and static headers (`public/_headers`) mirror `vercel.json`, and tests keep them equal: change
-  both. Workers run only WebAssembly bundled at deploy time, so the card renderer takes its fonts and WebAssembly
-  from `api/_lib/bundled.ts` there. After `npm run build`, `npm run dev:worker` runs it locally.
+- The site is one Cloudflare Worker (`worker/`, `wrangler.jsonc`): `worker/router.ts` holds the routes and
+  `public/_headers` the static files' headers (a response the Worker builds itself never gets that file's headers:
+  the router adds them). The handlers in `api/` take a `Request` and return a `Response`; the Worker imports each by
+  name (`handleOg`, `handleSharePage`, …). Workers run only WebAssembly bundled at deploy time, so the card renderer
+  takes its fonts and WebAssembly from `api/_lib/bundled.ts` there, and reads them from disk under Node (tests,
+  scripts). After `npm run build`, `npm run dev:worker` runs it locally.
 - Honest labelling is a product rule: a label (resolution, "watched", counts) must say exactly what is on screen.
 - Sentinel-1 radar images (`sentinel-1-rtc`) are real images but not photos: `isDetailed` is false for them, they
   never lead or get a cloud check, and their crops are toned by `radarTone.ts` (route new radar URLs through
@@ -178,7 +200,7 @@
   it is stored and the fill keeps its own state key. The Worker stores no logs (Workers Logs would bill every
   request): what the fill's last 40 working runs saw is in that state, KV key `fill`, field `log` (read it with the
   Cloudflare API: `…/storage/kv/namespaces/<id>/values/fill`). EUMETView publishes a frame 21–29 minutes after it
-  is taken, and its cached list can lag minutes more (seen in the log on 2026-11-17), so every second read asks its tile service. Vercel and `npm run dev` have no cache: the Meteosat rows say
+  is taken, and its cached list can lag minutes more (seen in the log on 2026-11-17), so every second read asks its tile service. `npm run dev` has no cache: the Meteosat rows say
   "No image just now" there; `npx wrangler dev --test-scheduled` has one (start a fill with `/__scheduled`, see
   docs/SELF-HOSTING.md). Cloud containers cannot reach EUMETView from `wrangler dev` (workerd ignores the proxy): set
   `GEO_UPSTREAM` to a local stand-in that serves downloaded pieces.

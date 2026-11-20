@@ -4,8 +4,8 @@
 images they took. A 3D globe shows the real sun, the real catalog (~17k objects), and each pass replayed.
 
 Stack: Vite 8 + React 19 + TypeScript 7 (`tsc -b`) + three.js 0.187 via @react-three/fiber 9 / drei 10 /
-postprocessing. State: zustand (`src/state/store.ts`). Orbits: satellite.js 7 (SGP4). Hosting: Vercel
-(static + `api/` functions). DB: Supabase (RPC-only access, publishable key).
+postprocessing. State: zustand (`src/state/store.ts`). Orbits: satellite.js 7 (SGP4). Hosting: a Cloudflare
+Worker (static files + the `api/` handlers). DB: Supabase (RPC-only access, publishable key).
 
 Read first: `docs/DESIGN.md` (non-negotiable art direction), `src/types.ts` (shared contracts),
 `src/lib/geo.ts` (frame conventions), `src/state/store.ts` (app state), `src/ui/system/*` (primitives).
@@ -37,7 +37,7 @@ Read first: `docs/DESIGN.md` (non-negotiable art direction), `src/types.ts` (sha
 | **globe** | `src/globe/**`, `src/sandbox/globe.tsx` | `<GlobeCanvas/>` and the whole 3D scene |
 | **ui-shell** | `src/ui/hud/**`, `src/ui/landing/**`, `src/ui/pages/**`, `src/ui/system/**` (may ADD components), `src/sandbox/shell.tsx` | bezel, corner readouts, hero, search field, about page (the loading screen is index.html + `src/app/bootCurtain.ts`) |
 | **ui-results** | `src/ui/results/**`, `src/ui/share/**`, `src/sandbox/results.tsx` | progress readout, results panel, timeline, pass list and detail, pushbroom reveal, share |
-| **backend** | `api/**`, `worker/**`, `supabase/**`, `vercel.json`, `wrangler.jsonc`, `public/_headers`, `src/lib/backend.ts` | DB schema and RPCs, OG share images, share pages, stats, the Cloudflare Worker |
+| **backend** | `api/**`, `worker/**`, `supabase/**`, `wrangler.jsonc`, `public/_headers`, `src/lib/backend.ts` | DB schema and RPCs, OG share images, share pages, stats, the Cloudflare Worker |
 | integrator | `src/app/**`, `src/main.tsx`, `src/types.ts`, `src/state/**`, `src/lib/geo.ts`, `package.json`, `docs/**` | composition |
 
 Rules for parallel work:
@@ -207,16 +207,70 @@ a swapped view is placed at once.
 - `supabase/migrations/*.sql`: tables `lookups`, `shares`; RLS on, no direct anon table access; `security definer` RPCs `record_lookup`, `create_share`, `get_share`, `get_stats`. `create_share` keeps a capture only from its collection allow-list (latest: 0012, which adds `sentinel-1-rtc`; a radar share's card is the same 12.6 km crop at 20 m, toned on the server with `api/_lib/radar.ts`, the app's tone).
 - `src/lib/backend.ts`: browser client wrappers (`recordLookup`, `createShare`, `getShare`, `getStats`) using `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. These must **no-op gracefully** when env vars are missing.
 - `api/og.tsx`: 1200×630 share card (satori lays it out, resvg rasterises it: `api/_lib/ogRender.ts`) in the Instrument style. Runtime cards are returned as `image/jpeg`
-  (under 250 KB; PNG decoded with `fast-png`, encoded with `jpeg-js`, both pure JS so `vercel.json` `includeFiles` is
-  unchanged). `public/og-default.png` stays PNG. `api/s.ts`: share page HTML with OG tags that boots the app at `/?s=<id>`. `vercel.json`: rewrites `/s/:id` and caching headers.
-- `worker/`: the same site as a Cloudflare Worker. `router.ts` is `vercel.json`'s routes as code, `public/_headers`
-  its static headers (tests keep both equal), and `index.ts` registers the fonts and WebAssembly the card renderer
+  (under 250 KB; PNG decoded with `fast-png`, encoded with `jpeg-js`, both pure JS). `public/og-default.png` stays PNG.
+  `api/s.ts`: share page HTML with OG tags that boots the app at `/?s=<id>`.
+- `worker/`: the Cloudflare Worker that serves the site. `router.ts` holds the routes (it rewrites `/s/:id`),
+  `public/_headers` the static files' headers, and `index.ts` registers the fonts and WebAssembly the card renderer
   needs (`api/_lib/bundled.ts`). Cards, share pages and pan crops are kept in Cloudflare's cache when they say
   `s-maxage`.
 - **Share fallback deep link** (used when a share row can't be created): `/?q=<lat>,<lon>&n=<label>&p=<passId>`, plus
   optional pass facts `sat`, `norad`, `verdict`, `t` (ms), `alt` (km), `off` (°), `hdg` (°), `collection`, `item`,
   `cloud` (%), `gsd` (m), `spot`. Coordinates are always rounded to 0.01°. `api/s.ts` unfurls it as the pass card.
   `controller.readUrlTarget` re-centres the 7-day window on `t` when `t` is more than 6 days old.
+
+### Search engines (`src/seo/`, `scripts/build-seo.ts`, `src/lib/placePage.ts`)
+
+The app is one page that computes everything in the browser, so on its own it gives a search engine one title for
+every place. `npm run build` therefore ends with `scripts/build-seo.ts`, which writes into `dist/`:
+
+- `place/<slug>.html`, served at `/place/<slug>`: one page for each of about 2,100 well-known places. It is the built
+  `index.html` with that place's title, description, canonical link, link-preview card and schema.org `Place` in the
+  head, the place itself in a JSON script, and plain text under the app. The app opens it straight on that place
+  (`src/app/links.ts`), and the address stays the page's own while that place is on screen.
+- `place.html`, served at `/place`: the list of those pages. A document of its own, with no app.
+- `sitemap.xml` and `robots.txt`.
+- `index.html` again, with the landing's own text under the app.
+
+The rules behind it:
+
+- **The set of pages is closed.** `src/seo/places.ts` chooses it from the offline place list: every curated landmark,
+  every city of about half a million people, cities down to about 100,000 in countries where an English page is what
+  a search shows, and each country's two largest towns. No page is ever made from a typed address or an `n=` label,
+  which would put other people's words in titles on this site.
+- **One page a point.** Where the list names one point twice ("Golden Gate Bridge" and the landing's "Golden Gate"),
+  the page is the first name's, the one people type (`NAMED_TODAY` holds the exceptions: Uluru, not Ayers Rock). Two
+  pages would show the same passes and pictures under two titles, and a search engine keeps one of its choosing.
+- **A slug never changes once given.** The largest place of a name keeps the bare slug (`london`); a namesake says
+  where it is (`london-ontario`, `valencia-spain`). Loosening a threshold adds pages and renames none.
+- **A place page is the app, not a door to it.** Its text says what the visitor is about to see and states no
+  count: the week's numbers exist only once the browser has computed them.
+- **One address a place.** `index.html` is canonical to `/`, so every `?q=` and `?s=` link points search engines at
+  the landing. A place page is canonical to itself, and `src/app/head.ts` keeps the title and the canonical link true
+  as the visitor moves on inside the app; it is their only writer once the app runs. In English the title is one
+  function (`pageTitle`) for the static page and the app, so a search engine that runs the app reads the sentence
+  the file carries.
+- **The pages are English; the app on them speaks the visitor's language.** The static head and text are English
+  (a crawler runs the app in English too). For a visitor in another language the app names the place and the brand
+  in the tab ("Pyramides de Gizeh · Watched": the English sentence is not translated), the landing's title is that
+  language's `app.documentTitle`, and a curated place keeps its page's address and canonical link under its
+  translated name (`isPagePlace` compares the English one, `canonicalLabel`). There are no per-language addresses
+  and so no `hreflang`: a language is a preference (`?hl=`, the switcher), not a page.
+- **Every view has one `<h1>`**: the landing's hero, the results headline, an open pass's satellite. A crawler that
+  runs the app on a place page reads "In the last 7 days, N satellites watched <place>." as its heading.
+- **The text under the app is for readers that run no JavaScript** (a crawler's first pass, an assistant, scripts
+  off). With scripts on, React replaces it under the loading screen; `index.html` keeps it `display: none` until
+  then, so it is never the page's first content in the speed numbers.
+- **Previews are never indexed.** `/place` and `/place/*` go through the Worker (`worker/router.ts`), which marks
+  every host outside `PRODUCTION_HOSTS` noindex; a place with no page answers 404 with the app.
+- **`robots.txt` closes nothing.** Link previews fetch their cards from `/api/og`, and X's and Facebook's fetchers
+  obey it.
+- **A crawler is not a visitor.** Search engines render these pages by running the app, so the client sends no
+  usage events when the browser names itself as a crawler (`CRAWLER_RE` in `src/lib/telemetry.ts`). Each rendering is
+  still a real search against the archives.
+
+`index.html` carries the landing's head between `<!-- seo:head -->` markers; it is `headTags(homeMeta())` from
+`src/seo/pages.ts`, and a test keeps the two equal. Every deploy rewrites every place page, because each carries
+the build's version: about 40 MB of small files for Cloudflare to take.
 
 ## App flow (integrator)
 `boot` (the wordmark; textures, fonts; the catalog loads in parallel) → `idle` (hero + search over the spinning globe) → `locating` → `computing`

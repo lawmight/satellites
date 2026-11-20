@@ -70,5 +70,3 @@ export async function handlePan(req: Request): Promise<Response> {
     return empty(502, 'no-store')
   }
 }
-
-export default { fetch: handlePan }

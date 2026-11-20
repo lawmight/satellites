@@ -1,5 +1,5 @@
 /**
- * Cloudflare Worker entry: the whole site, as Vercel serves it from vercel.json and api/.
+ * Cloudflare Worker entry: the whole site.
  *
  * The handlers in api/ already take a Request and return a Response, so the Worker routes to them (router.ts) and
  * hands them the files Node would read from disk: the card fonts, the default plate and the WebAssembly the
@@ -7,7 +7,7 @@
  * compiled), and registered before the first request (api/_lib/bundled.ts). Static files come from `dist/`
  * through the ASSETS binding (wrangler.jsonc).
  *
- * The Worker also keeps the Meteosat frame cache, which Vercel cannot (it has no store and no timer): `scheduled`
+ * The Worker also keeps the Meteosat frame cache: `scheduled`
  * runs the fill once a minute (api/_lib/geoFill.ts), into the GEO_FRAMES KV namespace, and /api/geo and
  * /api/geo-frames read it. Without that binding (a fork that has not deployed yet) the two answer 503 and the fill
  * does nothing.

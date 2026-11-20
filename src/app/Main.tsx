@@ -13,9 +13,8 @@
  */
 import { memo, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react'
 import { createPortal } from 'react-dom'
-import enApp from '@/i18n/en/app'
-import { useMsgs } from '@/i18n/runtime'
 import { backStack, onBackSettled, watchLayer } from '@/lib/backStack'
+import { homePath } from '@/lib/placePage'
 import { useApp, type Phase } from '@/state/store'
 import type { Place } from '@/types'
 import type { ResultsViewProps } from '@/ui/results'
@@ -145,7 +144,7 @@ function writeUrlNow() {
   if (st.place && (st.phase === 'results' || st.phase === 'computing' || st.phase === 'error')) writeUrl(st.place, st.phase === 'results' ? st.selectedPassId : undefined)
   // The landing: a clean address, except a share link the visitor hasn't moved on from (?s=: it may still open, or a
   // reload may find it). From the controller's state, not the address: after their own search the landing is clean.
-  else if (st.phase === 'idle' && !isShareUnresolved()) history.replaceState(history.state, '', location.pathname)
+  else if (st.phase === 'idle' && !isShareUnresolved()) history.replaceState(history.state, '', homePath(location.pathname))
 }
 /** Back out of a pass to the list (as the panel's "All passes"): live time, the camera back on the place. */
 function closePass() {
@@ -169,24 +168,10 @@ function enterDelayAfter(prev: Phase): number {
   return 160
 }
 
-/**
- * The tab's title in the page's language, following a switch: app.documentTitle, whose English is index.html's own
- * title, word for word (i18n.test.ts checks it). Never read back from document.title: before the app runs, the boot
- * words (src/i18n/bootText.ts) have already set the boot language's title there, so a German page switched to English,
- * or falling back to it when its chunk failed, kept the German title.
- */
-function useDocumentTitle() {
-  const m = useMsgs(enApp)
-  useEffect(() => {
-    if (document.title !== m.documentTitle) document.title = m.documentTitle
-  }, [m])
-}
-
 export default function Main() {
   const phase = useApp((st) => st.phase)
   const error = useApp((st) => st.error)
   const about = useApp((st) => st.aboutOpen)
-  useDocumentTitle()
 
   // The loading screen (index.html) leaves in the commit that mounts what boot led to, before its first paint.
   useLayoutEffect(() => {

@@ -13,7 +13,7 @@
  * NASA GIBS and embedded. If the archive is slow or has nothing, the card draws the pass geometry
  * instead and is cached briefly so a later request can pick the image up.
  *
- * Runs on Node (Vercel; fonts and the default plate are read from api/_fonts, api/_assets) and in the Cloudflare
+ * Runs on Node (tests and scripts; fonts and the default plate are read from api/_fonts, api/_assets) and in the Cloudflare
  * Worker, which registers its bundled copies of them (api/_lib/bundled.ts).
  *
  * Every card is drawn in the language its URL names (`l=<locale>`, the sharer's: api/s.ts writes it into og:image
@@ -198,8 +198,4 @@ export async function handleOg(request: Request): Promise<Response> {
       return new Response('card unavailable', { status: 500, headers: { 'cache-control': 'no-store' } })
     }
   }
-}
-
-export default {
-  fetch: handleOg,
 }

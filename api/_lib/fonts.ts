@@ -1,9 +1,8 @@
 /**
  * Static font instances for satori (built by scripts/backend-fonts.py into api/_fonts/).
  *
- * Read from disk next to the function: `new URL('../_fonts/…', import.meta.url)` is what Vercel's
- * file tracer follows, and vercel.json `includeFiles` ships the folder regardless. The cwd-based
- * path is a second chance for runtimes that relocate the compiled module.
+ * The Worker registers its bundled copies (api/_lib/bundled.ts). Under Node (tests, scripts) they are read from
+ * disk next to this module; the cwd-based path is a second chance for runners that relocate the compiled module.
  *
  * Every role's text is split over several files: fontsource's latin and latin-ext subsets of the brand face, and for
  * Cyrillic the faces the web gives Ukrainian (src/styles/scripts.css). satori keeps one face per name, weight and style
