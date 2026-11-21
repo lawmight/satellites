@@ -257,16 +257,21 @@ The rules behind it:
   and so no `hreflang`: a language is a preference (`?hl=`, the switcher), not a page.
 - **Every view has one `<h1>`**: the landing's hero, the results headline, an open pass's satellite. A crawler that
   runs the app on a place page reads "In the last 7 days, N satellites watched <place>." as its heading.
-- **The text under the app is for readers that run no JavaScript** (a crawler's first pass, an assistant, scripts
-  off). With scripts on, React replaces it under the loading screen; `index.html` keeps it `display: none` until
-  then, so it is never the page's first content in the speed numbers.
+- **The text under the app is the page for anyone who gets no app**: a browser with scripts off, and a search
+  engine or assistant, which is never given the app at all (`src/lib/reader.ts`, by user agent). A crawler's renderer
+  does not wait for a search to finish: Google's took its picture of `/place/paris` at 4.4 s, on the computing panel
+  (URL Inspection's live test, 2026-11-21), which has no heading, no sentence about the place and no link. The text
+  has all three, states no count, and says the page computes the week in the browser, so it is true whoever reads
+  it. For a visitor, React replaces it under the loading screen; `index.html` keeps it `display: none` until then,
+  so it is never the page's first content in the speed numbers. Page testers (Lighthouse, headless Chrome) get the
+  app: they are there to measure it.
 - **Previews are never indexed.** `/place` and `/place/*` go through the Worker (`worker/router.ts`), which marks
   every host outside `PRODUCTION_HOSTS` noindex; a place with no page answers 404 with the app.
 - **`robots.txt` closes nothing.** Link previews fetch their cards from `/api/og`, and X's and Facebook's fetchers
   obey it.
-- **A crawler is not a visitor.** Search engines render these pages by running the app, so the client sends no
-  usage events when the browser names itself as a crawler (`CRAWLER_RE` in `src/lib/telemetry.ts`). Each rendering is
-  still a real search against the archives.
+- **A crawler is not a visitor.** The client sends no usage events when the browser names itself as a crawler or a
+  page tester (`CRAWLER_RE` in `src/lib/telemetry.ts`). A page tester's run is still a real search against the
+  archives; a search engine's no longer is, since it never starts the app.
 
 `index.html` carries the landing's head between `<!-- seo:head -->` markers; it is `headTags(homeMeta())` from
 `src/seo/pages.ts`, and a test keeps the two equal. Every deploy rewrites every place page, because each carries

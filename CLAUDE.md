@@ -147,8 +147,12 @@
   canonical to `/`; the text under the app stays `display: none` while the loading screen is up, so it is never the
   page's LCP; robots.txt never closes `/api/` (link previews fetch `/api/og`, and X's and Facebook's fetchers obey
   it). index.html's head between the `seo:head` markers is `headTags(homeMeta())`: change the generator, then the
-  copy (a test compares them). Crawlers run the app on these pages: the client sends no events when the user agent
-  names one (`CRAWLER_RE`), and each rendering is a real search against the archives. `src/app/head.ts` is the only
+  copy (a test compares them). Search engines and assistants never get the app (`src/lib/reader.ts`, by user
+  agent): the text under the app is their page, because a crawler's renderer does not wait for a search (Google's
+  live test pictured the computing panel at 4.4 s, 2026-11-21). So that text is what gets indexed: keep it true of
+  the page for anyone (no counts), and when the app gains something worth finding, say it there too. Page testers
+  (Lighthouse, headless Chrome, so Playwright) still get the app; the client sends no events for either
+  (`CRAWLER_RE`). To see a page as Google does, load it with a Googlebot user agent. `src/app/head.ts` is the only
   writer of the tab title and the canonical link once the app runs: a place's title is the static page's sentence
   in English (`pageTitle`) and "<place> · Watched" in any other language, and English's `app.documentTitle` must
   stay index.html's title (`HOME_TITLE`; tests hold both). The pages themselves are English only (no `hreflang`:
