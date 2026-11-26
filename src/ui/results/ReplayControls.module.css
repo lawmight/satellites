@@ -207,21 +207,44 @@
   color: var(--bone-3);
   white-space: nowrap;
 }
+/* The middle may wrap (a translated "In view 7 min 15 s" beside "Closest" is wider than a 390 px phone leaves it),
+   between its two groups only, centred, the clocks staying on the first line. */
 .legendMid {
   display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 3px 6px;
+  min-width: 0;
+  /* 2 px of each 8 px gap to the clocks, so a group a fraction too wide (Turkish at 390 px: 0.2 px) keeps one line */
+  margin-inline: -2px;
+}
+.legendItem {
+  display: inline-block;
+  white-space: normal;
+  text-align: center;
+}
+/* A group is one run of text, its key inline, so one wider than the middle on its own (Turkish «Görüş alanında 7 dk
+   37 sn», Russian, Vietnamese on a 360 px phone ran into the clocks) wraps as centred lines, the key on the first. The
+   key sits where a centred flex row put it: 6 px before its words, centred on the line. */
+.legendItem > i {
+  display: inline-block;
+  vertical-align: top;
+  /* The legend's line (a browser without the lh unit keeps this one) */
+  margin-block-start: calc((16.5px - var(--key-h)) / 2);
+  margin-block-start: calc((1lh - var(--key-h)) / 2);
+  margin-inline-end: 6px;
 }
 .fieldKey {
-  display: inline-block;
+  --key-h: 7px;
   width: 12px;
-  height: 7px;
+  height: var(--key-h);
   background: var(--signal-2);
 }
 .closestKey {
-  display: inline-block;
+  --key-h: 9px;
   width: 1px;
-  height: 9px;
+  height: var(--key-h);
   margin-inline-start: 8px;
   background: var(--bone-2);
 }

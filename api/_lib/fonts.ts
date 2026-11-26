@@ -4,16 +4,21 @@
  * The Worker registers its bundled copies (api/_lib/bundled.ts). Under Node (tests, scripts) they are read from
  * disk next to this module; the cwd-based path is a second chance for runners that relocate the compiled module.
  *
- * Every role's text is split over several files: fontsource's latin and latin-ext subsets of the brand face, and for
- * Cyrillic the faces the web gives Ukrainian (src/styles/scripts.css). satori keeps one face per name, weight and style
- * (a second file under a name it already has is never asked for a glyph), so each file has a name of its own: `<role>`
- * (latin), `<role> Ext` (latin-ext: İ Ş Ğ, Ł ą ę ś ź ż …) and `<role> Cyrillic`. Each role's `fontFamily` names its
- * files in that order (FAMILY), as the web's stacks and unicode-ranges do, and a family a card did not register is
- * skipped. A glyph none of them has is drawn from any other registered font that has it, else from a Noto subset
- * fetched for the card (fallbackFonts.ts).
+ * Every role's text is split over several files: fontsource's latin and latin-ext subsets of the brand face, for
+ * Cyrillic and Vietnamese the faces the web gives those pages (src/styles/scripts.css), and for Devanagari the faces the
+ * web gives Hindi (fetched, not read from disk: DEVANAGARI_NAME). satori keeps one face per name, weight and style (a
+ * second file under a name it already has is never asked for a glyph), so each file has a name of its own: `<role>`
+ * (latin), `<role> Ext` (latin-ext: İ Ş Ğ, Ł ą ę ś ź ż …), `<role> Cyrillic`, `<role> Vietnamese` and
+ * `<role> Devanagari`. Each role's `fontFamily` names its files in order (cardFamily), as the web's stacks and
+ * unicode-ranges do, and a family a card did not register is skipped. A glyph none of them has is drawn from any other
+ * registered font that has it, else from a Noto subset fetched for the card (fallbackFonts.ts).
  *
- * The Cyrillic files are read only for a card that prints Cyrillic or speaks Ukrainian (cardFonts): any other card
- * gets the very list it always had, so it costs nothing more to render.
+ * A Vietnamese card names its Vietnamese cut first in every role, as the page does: the cut has every Latin letter and
+ * digit too, so no word is half in Instrument and half in Noto. Any other card names it last, so the brand faces draw
+ * all they can and only the letters they lack (a Vietnamese place name's ộ, ư) come from it.
+ *
+ * The Cyrillic and Vietnamese files are read only for a card that needs them (cardFonts): any other card gets the very
+ * list it always had, so it costs nothing more to render.
  */
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -32,12 +37,23 @@ export const FONT = {
 const EXT_NAME = (name: string) => `${name} Ext`
 /** The Cyrillic faces' names: Noto Sans wdth 67.5 / 100, Martian Mono's own Cyrillic, Noto Serif Display italic. */
 const CYRILLIC_NAME = (name: string) => `${name} Cyrillic`
+/** The Vietnamese faces' names: Noto Sans wdth 67.5 / 100, JetBrains Mono, Noto Serif Display italic (each whole Latin). */
+const VIETNAMESE_NAME = (name: string) => `${name} Vietnamese`
+/**
+ * The Devanagari faces' names, one per role as the web sets Hindi (Noto Sans Devanagari condensed for the display, at
+ * full width for the sans and, 20% larger, for the mono's labels; Noto Serif Devanagari for the serif). They are not
+ * bundled: fallbackFonts.ts fetches each as a subset of the card's own Devanagari and registers it under this name.
+ */
+export const DEVANAGARI_NAME = (name: string) => `${name} Devanagari`
 
 /** A role's files, in the order a glyph is looked for in them. */
-const stack = (name: string) => `${name}, ${EXT_NAME(name)}, ${CYRILLIC_NAME(name)}`
+const stack = (name: string) => `${name}, ${EXT_NAME(name)}, ${CYRILLIC_NAME(name)}, ${VIETNAMESE_NAME(name)}, ${DEVANAGARI_NAME(name)}`
+/** …on a Vietnamese card: its own face first, for every letter. */
+const stackVi = (name: string) => `${VIETNAMESE_NAME(name)}, ${name}, ${EXT_NAME(name)}, ${CYRILLIC_NAME(name)}`
 
 /**
- * What the card's text is set in (its `fontFamily`): each role's face, its latin-ext file, then its Cyrillic cut.
+ * What the card's text is set in (its `fontFamily`): each role's face, its latin-ext file, its Cyrillic cut, then its
+ * Vietnamese one (cardFamily: a Vietnamese card's order).
  * Martian Mono's Cyrillic has every Ukrainian, Russian and Belarusian letter but not Serbian, Macedonian or Kazakh ones
  * (Ђ Ѓ Ѕ Ј Љ Њ Ћ Ќ Џ Ѐ Ѝ Ұ and their small letters): in a mono label those come from the sans cut, regular width, where
  * the web falls to the system's monospace, rather than from the first registered font that has them (the condensed
@@ -49,6 +65,19 @@ export const FAMILY = {
   mono: `${stack(FONT.mono)}, ${CYRILLIC_NAME(FONT.sans)}`,
   serif: stack(FONT.serif),
 } as const
+
+/** The same roles on a Vietnamese card (its Vietnamese cut first). */
+const FAMILY_VI: { readonly [K in keyof typeof FAMILY]: string } = {
+  display: stackVi(FONT.display),
+  sans: stackVi(FONT.sans),
+  mono: `${stackVi(FONT.mono)}, ${CYRILLIC_NAME(FONT.sans)}`,
+  serif: stackVi(FONT.serif),
+}
+
+/** What a card in `locale` sets each role in. */
+export function cardFamily(locale: Locale): { readonly [K in keyof typeof FAMILY]: string } {
+  return locale === 'vi' ? FAMILY_VI : FAMILY
+}
 
 type Weight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900
 
@@ -88,9 +117,11 @@ const LATIN: FontFile[] = [
 ]
 /** Added for a card that prints Cyrillic: each role's Cyrillic cut, registered as the role asks for it. */
 const CYRILLIC: FontFile[] = FILES.map((f) => ({ ...f, file: `${f.stem}-cyrillic.ttf`, name: CYRILLIC_NAME(f.name) }))
+/** Added for a card in Vietnamese or one that prints a Vietnamese letter: each role's Vietnamese cut. */
+const VIETNAMESE: FontFile[] = FILES.map((f) => ({ ...f, file: `${f.stem}-vietnamese.ttf`, name: VIETNAMESE_NAME(f.name) }))
 
 /** Every file the card may read (a host that cannot read api/_fonts registers each of these: worker/index.ts). */
-export const FONT_FILES: readonly string[] = [...LATIN, ...CYRILLIC].map((f) => f.file)
+export const FONT_FILES: readonly string[] = [...LATIN, ...CYRILLIC, ...VIETNAMESE].map((f) => f.file)
 
 async function readFont(file: string): Promise<ArrayBuffer> {
   const registered = bundled(`_fonts/${file}`) // a Worker's copy (bundled.ts)
@@ -121,24 +152,44 @@ function once(load: () => Promise<SatoriFont[]>): () => Promise<SatoriFont[]> {
 /** The card fonts every card has (Latin), read once per warm instance. */
 export const loadFonts = once(() => read(LATIN))
 
+/** Each script's cuts, read once per warm instance (the same objects in every list that has them). */
+const cyrillicCuts = once(() => read(CYRILLIC))
+const vietnameseCuts = once(() => read(VIETNAMESE))
+
 /**
- * The same list plus the Cyrillic cuts, its own array (satori keeps a font loader per list): the Latin entries are
+ * The Latin list plus a script's cuts, each its own array (satori keeps a font loader per list): the Latin entries are
  * the very same objects, so their files are read and parsed once.
  */
-const loadCyrillicFonts = once(async () => {
-  const [latin, cyrillic] = await Promise.all([loadFonts(), read(CYRILLIC)])
-  return [...latin, ...cyrillic]
-})
+const withCuts = (...cuts: (() => Promise<SatoriFont[]>)[]) =>
+  once(async () => {
+    const [latin, ...more] = await Promise.all([loadFonts(), ...cuts.map((c) => c())])
+    return [...latin, ...more.flat()]
+  })
+const loadCyrillicFonts = withCuts(cyrillicCuts)
+const loadVietnameseFonts = withCuts(vietnameseCuts)
+const loadCyrillicVietnameseFonts = withCuts(cyrillicCuts, vietnameseCuts)
 
 /** Cyrillic letters (U+0400–04FF). The cuts hold the basic block the web's do; anything else falls through to Noto. */
 const CYRILLIC_TEXT = /[Ѐ-ӿ]/
+/**
+ * Vietnamese letters the brand faces lack: Ĩ ĩ Ũ ũ, the horned Ơ ơ Ư ư, every letter with a dot below, a hook above or
+ * two marks (U+1EA0–1EF9), and the hook and dot written as combining marks.
+ */
+const VIETNAMESE_TEXT = /[ĨĩŨũƠơƯưẠ-ỵ̃̉]/
 
 /** Whether a card in `locale` that prints `text` needs the Cyrillic cuts. */
 export function needsCyrillic(locale: Locale, text: string): boolean {
   return LOCALE_INFO[locale].script === 'cyrillic' || CYRILLIC_TEXT.test(text)
 }
 
+/** Whether a card in `locale` that prints `text` needs the Vietnamese cuts. */
+export function needsVietnamese(locale: Locale, text: string): boolean {
+  return locale === 'vi' || VIETNAMESE_TEXT.test(text)
+}
+
 /** The fonts for one card: what its language and its words need, and nothing more. */
 export function cardFonts(locale: Locale, text: string): Promise<SatoriFont[]> {
-  return needsCyrillic(locale, text) ? loadCyrillicFonts() : loadFonts()
+  const cyrillic = needsCyrillic(locale, text)
+  const vietnamese = needsVietnamese(locale, text)
+  return cyrillic && vietnamese ? loadCyrillicVietnameseFonts() : cyrillic ? loadCyrillicFonts() : vietnamese ? loadVietnameseFonts() : loadFonts()
 }

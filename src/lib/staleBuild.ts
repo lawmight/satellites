@@ -8,7 +8,16 @@
  * so the visitor lands where they were. It is guarded so it can never loop: at most one reload per tab per
  * RELOAD_GUARD_MS, and none at all when sessionStorage is unavailable (no way to remember that we already tried).
  * Workers need nothing here: a worker that fails to load falls back to the main thread (engine/pool.ts,
- * imagery/pixelsClient.ts).
+ * imagery/pixelsClient.ts). Nor do the place-name tables and their search (src/i18n/<locale>/exonyms.gen.ts,
+ * imagery/exonymSearch.ts): they are fetched at idle, maybe while the visitor types, and without them the names show as
+ * they came, so a reload would only lose what was typed (OPTIONAL; and in QUIET_CHUNKS while they download, for
+ * Safari's error: src/i18n/optionalChunks.ts).
+ *
+ * A prefetch nobody waits for (the share card's measure, src/ui/share/measure.ts) does not reload either: its failure
+ * is as likely a dropped connection as a new build, and reloading the results someone is reading for a chunk they may
+ * never use is worse than letting the press that needs it ask again (and reload then). Such a prefetch puts its chunk's
+ * name in QUIET_CHUNKS while it runs; a failure that names it, or names no module (Safari's), is let through. A shared
+ * set on globalThis, not an import: either module importing the other would move it into another chunk.
  */
 
 const KEY = 'watched-stale-build-reload'
@@ -19,6 +28,24 @@ export interface StaleBuildDeps {
   reload: () => void
   now: () => number
 }
+
+/** Chunk names ('cardMeasure-') of the prefetches running now, whose failure must not reload (see above). */
+export const QUIET_CHUNKS = Symbol.for('watched.quietChunks')
+
+/** A failed import that may be a running prefetch's own: no reload for it. */
+export function isQuietFailure(payload: unknown, quiet: ReadonlySet<string> | undefined): boolean {
+  if (!quiet?.size) return false
+  const msg = String(payload ?? '')
+  if (!/https?:\/\//.test(msg)) return true
+  for (const name of quiet) if (msg.includes(`/${name}`)) return true
+  return false
+}
+
+/** Chunks the page works without (the place-name tables and their search): a failure to load one never reloads. */
+const OPTIONAL = /\/exonym(s\.gen|Search)-[\w-]+\.js/
+
+/** Is the failed import's error one of an OPTIONAL chunk's? */
+export const isOptionalChunk = (err: unknown): boolean => OPTIONAL.test(String((err as Error | undefined)?.message ?? err))
 
 /** Reload once for a missing chunk. Returns true if a reload was started (the caller then swallows the error). */
 export function reloadForNewBuild(deps: StaleBuildDeps): boolean {
@@ -48,6 +75,9 @@ function sessionStore(): Storage | null {
 export function installStaleBuildReload(): void {
   if (typeof window === 'undefined') return
   window.addEventListener('vite:preloadError', (event) => {
+    const quiet = (globalThis as { [QUIET_CHUNKS]?: Set<string> })[QUIET_CHUNKS]
+    const payload = (event as Event & { payload?: unknown }).payload
+    if (isOptionalChunk(payload) || isQuietFailure(payload, quiet)) return
     const started = reloadForNewBuild({ storage: sessionStore(), reload: () => window.location.reload(), now: () => Date.now() })
     // Swallow the error only when the page is about to reload; otherwise let the app's own error handling see it.
     if (started) event.preventDefault()

@@ -1,7 +1,7 @@
 /*
  * Type per writing system (docs/I18N.md). html[data-script] is set by index.html's boot script and by the language
- * switcher: latin | cyrillic | cjk | arabic. These rules override tokens and a few families, so components never
- * special-case a language; English (and every Latin-script language) is untouched by this file. The values come from
+ * switcher: latin | cyrillic | cjk | arabic | devanagari. These rules override tokens and a few families, so components
+ * never special-case a language; English (and every Latin-script language) is untouched by this file. The values come from
  * specimens of each script set in this design's styles next to the English and judged against it (2026-11-19).
  *
  * Why the stacks are built this way:
@@ -10,10 +10,11 @@
  * - Chinese, Japanese and Korean use each platform's own fonts (PingFang / Hiragino / Apple SD Gothic Neo,
  *   Microsoft YaHei / JhengHei / Yu Gothic / Malgun Gothic, Noto Sans CJK): no download, the fonts their readers
  *   already read everything in. The stack is per language, so shared Han characters take that language's forms.
- * - Cyrillic and Arabic faces are fetched only by pages that show those scripts (unicode-range), and are pinned to
- *   the widths and weights the design uses, so no glyph ever renders in a face the design did not choose.
+ * - Cyrillic, Arabic and Devanagari faces are fetched only by pages that show those scripts (unicode-range), and are
+ *   pinned to the widths and weights the design uses, so no glyph ever renders in a face the design did not choose.
  * - Synthetic italics are never drawn for scripts that have none: the accent is upright there, carried by the serif
- *   and the signal colour.
+ *   and the signal colour. Nor is tracking, for scripts whose letters join (Arabic) or hang from one stroke
+ *   (Devanagari).
  */
 
 /* ── Every language but English: room in the hero's line masks for capital diacritics (Ü, É, Ż, İ, Ї), so a line never
@@ -24,6 +25,172 @@
 }
 :root[data-script='arabic'] {
   --hl-top: 0.32em;
+}
+
+/* ── Vietnamese ─────────────────────────────────────────────────────────────────────────────────── */
+
+/* Instrument Sans, Instrument Serif and Martian Mono have no Vietnamese letters (Ơ ư, ạ ả, ấ ệ ộ …): left to fallback,
+   "Việt" was V-i-t in Instrument and ệ in a system face. A Vietnamese page sets everything, Latin letters and digits
+   too, in faces that have them all, matched to the brand faces' widths, weights and sizes (and their vertical metrics,
+   so every line box and baseline is the English one): Noto Sans as the Cyrillic stack has it, the Cyrillic accent's
+   Noto Serif Display, and JetBrains Mono for Martian Mono (scripts/build-vietnamese-fonts.py says how each was matched).
+   Every face is behind :lang(vi), so no other page lists or downloads one. Three files per role, one design: the
+   Latin Extended-A ones load only for a Polish, Czech or Turkish name on a Vietnamese page. */
+@font-face {
+  font-family: 'Watched Vietnamese';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62.5% 100%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/noto-sans-latin-ext-a-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-0101, U+0104-010F, U+0112-0127, U+012A-0167, U+016A-017F, U+0218-021B;
+}
+@font-face {
+  font-family: 'Watched Vietnamese';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62.5% 100%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../../node_modules/@fontsource-variable/noto-sans/files/noto-sans-vietnamese-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: 'Watched Vietnamese';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62.5% 100%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../../node_modules/@fontsource-variable/noto-sans/files/noto-sans-latin-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* The same files pinned at the display width, for the share card's canvas (as 'Watched Cyrillic Display'). */
+@font-face {
+  font-family: 'Watched Vietnamese Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 67.5%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/noto-sans-latin-ext-a-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-0101, U+0104-010F, U+0112-0127, U+012A-0167, U+016A-017F, U+0218-021B;
+}
+@font-face {
+  font-family: 'Watched Vietnamese Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 67.5%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../../node_modules/@fontsource-variable/noto-sans/files/noto-sans-vietnamese-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: 'Watched Vietnamese Display';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 67.5%;
+  size-adjust: 95%;
+  ascent-override: 102.1%;
+  descent-override: 26.3%;
+  line-gap-override: 0%;
+  src: url('../../node_modules/@fontsource-variable/noto-sans/files/noto-sans-latin-wdth-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* The accent: the Cyrillic accent's instance of Noto Serif Display italic (wght 320, wdth 62.5), its latin, Vietnamese
+   and Latin Extended-A letters in one static file (23 kB). Declared italic for the .serif rules, as the Cyrillic one. */
+@font-face {
+  font-family: 'Watched Vietnamese Serif';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 320;
+  font-stretch: 62.5%;
+  size-adjust: 98.5%;
+  ascent-override: 100.5%;
+  descent-override: 31.5%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/noto-serif-display-vietnamese-italic-320-62.woff2') format('woff2');
+  unicode-range: U+0000-017F, U+01A0-01A1, U+01AF-01B0, U+0218-021B, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+2000-206F, U+20AB-20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* The mono: JetBrains Mono at 108.33 % has Martian Mono's 0.65 em cell (at the 87.5 % width every mono rule sets) and
+   its capital height, and its weight axis is renamed so each CSS weight draws Martian's stems. Its ascent is Martian's
+   plus room for a stacked mark on a capital (Ấ, Ể), which rises 0.1 em above Martian's own accents: an ellipsised
+   label would otherwise cut it. Code ligatures are not in the files. */
+@font-face {
+  font-family: 'Watched Vietnamese Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  size-adjust: 108.333%;
+  ascent-override: 101.5%;
+  descent-override: 18.5%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/jetbrains-mono-latin-ext-a-wght300-700.woff2') format('woff2-variations');
+  unicode-range: U+0100-0101, U+0104-010F, U+0112-0127, U+012A-0167, U+016A-017F, U+0218-021B;
+}
+@font-face {
+  font-family: 'Watched Vietnamese Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  size-adjust: 108.333%;
+  ascent-override: 101.5%;
+  descent-override: 18.5%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/jetbrains-mono-vietnamese-wght300-700.woff2') format('woff2-variations');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+@font-face {
+  font-family: 'Watched Vietnamese Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  size-adjust: 108.333%;
+  ascent-override: 101.5%;
+  descent-override: 18.5%;
+  line-gap-override: 0%;
+  src: url('../assets/fonts/jetbrains-mono-latin-wght300-700.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+:root:lang(vi) {
+  /* the brand faces after them, for a symbol the Vietnamese faces lack (as on an English page); Noto Sans's own
+     Cyrillic after that, for a Cyrillic place name */
+  --font-sans: 'Watched Vietnamese', 'Instrument Sans Variable', 'Instrument Sans', 'Watched Cyrillic', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Watched Vietnamese Mono', 'Martian Mono Variable', 'Martian Mono', ui-monospace, monospace;
+  --font-serif: 'Watched Vietnamese Serif', 'Instrument Serif', 'Watched Cyrillic Serif', ui-serif, Georgia, serif;
+  /* Noto Sans condensed to Instrument's density, as for Cyrillic */
+  --stretch-display: 67.5%;
+  /* A stacked mark on a capital (Ấ, Ộ: 0.93 em) rises above the Latin display's 0.92 leading into the descenders of the
+     line above (gặp ấy over Ấn Độ touched): hero 0.92 → 1.01, headline 0.98 → 1.08, and the hero a touch smaller so
+     its column keeps the English height. */
+  --lh-k: 1.1;
+  --display-k: 0.95;
+  --font-card-display: 'Watched Vietnamese Display', 'Instrument Sans Variable', 'Instrument Sans', 'Watched Cyrillic Display', ui-sans-serif, system-ui, sans-serif;
+}
+/* A Vietnamese name on another language's page (the language switcher's entry) is set whole in the system's sans,
+   which has every Vietnamese letter, as the switcher's Cyrillic, Arabic and CJK names are: never half in the page's
+   faces, and nothing downloaded. */
+:root:not(:lang(vi)) :lang(vi) {
+  --font-sans: system-ui, sans-serif;
+  --font-mono: system-ui, sans-serif;
 }
 
 /* ── Cyrillic (Ukrainian) ───────────────────────────────────────────────────────────────────────── */
@@ -145,6 +312,92 @@
 }
 /* Literal letter-spacing in components would still pull Arabic letters apart. */
 :root[data-script='arabic'] :where(*) {
+  letter-spacing: 0 !important;
+}
+
+/* ── Devanagari (Hindi) ─────────────────────────────────────────────────────────────────────────── */
+
+/* Generated by scripts/build-devanagari-fonts.py: Noto Sans Devanagari at wght 400-700 / wdth 75-100, the Devanagari
+   block only (119 kB). The display sets it at 75%, the condensed width of the Instrument Sans beside it, so a Hindi
+   headline and its Latin names and numbers share one measure; running text sets it at 100%. Its letters are designed
+   against Noto's Latin, whose x-height and capitals are Instrument's within 5%: drawn as it is, the headline stroke
+   sits between the Latin's x-height and its capitals, as Hindi set beside Latin should. */
+@font-face {
+  font-family: 'Watched Devanagari';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  font-stretch: 75% 100%;
+  src: url('../assets/fonts/noto-sans-devanagari-wght400-700-wdth75-100.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+200C-200D, U+25CC;
+}
+/* The same file for Hindi words in mono slots (labels, chips, units), which Martian Mono cannot draw: full width, never
+   under 400, and 20% larger than the label's size. Devanagari's body is the height of a Latin capital, but its vowel
+   signs and conjuncts are small: at 10.5 px they blur on a laptop's screen, at 12.6 px they read, and the headline
+   stroke then sits just under the Latin capitals of the same label. Same URL, so it is not downloaded twice. */
+@font-face {
+  font-family: 'Watched Devanagari Label';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  size-adjust: 120%;
+  src: url('../assets/fonts/noto-sans-devanagari-wght400-700-wdth75-100.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+200C-200D, U+25CC;
+}
+/* Its space, first in the Hindi page's mono stack: Martian Mono's is a full 0.65 em cell, which between two Hindi words
+   of a mono label reads as a gap («पिछले  7  दिन»). Latin mono text on a Hindi page takes this narrower space too; no
+   other page lists it. */
+@font-face {
+  font-family: 'Watched Devanagari Space';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  font-stretch: 100%;
+  size-adjust: 120%;
+  src: url('../assets/fonts/noto-sans-devanagari-wght400-700-wdth75-100.woff2') format('woff2');
+  unicode-range: U+0020, U+00A0;
+}
+/* The serif accent: one instance of Noto Serif Devanagari (wght 350, wdth 87.5), the stroke and measure of Instrument
+   Serif's italic beside it (45 kB). Devanagari has no italic: the upright file is declared italic on purpose, as
+   Arabic's is, so a Latin place name keeps Instrument Serif's real italic and Hindi is never slanted; the accent is
+   carried by the serif and the signal colour. */
+@font-face {
+  font-family: 'Watched Devanagari Serif';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 350;
+  font-stretch: 87.5%;
+  src: url('../assets/fonts/noto-serif-devanagari-350-87.woff2') format('woff2');
+  unicode-range: U+0900-097F, U+200C-200D, U+25CC;
+}
+:root[data-script='devanagari'] {
+  --font-sans: 'Instrument Sans Variable', 'Instrument Sans', 'Watched Devanagari', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Watched Devanagari Space', 'Martian Mono Variable', 'Martian Mono', 'Watched Devanagari Label', ui-monospace, monospace;
+  --font-serif: 'Instrument Serif', 'Watched Devanagari Serif', ui-serif, Georgia, serif;
+  /* Vowel signs rise above the headline stroke (ि ी े ै ं, to 0.9 em) and hang below the baseline (ु ू ृ and stacked
+     conjuncts, to 0.37 em): hero 0.92 → 1.2, headline 0.98 → 1.27. Their tallest marks then sit inside the line box,
+     so the hero's line masks need no more room than other languages' (--hl-top). */
+  --lh-k: 1.3;
+  /* ...so the hero is set smaller to keep the column's height; at 78 % Hindi reads as large as the English beside it */
+  --display-k: 0.78;
+  --lh-text-k: 1.15;
+  /* the serif's letters are as tall as the sans': no lift over the display (English's 1.08 lifts a lowercase "you") */
+  --accent-k: 0.93;
+  /* tracking cuts the headline stroke between letters: none, anywhere (a length, as calc() needs: `1ch + 0` is invalid) */
+  --track-display: 0em;
+  --track-label: 0em;
+  font-synthesis-style: none;
+}
+@media (max-width: 760px) {
+  :root[data-script='devanagari'] {
+    /* the phone hero's sizes are fixed (Landing.module.css): its last rule applies this to each line. A little larger
+       than the desktop's, so the three short Hindi lines hold the sheet's width as the English ones do */
+    --display-k: 0.86;
+  }
+}
+/* Literal letter-spacing in components would still cut the stroke. */
+:root[data-script='devanagari'] :where(*) {
   letter-spacing: 0 !important;
 }
 

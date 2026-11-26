@@ -14,7 +14,8 @@
  * uppercase the units), and the headline's blocks are set in the order the language's message gives them. The default
  * card takes its words from the card catalog in the same way.
  *
- * Every role names its face and then the face the web gives Cyrillic (fonts.ts FAMILY), so Ukrainian and Cyrillic
+ * Every role names its face and then the faces the web gives Cyrillic and Vietnamese (fonts.ts cardFamily: a
+ * Vietnamese card names its own first, for every letter, as its page does), so Ukrainian, Russian, Vietnamese and their
  * place names are set as the app sets them; a Chinese, Japanese or Korean card carries its language (`lang`), so its
  * Han characters take that language's forms.
  */
@@ -30,8 +31,10 @@ import {
   CHIP_BOX,
   DEFAULT_CARD_ALT,
   HEAD,
-  HEAD_CJK,
+  HEAD_DEVANAGARI,
+  headLeading,
   headTracking,
+  needsShaping,
   PANEL,
   PLATE,
   TONE_COLOR,
@@ -55,7 +58,7 @@ import { DEFAULT_LOCALE, LOCALE_INFO, type Locale, type Script } from './i18n/lo
 import { isAccent, plain, type Rich } from './i18n/parts.js'
 import { capsExceptUnits } from './i18n/units.js'
 import { bundled } from './bundled.js'
-import { FAMILY } from './fonts.js'
+import { cardFamily } from './fonts.js'
 import { WORDMARK_ASPECT, wordmarkSvg } from './wordmark.js'
 import { box, h, type Child } from './h.js'
 
@@ -67,18 +70,21 @@ export { CARD_H, CARD_W, PLATE, niceLength }
  * Mono caps text: tracking +0.08em, as `.label` in primitives.module.css. Uppercased here in the card's language,
  * except its units ("10 m", "1 km": ./i18n/units.ts), so satori's own text-transform is off: it would uppercase the
  * units too, and in no language's rules (Turkish i must become İ). `textTransform: 'none'` from a caller keeps the
- * text as it is (the host, a readout's unit).
+ * text as it is (the host, a readout's unit). `faces` is the language whose faces set it: the card's, also for words
+ * cased as another language's (the English licence credit on a Vietnamese card is in the card's mono). A row in a
+ * script that must not be tracked (Devanagari's headline stroke, Arabic's joins: needsShaping) is set without it, as
+ * the app's canvas draws it.
  */
-function mono(locale: Locale, text: string, size: number, color: string, style: CSSProperties = {}): ReactElement {
+function mono(locale: Locale, text: string, size: number, color: string, style: CSSProperties = {}, faces: Locale = locale): ReactElement {
   const shown = style.textTransform === 'none' ? text : capsExceptUnits(text, LOCALE_INFO[locale].intl)
   return h(
     'div',
     {
       style: {
         display: 'flex',
-        fontFamily: FAMILY.mono,
+        fontFamily: cardFamily(faces).mono,
         fontSize: size,
-        letterSpacing: size * TRACK.label,
+        letterSpacing: needsShaping(shown) ? 0 : size * TRACK.label,
         textTransform: 'none',
         color,
         lineHeight: 1.3,
@@ -147,8 +153,8 @@ function chip(locale: Locale, c: Chip): ReactElement {
       background: C.chip,
       border: `1px solid ${C.lineStrong}`,
     },
-    // The licence credit is English in every language, so it is uppercased as English (Chip.lang).
-    c.segs.map((s) => mono(c.lang ?? locale, s.text, c.size, TONE_COLOR[s.tone])),
+    // The licence credit is English in every language, so it is uppercased as English (Chip.lang), in the card's faces.
+    c.segs.map((s) => mono(c.lang ?? locale, s.text, c.size, TONE_COLOR[s.tone], {}, locale)),
   )
 }
 
@@ -214,9 +220,10 @@ function headline(spec: Pick<CardSpec, 'head' | 'sub' | 'size' | 'cjk' | 'locale
   const S = spec.size
   const P = S * HEAD.placeScale
   const gap = P * HEAD.placeGap
-  // Chinese, Japanese and Korean: their leading, and each text part one phrase on one line (HEAD_CJK).
-  const lh = spec.cjk ? HEAD_CJK : HEAD
+  // Chinese, Japanese, Korean and Devanagari: their leading (headLeading); CJK's text parts one phrase on one line each.
+  const lh = headLeading(spec)
   const track = headTracking(spec.locale)
+  const F = cardFamily(spec.locale)
   const blocks = spec.head.map((part, i) =>
     isAccent(part)
       ? h(
@@ -224,7 +231,7 @@ function headline(spec: Pick<CardSpec, 'head' | 'sub' | 'size' | 'cjk' | 'locale
           {
             style: {
               display: 'flex',
-              fontFamily: FAMILY.serif,
+              fontFamily: F.serif,
               fontStyle: 'italic',
               fontSize: P,
               lineHeight: lh.placeLH,
@@ -242,7 +249,7 @@ function headline(spec: Pick<CardSpec, 'head' | 'sub' | 'size' | 'cjk' | 'locale
           {
             style: {
               display: 'flex',
-              fontFamily: FAMILY.display,
+              fontFamily: F.display,
               fontWeight: 600,
               fontSize: S,
               lineHeight: lh.leadLH,
@@ -261,7 +268,7 @@ function headline(spec: Pick<CardSpec, 'head' | 'sub' | 'size' | 'cjk' | 'locale
     spec.sub
       ? h(
           'div',
-          { style: { display: 'flex', fontFamily: FAMILY.sans, fontSize: CARD_FS.sub, lineHeight: HEAD.subLH, marginTop: HEAD.subGap, color: C.bone2 } },
+          { style: { display: 'flex', fontFamily: F.sans, fontSize: CARD_FS.sub, lineHeight: HEAD.subLH, marginTop: HEAD.subGap, color: C.bone2 } },
           spec.sub,
         )
       : null,
@@ -283,7 +290,7 @@ function readouts(spec: CardSpec): ReactElement[] {
     out.push(
       abs(
         { left: x, top: PANEL.roValue[0], height: PANEL.roValue[1], alignItems: 'baseline', gap: r.unit ? 8 : 0 },
-        h('div', { style: { display: 'flex', fontFamily: FAMILY.mono, fontSize: size, letterSpacing: TRACK.readout * size, color: C.bone, lineHeight: 1 } }, r.value),
+        h('div', { style: { display: 'flex', fontFamily: cardFamily(l).mono, fontSize: size, letterSpacing: TRACK.readout * size, color: C.bone, lineHeight: 1 } }, r.value),
         // A readout's unit is a unit symbol ("km", "m", "km/s"): it keeps its case.
         r.unit ? mono(l, r.unit, CARD_FS.readoutUnit, C.bone3, { lineHeight: 1, textTransform: 'none' }) : null,
       ),
@@ -313,7 +320,7 @@ const HAN_LANG: Partial<Record<Locale, string>> = { ja: 'ja-JP', ko: 'ko-KR', 'z
 /** The 1200×630 card itself, in its language. */
 function cardRoot(locale: Locale, ...children: (Child | Child[])[]): ReactElement {
   const lang = HAN_LANG[locale]
-  const style: CSSProperties = { display: 'flex', position: 'relative', width: CARD_W, height: CARD_H, background: C.ink0, fontFamily: FAMILY.sans, color: C.bone }
+  const style: CSSProperties = { display: 'flex', position: 'relative', width: CARD_W, height: CARD_H, background: C.ink0, fontFamily: cardFamily(locale).sans, color: C.bone }
   return h('div', lang ? { lang, style } : { style }, ...children)
 }
 
@@ -382,11 +389,22 @@ export function defaultPlateDataUri(): Promise<string | null> {
 }
 
 /**
- * The landing hero's tracking per script, in em (--track-display in src/styles/tokens.css, overridden in scripts.css):
- * Cyrillic lowercase is a denser picket fence than Latin, Han and kana denser again. Arabic is tracked as Latin until
- * the right-to-left card gives it the web's (none: tracking breaks its joins).
+ * The landing hero per script, as the page's tokens set it (src/styles/tokens.css, overridden in scripts.css):
+ *  - track: its tracking in em (--track-display): Cyrillic lowercase is a denser picket fence than Latin, Han and kana
+ *    denser again, Devanagari none (tracking cuts its headline stroke). Arabic is tracked as Latin until the
+ *    right-to-left card gives it the web's (none: tracking breaks its joins).
+ *  - lh: its line height (the page's 0.92 × --lh-k; 0.94 here): Devanagari's vowel signs need HEAD_DEVANAGARI's.
+ *  - accent: the serif accent's size against the display's: 1.12 sets Instrument Serif's lowercase "you" as tall as
+ *    the condensed sans' letters; Devanagari's serif letters are as tall as the sans' already (--accent-k).
+ *  - size: the display's size against English's (--display-k): Hindi set as large reads larger, and taller.
  */
-const HERO_TRACK: Record<Script, number> = { latin: -0.02, cyrillic: -0.015, cjk: -0.01, arabic: -0.02 }
+const HERO: Record<Script, { track: number; lh: number; accent: number; size: number }> = {
+  latin: { track: -0.02, lh: 0.94, accent: 1.12, size: 1 },
+  cyrillic: { track: -0.015, lh: 0.94, accent: 1.12, size: 1 },
+  cjk: { track: -0.01, lh: 0.94, accent: 1.12, size: 1 },
+  arabic: { track: -0.02, lh: 0.94, accent: 1.12, size: 1 },
+  devanagari: { track: 0, lh: HEAD_DEVANAGARI.leadLH, accent: 1.04, size: 0.84 },
+}
 
 /**
  * The hero, set in explicit lines (satori has no inline formatting, and a free wrap left "week." as a
@@ -396,22 +414,23 @@ const HERO_TRACK: Record<Script, number> = { latin: -0.02, cyrillic: -0.015, cjk
  * Each line is the catalog's parts, each its own span: a part boundary with a space at it gets the word gap (0.2em,
  * a flex gap: satori has no inline spacing), so "watched" and the serif "you" stay two words while parts written
  * without a space between them (Chinese, Japanese) touch. The display words are tracked as the landing hero's are in
- * the card's language (HERO_TRACK).
+ * the card's language (HERO).
  */
 function heroLines(locale: Locale, size: number, lines: Rich[]): ReactElement {
-  const track = HERO_TRACK[LOCALE_INFO[locale].script]
+  const hero = HERO[LOCALE_INFO[locale].script]
+  const F = cardFamily(locale)
   const w = (s: string, serif = false, style: CSSProperties = {}) =>
     h(
       'span',
       {
         style: {
-          fontFamily: serif ? FAMILY.serif : FAMILY.display,
+          fontFamily: serif ? F.serif : F.display,
           fontStyle: serif ? 'italic' : 'normal',
           fontWeight: serif ? 400 : 600,
           // Instrument Serif sits smaller than the condensed sans at the same size: match cap height.
-          fontSize: serif ? size * 1.12 : size,
-          letterSpacing: serif ? 0 : track * size,
-          lineHeight: 0.94,
+          fontSize: serif ? size * hero.accent : size,
+          letterSpacing: serif ? 0 : hero.track * size,
+          lineHeight: hero.lh,
           whiteSpace: 'nowrap',
           // "you" (the serif accent) in signal, as on the landing hero.
           color: serif ? C.signal : C.bone,
@@ -456,7 +475,7 @@ export function defaultCard({ host, plateDataUri, locale = DEFAULT_LOCALE }: { h
     row(PANEL.top, lockup(), mono(locale, m.lastWeek, CARD_FS.row, C.bone2)),
     rule(PANEL.rule1),
     // The hero is centred between the top rule and the footer rule, lifted as the pass headline is (owner: even spacing).
-    abs({ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.rule3 - 12 - PANEL.headTop, flexDirection: 'column', justifyContent: 'center' }, heroLines(locale, 88, m.hero)),
+    abs({ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.rule3 - 12 - PANEL.headTop, flexDirection: 'column', justifyContent: 'center' }, heroLines(locale, 88 * HERO[LOCALE_INFO[locale].script].size, m.hero)),
     rule(PANEL.rule3),
     row(PANEL.foot, mono(locale, m.enterAnyPlace, 15, C.bone), host ? mono(locale, host, CARD_FS.row, C.bone2, { textTransform: 'none', letterSpacing: 0.5 }) : undefined),
   )

@@ -34,16 +34,28 @@ import { accent, num, strong, type Part, type Rich } from '../../../api/_lib/i18
 import type { Pass, SatCategory } from '@/types'
 import { localParts, type DateFields } from '@/ui/results/lib/time'
 import time from './time'
+import { isoUnlessRtl, ltr, whole } from '../bidi'
 
 const f = fmt('ar')
 const nb = '\u00a0'
 type Verdict = Pass['verdict']
 type Forms = { one: string; two: string; few: string; many: string; other: string }
 
-/** U+2066 LEFT-TO-RIGHT ISOLATE … U+2069 POP DIRECTIONAL ISOLATE: one left-to-right run in a DOM-only string */
-const ltr = (s: string) => `\u2066${s}\u2069`
-/** Isolate a Latin label (a zone, a zone name), but leave one that holds Arabic words or isolates already as it is */
-const iso = (s: string) => (/[\u0600-\u06ff\u2066-\u2069]/.test(s) ? s : ltr(s))
+/**
+ * Isolate a Latin label (a zone, a zone name, a place), but leave one that holds Arabic words or isolates already as it
+ * is. A place searched by coordinates needs it most: «23.5000°N 12.5000°E» at the end of the headline read
+ * «N 12.5000°E°23.5000.».
+ */
+const iso = isoUnlessRtl
+/**
+ * A place that ends a sentence, isolated, and the full stop after it. A Latin name's own final dot («Washington, D.C.»)
+ * comes out of its island, or it is drawn against the Arabic and nothing ends the sentence.
+ */
+const placeEnd = (place: string): [string, string] => {
+  const own = /[.…!?؟]$/u.test(place)
+  if (!own) return [iso(place), '.']
+  return iso(place) === place ? [place, ''] : [iso(place.slice(0, -1)), place.slice(-1)]
+}
 /** A whole count, or a fraction kept (its plural category is `other`) */
 const int = (n: number) => (Number.isInteger(n) ? f.int(n) : f.dec(n, 1))
 /** A count and its noun: `one` and `two` hold the whole phrase (words, no digit), else the digit before the form */
@@ -90,8 +102,6 @@ const times = (n: number): Part[] =>
     other: [num(int(n)), `${nb}مرة`],
   })
 
-/** The full stop after a place that ends a sentence, unless the name already ends on one («D.C.») */
-const stop = (place: string) => (/[.…!?؟]$/u.test(place) ? '' : '.')
 /** «القمر الصناعي Sentinel-2C»: the head noun carries the gender; a nameless one is an indefinite «قمر صناعي» */
 const theSat = (sat: string) => `القمر الصناعي${nb}${sat}`
 const aSat = (sat: string | undefined) => (sat ? theSat(sat) : 'قمر صناعي')
@@ -170,13 +180,13 @@ const results: typeof en = {
         many: ['رصد ', num(int(n)), `${nb}قمرًا صناعيًا`],
         other: ['رصد ', num(int(n)), `${nb}قمر صناعي`],
       })
-      return [window, strong(...phrase), ' ', accent(place), stop(place)]
+      const [at, end] = placeEnd(place)
+      return [window, strong(...phrase), ' ', accent(at), end]
     },
-    none: (place: string, past: boolean): Rich => [
-      `${past ? 'في ذلك الأسبوع' : 'هذا الأسبوع'}، لم يرصد أي قمر صناعي نتتبّعه `,
-      accent(place),
-      stop(place),
-    ],
+    none: (place: string, past: boolean): Rich => {
+      const [at, end] = placeEnd(place)
+      return [`${past ? 'في ذلك الأسبوع' : 'هذا الأسبوع'}، لم يرصد أي قمر صناعي نتتبّعه `, accent(at), end]
+    },
   },
 
   // ── the second line ──────────────────────────────────────────────────────────────────────
@@ -258,8 +268,8 @@ const results: typeof en = {
     },
     checked: (passes: number, satellites: number) => checked(passes, satellites),
     passTimes: (place: string, fetched: string | undefined, zoneLabel: string) =>
-      `أوقات المرور هي اللحظات التي كان فيها كل قمر صناعي أقرب ما يكون إلى ${place}، محسوبة من عناصر مدارية عامة` +
-      `${fetched ? ` (جُلبت ${ltr(fetched)})` : ''}. الأوقات المحلية بتوقيت ${zoneLabel}.`,
+      `أوقات المرور هي اللحظات التي كان فيها كل قمر صناعي أقرب ما يكون إلى ${iso(place)}، محسوبة من عناصر مدارية عامة` +
+      `${fetched ? ` (جُلبت ${ltr(whole(fetched))})` : ''}. الأوقات المحلية بتوقيت ${iso(whole(zoneLabel))}.`,
   },
 
   // ── the panel ────────────────────────────────────────────────────────────────────────────
@@ -307,7 +317,7 @@ const results: typeof en = {
     nextTitle: 'التالي (→)',
     allPassesTitle: 'كل مرات المرور (Esc)',
     // Nominal, so the satellite's name and the place never touch (ar.md §5.2); a shared ISS pass is the station's.
-    shared: (sat: string, place: string) => `تمت مشاركته معك · ${satWatched(sat)} ${place}`,
+    shared: (sat: string, place: string) => `تمت مشاركته معك · ${satWatched(sat)} ${iso(place)}`,
     passWhen: (ms: number, timeZone: string, p: DateFields, clock: string, zone: string, approx: boolean) =>
       // The clock and its zone are one left-to-right island (LRI…PDI), or they read «UTC-5 11:21» after the day.
       `${time.day(ms, timeZone, p)} · \u2066${approx ? `≈${nb}` : ''}${clock}${nb}${zone}\u2069`,
@@ -337,7 +347,7 @@ const results: typeof en = {
     sharedAlt: (sat: string | undefined, place: string) => `صورة ${place} من ${aSat(sat)}، تمت مشاركتها معك.`,
     sharedCaption: (sat: string | undefined, place: string, when?: PlaceWhen): Rich => [
       strong('تمت مشاركته معك'),
-      ` · ${sat ? `${satWatched(sat)} ${place}` : `رصد قمر صناعي ${place}`}${when ? ` · ${day(when.ms, when.timeZone)}، ${when.time}` : ''}`,
+      ` · ${sat ? `${satWatched(sat)} ${iso(place)}` : `رصد قمر صناعي ${iso(place)}`}${when ? ` · ${day(when.ms, when.timeZone)}، ${when.time}` : ''}`,
     ],
   },
 
@@ -370,7 +380,8 @@ const results: typeof en = {
   timeline: {
     title: 'الخط الزمني',
     // Two Latin labels between neutrals would merge and read backwards: each is its own island.
-    meta: (days: number, zoneLabel: string, zones: string) => `${count(days, DAYS)} · ${iso(zoneLabel)} · ${iso(zones)}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${count(days, DAYS)} · ${iso(zoneLabel)}${zones ? ` · ${iso(zones)}` : ''}`,
     zoneChange: (before: string, after: string) => `${iso(before)} ← ${iso(after)}`,
     daylight: 'النهار هنا',
     // A verdict's name cannot follow a bare count in Arabic, so each name is a label before its count.
@@ -434,6 +445,10 @@ const results: typeof en = {
   timelapse: {
     title: 'عبر السنين',
     sub: 'هذا المكان، عامًا بعد عام',
+  },
+  colophon: {
+    ask: 'ساعد في إبقاء Watched مجانيًا :)',
+    via: 'إكرامية صغيرة عبر Buy Me a Coffee',
   },
 }
 export default results

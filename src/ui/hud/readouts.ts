@@ -5,7 +5,7 @@
  * Coordinates, clocks and stamps are international notation (the same in every language); the words around them
  * ("SUN", "OBJECTS", the age units) come from the 'hud' namespace, read at call time.
  */
-import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
+import { hemisphere, LOCALE_INFO } from '../../../api/_lib/i18n/locales'
 import enHud from '@/i18n/en/hud'
 import { currentLocale, msgs } from '@/i18n/runtime'
 import { gmst, RAD } from '@/lib/geo'
@@ -16,7 +16,7 @@ const pad = (n: number, w: number) => String(Math.trunc(n)).padStart(w, '0')
 export function fmtLatFixed(lat: number, digits = 1): string {
   const a = Math.abs(lat)
   const [i, f] = a.toFixed(digits).split('.')
-  return `${i.padStart(2, '0')}${f ? '.' + f : ''}°${lat >= 0 ? 'N' : 'S'}`
+  return `${i.padStart(2, '0')}${f ? '.' + f : ''}°${hemisphere(currentLocale(), 'lat', lat)}`
 }
 
 /** "118.2°E" / "008.0°W" — longitude normalised to ±180 with a fixed 3-digit integer part. */
@@ -25,7 +25,7 @@ export function fmtLonFixed(lon: number, digits = 1): string {
   // toFixed can round 179.96 up to "180.0"; keep the hemisphere consistent with the printed value.
   if (Number(Math.abs(l).toFixed(digits)) >= 180) l = 180
   const [i, f] = Math.abs(l).toFixed(digits).split('.')
-  const hemi = l === 180 || l === -180 ? 'E' : l >= 0 ? 'E' : 'W'
+  const hemi = hemisphere(currentLocale(), 'lon', l === -180 ? 180 : l)
   return `${i.padStart(3, '0')}${f ? '.' + f : ''}°${hemi}`
 }
 

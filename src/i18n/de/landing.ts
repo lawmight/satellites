@@ -44,8 +44,8 @@ const landing: typeof en = {
     })} überflogen haben, und ihre echten Bilder.`,
   ],
   builtBy: (handle: string) => `Von ${handle}`,
-  sourceLink: 'Open Source',
-  sourceLinkLabel: 'Open Source: der Code auf GitHub',
+  support: 'Hilf mit, dass Watched kostenlos bleibt :)',
+  supportShort: 'Hilf, es kostenlos zu halten :)',
 
   // ── The place search ──────────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Ort suchen',

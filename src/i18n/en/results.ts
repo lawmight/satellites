@@ -185,7 +185,8 @@ export default ns('results', {
     /**
      * The last footnote: how pass times are computed. `fetched`: when the orbital elements were downloaded, an
      * international UTC stamp ("2026-11-08 03:31Z"), absent when unknown; `zoneLabel`: the place's time zone as
-     * shown ("America/Toronto", or "UTC−9 · at sea")
+     * named on the place row ("America/Toronto"; "UTC+7" for a zone with no abbreviation, "UTC−3 → UTC−4" when that
+     * offset changes in the window; "UTC−9 · at sea")
      */
     passTimes: (place: string, fetched: string | undefined, zoneLabel: string) =>
       `Pass times are when each satellite was closest to ${place}, computed from public orbital elements` +
@@ -293,9 +294,10 @@ export default ns('results', {
   // ── the computing readout (between a search and its results) ──────────────────────────────────
   computing: {
     /**
-     * The four numbered rows, mono caps, one line each beside the row's number and duration (about 40 characters on a
-     * 390 px phone): `idle` before the step starts, `done` after (while it runs the engine writes its own line). The
-     * idle labels are also what screen readers hear as each step starts
+     * The four numbered rows, mono caps, beside the row's number and duration (about 40 characters a line on a 390 px
+     * phone; a longer one wraps to a second line, so keep them short): `idle` before the step starts, `done` after
+     * (while it runs the engine writes its own line). The idle labels are also what screen readers hear as each step
+     * starts
      */
     stages: {
       catalog: { idle: 'Orbital catalog', done: 'Catalog loaded' },
@@ -386,8 +388,12 @@ export default ns('results', {
   timeline: {
     /** The section rule's word ("04 / Timeline", mono caps) */
     title: 'Timeline',
-    /** Beside it: the window, the place's zone name, its abbreviation(s) (`zones`, "EST" or "EDT → EST"; mono caps) */
-    meta: (days: number, zoneLabel: string, zones: string) => `${count(days, 'day', 'days')} · ${zoneLabel} · ${zones}`,
+    /**
+     * Beside it: the window, the place's zone name, its abbreviation(s) (`zones`, "EST" or "EDT → EST"; mono caps).
+     * A zone named by its offset ("UTC+7", "UTC−9 · at sea") comes without `zones`: they would say it again.
+     */
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${count(days, 'day', 'days')} · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     /** A daylight-saving change inside the window: the zone's abbreviation before and after */
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     /** The legend's key for the shaded day/night band */
@@ -512,5 +518,20 @@ export default ns('results', {
     title: 'Time-lapse',
     /** Under it: what it shows (the row's accessible name is the two lines together) */
     sub: 'This place, year by year',
+  },
+
+  /**
+   * The maker's thanks (src/ui/results/Colophon.tsx): the row that closes the overview and the line at the foot of the
+   * share sheet. Two short phrases, nothing more (owner); keep the brand "Watched" as it is
+   */
+  colophon: {
+    /**
+     * The ask, and the link itself, to the maker's Buy Me a Coffee page (owner, 2026-11-23: the ask is the link; no
+     * "buy me a coffee"): the results' bar, the share sheet, the time-lapse, About, the landing. Keep the brand
+     * "Watched" as it is
+     */
+    ask: 'Help keep Watched free :)',
+    /** Under it in the row that closes the results (mono caps title above): where the link goes, so it is no surprise */
+    via: 'A small tip, on Buy Me a Coffee',
   },
 })

@@ -37,6 +37,7 @@ const share: typeof en = {
   preparingImage: 'Menyiapkan gambar…',
   share: 'Bagikan',
   copyLink: 'Salin tautan',
+  copyLinkDesktop: 'Salin tautan',
   copied: 'Disalin',
   postToX: 'Unggah ke X',
   copyImage: 'Salin gambar',

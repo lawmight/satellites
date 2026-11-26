@@ -150,11 +150,11 @@
 .nameLine {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 3px 10px;
   min-width: 0;
 }
 .name {
-  /* The name gives way last: a long operator ("NASA / Roscosmos / ESA / JAXA / CSA") truncates first. */
+  /* Cut only where it must: beside a pass row's tag, or alone on its line (a satellite's operator goes under it). */
   flex: 0 1 auto;
   min-width: 0;
   font-family: var(--font-sans);
@@ -169,7 +169,7 @@
   white-space: nowrap;
 }
 .operator {
-  flex: 0 1000 auto;
+  flex: 0 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
   font-stretch: 87.5%;
@@ -177,9 +177,13 @@
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--bone-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+/* A satellite's row: the operator goes under the name where it does not fit beside it (PassList.tsx operatorText),
+   never cut. A pass row's tag stays beside its name. */
+.nameLine:has(> .operator) {
+  flex-wrap: wrap;
 }
 .tag {
   flex: none;
@@ -299,6 +303,12 @@
   font-variant-numeric: tabular-nums;
   color: var(--warn);
   white-space: nowrap;
+}
+/* A word wider than the thumb (PassList.tsx useTightChip) */
+.cloudChip[data-tight] {
+  padding-inline: 1px;
+  letter-spacing: 0;
+  font-stretch: 75%;
 }
 /* centre tick: the place, a 1px signal cross */
 .thumbMark {

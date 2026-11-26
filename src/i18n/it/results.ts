@@ -318,7 +318,8 @@ const results: typeof en = {
   // ── 04 / LINEA DEL TEMPO ──────────────────────────────────────────────────────────────────────
   timeline: {
     title: 'Linea del tempo',
-    meta: (n: number, zoneLabel: string, zones: string) => `${days(n)} · ${zoneLabel} · ${zones}`,
+    meta: (n: number, zoneLabel: string, zones?: string) =>
+      `${days(n)} · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: 'Luce del giorno qui',
     /** *Linea del tempo, 7 giorni. Osservato: 12, probabilmente osservato: 3, poteva puntare qui: 0, nel tuo cielo: 5.* */
@@ -384,6 +385,10 @@ const results: typeof en = {
   timelapse: {
     title: 'Time-lapse',
     sub: 'Questo luogo, anno dopo anno',
+  },
+  colophon: {
+    ask: 'Aiuta Watched a restare gratuito :)',
+    via: 'Una piccola mancia, su Buy Me a Coffee',
   },
 }
 export default results

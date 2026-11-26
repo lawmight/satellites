@@ -148,6 +148,7 @@ const about: typeof en = {
   /** Product, agency, licence and people's names as they are; OpenStreetMap's own Indonesian attribution */
   credits: {
     madeBy: { who: 'Dibuat oleh', text: (handle: string): AboutPart[] => ['Armaan, ', link(handle), ' di X'] },
+    support: { who: 'Dukungan', text: [link('Bantu Watched tetap gratis :)')] as AboutPart[] },
     gibs: 'Citra dari GIBS milik NASA, bagian dari EOSDIS. GOES melalui NOAA dan CIRA, Himawari melalui JMA.',
     archives: {
       who: 'Arsip',

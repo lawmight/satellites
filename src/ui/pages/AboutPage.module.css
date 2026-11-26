@@ -240,6 +240,21 @@
   text-wrap: pretty;
 }
 
+/* The maker's thanks under the lede: one small line, its link in bone like the page's others. */
+.support {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 0;
+  font-size: var(--fs-small);
+  line-height: calc(1.5 * var(--lh-text-k));
+  color: var(--bone-2);
+}
+.supportMark {
+  flex: none;
+  color: var(--bone-3-mark);
+}
+
 /* ── sections ─────────────────────────────────────────────────── */
 /* Laid out only as they come near the viewport, so opening the page costs the intro, not every
    section (AboutPage.tsx re-aims index jumps once the real heights are in). `auto` keeps a section's
@@ -284,7 +299,8 @@
   margin: 0 0 16px;
   text-wrap: pretty;
 }
-.prose a {
+.prose a,
+.support a {
   color: var(--bone);
 }
 

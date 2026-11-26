@@ -261,7 +261,8 @@ const results: typeof en = {
   // ── 04 / timeline ────────────────────────────────────────────────────────────────────────
   timeline: {
     title: '타임라인',
-    meta: (days: number, zoneLabel: string, zones: string) => `${f.int(days)}일 · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${f.int(days)}일 · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: '이곳의 낮',
     /**
@@ -328,6 +329,10 @@ const results: typeof en = {
   timelapse: {
     title: '타임랩스',
     sub: '해마다 본 이곳',
+  },
+  colophon: {
+    ask: 'Watched가 계속 무료일 수 있게 도와주세요 :)',
+    via: 'Buy Me a Coffee로 작은 팁을',
   },
 }
 export default results

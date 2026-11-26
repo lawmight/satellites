@@ -26,6 +26,8 @@ function age(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: '작동 방식',
+  sourceLink: '오픈 소스',
+  sourceLinkLabel: '오픈 소스: GitHub의 코드',
   home: 'Watched, 처음으로',
   regionTime: '시각',
   regionCatalog: '궤도 카탈로그',

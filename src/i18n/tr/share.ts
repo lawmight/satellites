@@ -52,6 +52,7 @@ const share: typeof en = {
   preparingImage: 'Görüntü hazırlanıyor…',
   share: 'Paylaş',
   copyLink: 'Kopyala',
+  copyLinkDesktop: 'Bağlantıyı kopyala',
   copied: 'Kopyalandı',
   postToX: 'X’te paylaş',
   copyImage: 'Görüntüyü kopyala',

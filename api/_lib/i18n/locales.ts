@@ -6,15 +6,16 @@
  * Why a hand-made matcher and not the browser's: the choice has to be made before any script but the inline boot one
  * runs (so the right glyphs, direction and preload start with the first paint), and it must agree to the letter with the
  * server and the tests. Chinese is matched by script, not region: zh-CN / zh-SG / zh-Hans read Simplified, zh-TW /
- * zh-HK / zh-MO / zh-Hant read Traditional. A language we don't speak never picks a neighbour: a browser asking for
- * Russian gets English, not Ukrainian.
+ * zh-HK / zh-MO / zh-Hant read Traditional. A language we don't speak never picks a neighbour (a browser asking for
+ * Belarusian gets English, not Russian or Ukrainian), with one exception chosen by the owner: Cantonese reads
+ * Traditional Chinese.
  */
 
-export const LOCALES = ['en', 'es', 'fr', 'de', 'pt-BR', 'it', 'nl', 'pl', 'tr', 'id', 'uk', 'ja', 'ko', 'zh-Hans', 'zh-Hant', 'ar'] as const
+export const LOCALES = ['en', 'es', 'fr', 'de', 'pt-BR', 'it', 'nl', 'pl', 'tr', 'id', 'uk', 'ja', 'ko', 'zh-Hans', 'zh-Hant', 'ar', 'ru', 'vi', 'fa', 'hi'] as const
 export type Locale = (typeof LOCALES)[number]
 
 /** Writing systems the design tunes type for (html[data-script]: fonts, leading, tracking, label sizes). */
-export type Script = 'latin' | 'cyrillic' | 'cjk' | 'arabic'
+export type Script = 'latin' | 'cyrillic' | 'cjk' | 'arabic' | 'devanagari'
 
 /** CLDR cardinal plural categories (Intl.PluralRules), the keys a translation must supply for a count. */
 export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
@@ -41,6 +42,11 @@ export interface LocaleInfo {
   percentFirst?: boolean
   /** The digit-group separator, where the language's typography differs from Intl's default (Spanish: a no-break space) */
   group?: string
+  /**
+   * The hemisphere letters after a coordinate's degree sign, north, south, east, west, where the international N S E W
+   * would mislead: in Vietnamese N is nam, south, beside a compass that writes north B (bắc).
+   */
+  hemispheres?: string
 }
 
 const L = (
@@ -49,7 +55,7 @@ const L = (
   english: string,
   script: Script,
   plurals: readonly PluralCategory[],
-  extra: Partial<Pick<LocaleInfo, 'dir' | 'intl' | 'listed' | 'sentenceGap' | 'percentGap' | 'percentFirst' | 'group'>> = {},
+  extra: Partial<Pick<LocaleInfo, 'dir' | 'intl' | 'listed' | 'sentenceGap' | 'percentGap' | 'percentFirst' | 'group' | 'hemispheres'>> = {},
 ): LocaleInfo => ({ code, native, english, script, dir: 'ltr', intl: code, plurals, listed: true, sentenceGap: ' ', ...extra })
 
 export const LOCALE_INFO: Record<Locale, LocaleInfo> = {
@@ -70,9 +76,21 @@ export const LOCALE_INFO: Record<Locale, LocaleInfo> = {
   'zh-Hans': L('zh-Hans', '简体中文', 'Chinese (Simplified)', 'cjk', ['other'], { sentenceGap: '' }),
   'zh-Hant': L('zh-Hant', '繁體中文', 'Chinese (Traditional)', 'cjk', ['other'], { sentenceGap: '' }),
   ar: L('ar', 'العربية', 'Arabic', 'arabic', ['zero', 'one', 'two', 'few', 'many', 'other'], { dir: 'rtl', intl: 'ar-u-nu-latn' }),
+  // Added 2026-11-21 (owner: 20 languages). Persian keeps Western digits as Arabic does (the mono face has no others);
+  // Hindi's Intl digits are Western by default.
+  ru: L('ru', 'Русский', 'Russian', 'cyrillic', ['one', 'few', 'many', 'other']),
+  vi: L('vi', 'Tiếng Việt', 'Vietnamese', 'latin', ['other'], { hemispheres: 'BNĐT' }),
+  fa: L('fa', 'فارسی', 'Persian', 'arabic', ['one', 'other'], { dir: 'rtl', intl: 'fa-u-nu-latn' }),
+  hi: L('hi', 'हिन्दी', 'Hindi', 'devanagari', ['one', 'other']),
 }
 
 export const DEFAULT_LOCALE: Locale = 'en'
+
+/** A coordinate's hemisphere letter in `locale`: "N" for a northern latitude, "B" on a Vietnamese page. */
+export function hemisphere(locale: Locale, axis: 'lat' | 'lon', value: number): string {
+  const letters = LOCALE_INFO[locale].hemispheres ?? 'NSEW'
+  return letters[axis === 'lat' ? (value >= 0 ? 0 : 1) : value >= 0 ? 2 : 3]
+}
 
 export function isLocale(v: unknown): v is Locale {
   return typeof v === 'string' && (LOCALES as readonly string[]).includes(v)

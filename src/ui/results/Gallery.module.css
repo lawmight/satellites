@@ -222,9 +222,10 @@
   }
 }
 /* Chinese, Japanese and Korean labels are two or three full-width characters with no side bearing to speak of: at the
-   narrow bars' 3–4 px they touched their dividers ("全部|精细|气象"). Half a character each side, in every bar. */
+   narrow bars' 3–4 px they touched their dividers ("全部|精细|气象"). Hindi's are words whose vowel signs reach past
+   their letters (the ी of «सभी» met the divider). Half a character each side, in every bar. */
 @container gallery (max-width: 400px) {
-  :root[data-script='cjk'] .seg {
+  :root:is([data-script='cjk'], [data-script='devanagari']) .seg {
     padding-inline: 0.5em;
   }
 }

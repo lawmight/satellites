@@ -7,8 +7,9 @@
  *  - Never coordinates: a search is a city-level label ("Waterloo, Ontario, Canada") and its 0.1° (~10 km) cell.
  *  - Never an IP (the relay reads only the country Cloudflare's edge derives from it), never a full referrer (host only).
  *  - Error messages lose URLs and decimal numbers before they leave the browser (the server masks them again).
- *  - Each batch says what the tab is (`ctx`): its device class, UTM tags, referrer host, the app's version, and the
- *    language the app is showing (one of its locale codes), so the admin page counts tabs per language.
+ *  - Each batch says what the tab is (`ctx`): its device class, UTM tags, referrer host, the app's version, the
+ *    language the app is showing (one of its locale codes), and the browser's first language, without its region
+ *    ('pt', not 'pt-BR'), so the admin page counts tabs per language and sees the languages the app lacks.
  *
  * Off (nothing is queued or sent) under automation (`navigator.webdriver`), on dev builds, on any host but the
  * production ones (previews and local builds write nothing), and for the rest of the tab once a page was opened
@@ -33,9 +34,17 @@ export type EventType =
   | 'share_action'
   | 'timelapse_open'
   | 'timelapse_share'
+  | 'support_click'
   | 'error'
   | 'vitals'
 
+/**
+ * Which place's Buy Me a Coffee link was pressed (src/ui/results/Colophon.tsx): the results' bar, the share sheet's
+ * foot, the row closing the results, About's credit, the time-lapse's video, the landing (0029); the line under
+ * About's intro (0030). 0030 also allows 'computing', the computing screen's line, taken out on 2026-11-24 (owner): the
+ * admin page still names the presses it had.
+ */
+export type SupportFrom = 'bar' | 'share' | 'results' | 'about' | 'timelapse' | 'landing' | 'about_top'
 export type ShareAction = 'x' | 'copy_link' | 'copy_image' | 'save_png' | 'native'
 /** Where a share sheet was opened from: the headline's Share, the lead photo's caption, the photo viewer, the pass view. */
 export type ShareFrom = 'headline' | 'hero' | 'viewer' | 'pass'
@@ -175,6 +184,21 @@ export function referrerHost(referrer: string, ownHost: string): string | undefi
   }
 }
 
+/** Codes some Android browsers still send for three languages (Java's old ones), as the app's matcher reads 'in'. */
+const OLD_LANGUAGE_CODES: Record<string, string> = { in: 'id', iw: 'he', ji: 'yi' }
+
+/**
+ * The browser's first language as its primary subtag, lowercase: 'hi' for hi-IN, 'zh' for zh-TW, 'fil' for fil-PH.
+ * Any language, not only the app's: the admin page compares it with the ones the app speaks (migration 0028, which
+ * keeps exactly 2-3 lowercase letters). Only the first: when a later one is a language the app speaks, the app shows
+ * that one, and the tab's `lang` says so. Undefined when there is none or it is not a language code ('x-klingon', '*').
+ */
+export function browserLanguage(tags: readonly string[] | undefined): string | undefined {
+  const first = typeof tags?.[0] === 'string' ? tags[0].trim().toLowerCase().split(/[-_]/)[0] : ''
+  const code = OLD_LANGUAGE_CODES[first] ?? first
+  return /^[a-z]{2,3}$/.test(code) ? code : undefined
+}
+
 /** utm_source / utm_medium / utm_campaign, clipped. */
 export function utmOf(search: string): Record<string, string> {
   const out: Record<string, string> = {}
@@ -300,7 +324,8 @@ export function setLanguage(fn: (() => string) | undefined): void {
   language = fn
 }
 
-/** Device, UTM tags, referrer and version (fixed for the tab, worked out once), and the language as it is now. */
+/** Device, UTM tags, referrer, version and the browser's language (fixed for the tab, worked out once), and the
+ *  language the app shows as it is now. */
 function context(): Record<string, string> {
   const ctx = (ctxCache ??= baseContext())
   let lang: string | undefined
@@ -322,6 +347,8 @@ function baseContext(): Record<string, string> {
   if (ref) ctx.ref = ref
   const v = appVersion(typeof document === 'undefined' ? undefined : document)
   if (v) ctx.v = v
+  const bl = browserLanguage(navigator.languages?.length ? navigator.languages : [navigator.language])
+  if (bl) ctx.browser_lang = bl
   return ctx
 }
 

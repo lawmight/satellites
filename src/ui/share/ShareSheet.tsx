@@ -45,12 +45,14 @@ import { useApp } from '@/state/store'
 import { track, type ShareFrom } from '@/lib/telemetry'
 import type { Pass, Report } from '@/types'
 import { Button, Glyph, Rule, Sheet, cx, useExitClone, useIsMobile, useMediaQuery } from '@/ui/system'
+import { ColophonLine } from '../results/Colophon'
 import { isClouded } from '../results/lib/bestLook'
 import { captureFor, slug } from '../results/lib/captures'
 import { satMeta } from '../results/sats'
 import { createShareSafe, peekShare, type CreateShareInput } from './backend'
 import { cardSpec, publicLabelOf, renderCardPng, summaryCardSpec, summaryFacts, weekSatellites, type CardSpec } from './card'
 import { deepLink, postText, roundedPlace, shareLink, summaryLink, summaryPostText, xIntentUrl } from './links'
+import { cardMeasureReady, loadCardMeasureForPress } from './measure'
 import { ShareCard } from './ShareCard'
 import { useBackLayer } from '@/lib/backStack'
 import s from './ShareSheet.module.css'
@@ -353,7 +355,68 @@ function useOverlayAttr(on: boolean) {
   }, [on])
 }
 
-export function ShareSheet({ pass, report, onClose, clouded, kind = 'pass', from }: ShareSheetProps) {
+/**
+ * The sheet once the card's headline measure is in (./measure.ts: fetched ahead of the press, so normally at once and
+ * in the press's own commit). A press before it opens the sheet as soon as it arrives: the card is built only then,
+ * so its preview is final at its first paint. Meanwhile the press already holds the share layer for Back and Esc
+ * (either drops it, as either would close the sheet), and the sheet takes the layer over in the commit that mounts
+ * it, so the history moves exactly as when it opened at once. A failed download is asked for again (after 1.5 s,
+ * then 4 s, as the app's chunks are); if none works the press is dropped and the Share button stays live (the next
+ * press asks again). Not the fault notice the results' own chunk ends in: that would take away the results, which
+ * are fine.
+ */
+export function ShareSheet(props: ShareSheetProps) {
+  const [ready, setReady] = useState(cardMeasureReady)
+  const { onClose } = props
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    if (ready) return
+    let alive = true
+    loadCardMeasureForPress(() => alive).then(
+      () => alive && setReady(true),
+      () => alive && closeRef.current(),
+    )
+    return () => {
+      alive = false
+    }
+  }, [ready])
+  return ready ? <SheetBody {...props} /> : <SheetPending onClose={onClose} />
+}
+
+/**
+ * A press while the measure downloads: nothing on screen yet, but Back and Esc already close it as the sheet's would.
+ * Whatever the person does next drops it too (a tap anywhere, About): a sheet that arrived later would open over what
+ * they turned to (over About, which must stay on top: drawn later, the sheet would cover it and take its Esc).
+ */
+function SheetPending({ onClose }: { onClose: () => void }) {
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  const close = () => closeRef.current()
+  useBackLayer('share', true, close)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // About over the results takes the Esc itself, as it does over the sheet.
+      if (e.key !== 'Escape' || useApp.getState().aboutOpen) return
+      e.stopPropagation()
+      e.preventDefault()
+      close()
+    }
+    window.addEventListener('keydown', onKey, true)
+    // Registered after the press's own pointerdown: only a later one drops it.
+    window.addEventListener('pointerdown', close, true)
+    const unsub = useApp.subscribe((s) => s.aboutOpen && close())
+    if (useApp.getState().aboutOpen) close()
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('pointerdown', close, true)
+      unsub()
+    }
+  }, [])
+  return null
+}
+
+function SheetBody({ pass, report, onClose, clouded, kind = 'pass', from }: ShareSheetProps) {
   const m = useMsgs(enShare)
   // What is shared is in the app's language: a switch while the sheet is open rebuilds the model in the new one.
   const locale = useLocale()
@@ -686,7 +749,7 @@ export function ShareSheet({ pass, report, onClose, clouded, kind = 'pass', from
       </Button>
       <Button onClick={copy} onPointerDown={warm} aria-live="polite">
         {flash === 'link' ? <Glyph name="imaged" size={10} color="var(--signal)" /> : null}
-        {flash === 'link' ? m.copied : m.copyLink}
+        {flash === 'link' ? m.copied : m.copyLinkDesktop}
       </Button>
       {copyImageOk ? (
         <Button onClick={copyImage} onPointerDown={() => void startPng()} aria-live="polite">
@@ -707,7 +770,10 @@ export function ShareSheet({ pass, report, onClose, clouded, kind = 'pass', from
           phone sheet) under the pointer, by 20–27 px, so the click landed beside the button and was lost. */}
       <div className={s.linkRow} data-link={link.kind}>
         <label htmlFor="share-link" className={s.linkLabel}>
-          {m.linkLabel}
+          <span>{m.linkLabel}</span>
+          <span className={s.labelGhost} aria-hidden>
+            {m.postLabel}
+          </span>
         </label>
         <input
           id="share-link"
@@ -722,7 +788,12 @@ export function ShareSheet({ pass, report, onClose, clouded, kind = 'pass', from
         />
       </div>
       <p className={s.text}>
-        <span className={s.textLabel}>{m.postLabel}</span>
+        <span className={s.textLabel}>
+          <span>{m.postLabel}</span>
+          <span className={s.labelGhost} aria-hidden>
+            {m.linkLabel}
+          </span>
+        </span>
         {/* Paragraphs as the post will have them (a blank line on X), set a little tighter here. */}
         <span className={s.textBody}>
           {text.split('\n\n').map((para, i) => (
@@ -743,6 +814,9 @@ export function ShareSheet({ pass, report, onClose, clouded, kind = 'pass', from
           ) : null}
         </div>
       ) : null}
+      {/* Last, the maker's thanks: whoever is here just chose to show the site to someone, and what they post is the
+          card, never this sheet (src/ui/results/Colophon.tsx). */}
+      <ColophonLine from="share" />
     </div>
   )
 

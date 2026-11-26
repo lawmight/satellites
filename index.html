@@ -99,7 +99,9 @@
         0%, 100% { opacity: 1; }
         50% { opacity: 0.28; }
       }
-      /* Only if loading is slow: one quiet line under the wordmark, in the ink layer (it leaves with the ink). */
+      /* Only if loading is slow: one quiet line under the wordmark, in the ink layer (it leaves with the ink). Its face
+         is the page's mono stack once the app's CSS is in (the same list on an English page; a Vietnamese, Arabic or
+         CJK page's own faces otherwise, src/styles/scripts.css), Martian Mono before. */
       #boot-static .bs-note {
         position: absolute;
         left: 0;
@@ -108,7 +110,7 @@
         margin: 0;
         text-align: center;
         color: rgb(236 232 224 / 0.52);
-        font-family: 'Martian Mono Variable', 'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+        font-family: var(--font-mono, 'Martian Mono Variable', 'Martian Mono', ui-monospace, 'SF Mono', Menlo, monospace);
         font-stretch: 87.5%;
         font-size: 10.5px;
         line-height: 1.4;

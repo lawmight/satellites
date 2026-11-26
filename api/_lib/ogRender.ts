@@ -13,7 +13,7 @@ import type { ReactElement } from 'react'
 import satori, { init as initSatori } from 'satori/standalone'
 import { Resvg, initWasm as initResvg } from '@resvg/resvg-wasm'
 import { bundled } from './bundled.js'
-import { loadFallbackAsset } from './fallbackFonts.js'
+import { loadFallbackAsset, mergeShared } from './fallbackFonts.js'
 import type { SatoriFont } from './fonts.js'
 
 /**
@@ -84,9 +84,10 @@ export async function cardSvg(element: ReactElement, { width, height, fonts }: R
   if (!missing.length) return first
   const own: SatoriFont[] = []
   const graphemeImages: Record<string, string> = {}
-  const assets = await Promise.all(missing.map(({ code, text }) => loadFallbackAsset(code, text)))
+  const asks = mergeShared(missing) // a Hindi card's danda joins its Devanagari
+  const assets = await Promise.all(asks.map(({ code, text }) => loadFallbackAsset(code, text)))
   for (const [i, asset] of assets.entries()) {
-    if (typeof asset === 'string') graphemeImages[missing[i].text] = asset
+    if (typeof asset === 'string') graphemeImages[asks[i].text] = asset
     else own.push(...asset)
   }
   if (!own.length && !Object.keys(graphemeImages).length) return first // nothing could be loaded: the boxes stay

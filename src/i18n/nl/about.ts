@@ -164,6 +164,7 @@ const about: typeof en = {
    */
   credits: {
     madeBy: { who: 'Gemaakt door', text: (handle: string): AboutPart[] => ['Armaan, ', link(handle), ' op X'] },
+    support: { who: 'Steunen', text: [link('Help Watched gratis te houden :)')] as AboutPart[] },
     gibs: 'Beelden van NASA GIBS, onderdeel van EOSDIS. GOES via NOAA en CIRA, Himawari via JMA.',
     archives: {
       who: 'Archieven',

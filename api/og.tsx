@@ -22,19 +22,33 @@
  * Except a right-to-left language: satori shapes Arabic (HarfBuzz) but has no bidirectional layout, so an Arabic
  * headline came out with its words in reverse order and its numbers misplaced. Those links unfurl with the English
  * card (the share page itself, HTML, is in Arabic; the PNG the app saves is drawn by the browser, which lays Arabic
- * out properly). `cardLocale` is the one place that decides it.
+ * out properly). `cardLocale` (api/_lib/share.ts) is the one place that decides it.
+ *
+ * A Meteosat frame's picture comes from EUMETSAT's map service, which asked on 2026-11-17 to be spared the site's
+ * visitors (CLAUDE.md). So only a STORED share may be drawn with one: create_share's limits bound how many of those
+ * there are. A card drawn from its address alone names any layer, place and time it likes, at no cost to the
+ * sender, and each one used to be a request to EUMETSAT: such a card is drawn without the picture ("the image is in
+ * the app"), as final. A stored share's frame is asked for once per cache entry and never again: an answer that is
+ * no picture (EUMETSAT answers 502 for a frame it no longer has) is final too, where every other archive's miss is
+ * tried again after five minutes.
  */
 import { decode as decodePng } from 'fast-png'
 import { encode as encodeJpeg } from 'jpeg-js'
 import { CARD_H, CARD_W, PLATE, defaultCard, defaultPlateDataUri, shareCard } from './_lib/card.js'
-import { buildCardSpec, buildSummarySpec, type CardSpec, type Locale } from './_lib/cardSpec.js'
+import * as cardMeasure from './_lib/cardMeasure.js'
+import { buildCardSpec, buildSummarySpec, provideCardMeasure, type CardSpec, type Locale } from './_lib/cardSpec.js'
 import { displayHost, siteOrigin } from './_lib/env.js'
 import { cardFonts } from './_lib/fonts.js'
 import { textOf } from './_lib/h.js'
-import { DEFAULT_LOCALE, LOCALE_INFO } from './_lib/i18n/locales.js'
+import { DEFAULT_LOCALE } from './_lib/i18n/locales.js'
 import { renderCardPng } from './_lib/ogRender.js'
-import { cropPlan, fetchCropPicture } from './_lib/imagery.js'
-import { SHARE_ID_RE, cardInputFromShare, fetchShare, linkLocale, shareFromParams, shareTimeZone, summaryFromParams, type ShareRecord } from './_lib/share.js'
+import { asksEumetsat, cropPlan, fetchCropPicture, isMeteosatFrame } from './_lib/imagery.js'
+import { SHARE_ID_RE, cardInputFromShare, cardLocale, fetchShare, linkLocale, shareFromParams, shareTimeZone, summaryFromParams, type ShareRecord } from './_lib/share.js'
+
+export { cardLocale }
+
+// The card's headline measure (its width tables), handed to cardSpec up front: the server card has it synchronously.
+provideCardMeasure(cardMeasure)
 
 /** PC renders a 630² crop in 1–3 s, occasionally much longer; stay well inside maxDuration. */
 const IMAGE_TIMEOUT_MS = 9000
@@ -132,11 +146,18 @@ type CardImage =
   | { kind: 'permanent' } // imaged, but no capture or one that can't be cropped here (final)
   | { kind: 'transient' } // the archive was slow or failed just now (retry soon)
 
-async function cardImage(share: ShareRecord): Promise<CardImage> {
+/** `stored`: the share was read from the database (an id), not built from the address. */
+async function cardImage(share: ShareRecord, stored: boolean): Promise<CardImage> {
   if (share.verdict !== 'imaged') return { kind: 'none' }
   // On the place's grid, as the app cut its photo and card (the grid follows from the rounded place alone).
   const plan = share.capture ? cropPlan(share.capture, share.lat, share.lon, PLATE) : null
   if (!plan) return { kind: 'permanent' }
+  if (asksEumetsat(plan)) {
+    // EUMETSAT is asked only for a stored share's real frame, once (see the top of this file).
+    if (!stored || !isMeteosatFrame(share.capture!.itemId, Date.now())) return { kind: 'permanent' }
+    const pic = await fetchCropPicture(plan.url, IMAGE_TIMEOUT_MS)
+    return pic ? { kind: 'image', ...pic } : { kind: 'permanent' }
+  }
   const pic = await fetchCropPicture(plan.url, IMAGE_TIMEOUT_MS)
   return pic ? { kind: 'image', ...pic } : { kind: 'transient' }
 }
@@ -147,7 +168,10 @@ async function renderSummary(q: URLSearchParams, host: string, locale: Locale): 
   if (!sum) return null
   const spec = buildSummarySpec({ ...sum, timeZone: shareTimeZone(sum), host }, locale)
   const cap = sum.best?.capture
-  const plan = cap ? cropPlan(cap, sum.lat, sum.lon, PLATE) : null
+  // A summary is drawn from its address: never with a picture from EUMETSAT (the app's summaries lead with a
+  // Sentinel-2 / Landsat photo or a daily mosaic, so no real one names a Meteosat frame).
+  const planned = cap ? cropPlan(cap, sum.lat, sum.lon, PLATE) : null
+  const plan = planned && !asksEumetsat(planned) ? planned : null
   const pic = plan ? await fetchCropPicture(plan.url, IMAGE_TIMEOUT_MS) : null
   return render(shareCard({ spec, image: pic ? { dataUri: pic.dataUri } : null }), locale, plan && !pic?.complete ? CACHE.degraded : CACHE.final)
 }
@@ -156,10 +180,9 @@ async function renderDefault(host: string, cache: string, locale: Locale): Promi
   return render(defaultCard({ host, plateDataUri: await defaultPlateDataUri(), locale }), locale, cache)
 }
 
-/** The language satori can draw a card in: the link's, or English for a right-to-left one (see the top of this file). */
-export const cardLocale = (locale: Locale): Locale => (LOCALE_INFO[locale].dir === 'rtl' ? DEFAULT_LOCALE : locale)
-
 export async function handleOg(request: Request): Promise<Response> {
+  // A card is read, never posted to (the router turns a HEAD into the GET it stands for and caches both as one).
+  if (request.method !== 'GET') return new Response(null, { status: 405, headers: { allow: 'GET, HEAD', 'cache-control': 'no-store' } })
   const url = new URL(request.url)
   const host = displayHost(siteOrigin(request))
   const locale = cardLocale(linkLocale(url.searchParams))
@@ -184,7 +207,7 @@ export async function handleOg(request: Request): Promise<Response> {
     // whose real photograph and invitation suit any place.
     if (!share) return await renderDefault(host, degraded ? CACHE.degraded : CACHE.default, locale)
 
-    const img = await cardImage(share)
+    const img = await cardImage(share, id !== null)
     const spec: CardSpec = buildCardSpec(cardInputFromShare(share, host, img.kind === 'permanent' ? 'permanent' : undefined), locale)
     // Only a transient archive miss (or a plate toned without its cloud mask) is worth re-rendering soon; everything
     // else is final.

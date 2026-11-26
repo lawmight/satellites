@@ -17,9 +17,12 @@
  *
  * Words: the 'results' namespace (timeline) and the 'verdicts' vocabulary, read at render, and the day labels written
  * from each midnight's local fields (the model's day marks hold no words), so a language switch rewords the strip.
+ * A day label shows only where it fits before the next: a Latin or Cyrillic one is counted in mono cells, any other
+ * is measured as drawn (useLabelWidth).
  */
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { fmt } from '../../../api/_lib/i18n/format'
+import { LOCALE_INFO, type Locale } from '../../../api/_lib/i18n/locales'
 import { Rich, withUnits } from '@/i18n/Rich'
 import enResults from '@/i18n/en/results'
 import enVerdicts from '@/i18n/en/verdicts'
@@ -33,7 +36,16 @@ import { Mark } from './Mark'
 import { isDailyMosaic, isRadar } from './lib/captures'
 import { glyphForPass, markColorVar, VERDICT_GLYPH, type Verdict } from './lib/meta'
 import { daylight, hitTest, SUN_SAMPLE_MS, type DayMark } from './lib/timeline'
-import { fmtDayCompact, fmtLocalDay, fmtLocalStamp, fmtLocalTime, localDateKey, localParts, zoneAbbr } from './lib/time'
+import {
+  fmtDayCompact,
+  fmtLocalDay,
+  fmtLocalStamp,
+  fmtLocalTime,
+  localDateKey,
+  localParts,
+  zoneAbbr,
+  zoneHasAbbr,
+} from './lib/time'
 import type { ResultsModel } from './model'
 import s from './Timeline.module.css'
 
@@ -67,19 +79,38 @@ const SHARES_FULL = [0.4, 0.2, 0.2, 0.2]
 const LANE_WORD = { strong: s.laneWord }
 const SHARES_COMPACT = [0.55, 0.45]
 
-function layoutFor(w: number, h: number, compact: boolean, hasGeo: boolean): Layout {
+/**
+ * The three label lanes' least height (`--lane-min` on the plot, Timeline.module.css): 0 in most scripts. Where a
+ * script's marks rise and hang further (Devanagari's ँ over ु, Vietnamese's stacked Ể under a Q's tail), a short strip's
+ * 20 % lanes (11.8 px at 1280 × 800) brought one label's ink to its neighbour's; those lanes take the room from the
+ * photographs' lane, which never gets smaller than they are, nor than PHOTO_LANE_MIN: in a shorter strip (no desktop
+ * has one: it keeps 132 px, results.module.css) they get what that leaves, never less than their share.
+ */
+/** The photographs' lane gives the label lanes room only down to this (its diamond is 10.8 px tall). */
+const PHOTO_LANE_MIN = 17
+
+function laneMinOf(el: HTMLElement | null): number {
+  return el ? parseFloat(getComputedStyle(el).getPropertyValue('--lane-min')) || 0 : 0
+}
+
+export function layoutFor(w: number, h: number, compact: boolean, hasGeo: boolean, laneMin = 0): Layout {
   // Compact (phone body): photographs, then one density strip of everything else.
   const lanes: Lane[] = compact ? ['imaged', 'rest'] : ['imaged', 'likely', 'could', 'overhead']
   const shares = compact ? SHARES_COMPACT : SHARES_FULL
   const geoH = hasGeo ? (compact ? 6 : 10) : 0
   const plotH = h - geoH
+  // The shares as they are unless a least height applies (then the label lanes take it, the photographs the rest).
+  const room = Math.min(laneMin, plotH / 4, (plotH - PHOTO_LANE_MIN) / 3)
+  const small = compact ? 0 : Math.max(plotH * SHARES_FULL[1], room)
+  const shared = compact || small === plotH * SHARES_FULL[1]
   const tops: number[] = []
   const heights: number[] = []
   let y = geoH
-  for (const sh of shares) {
+  for (let i = 0; i < shares.length; i++) {
+    const hh = shared ? plotH * shares[i] : i ? small : plotH - 3 * small
     tops.push(y)
-    heights.push(plotH * sh)
-    y += plotH * sh
+    heights.push(hh)
+    y += hh
   }
   const indexOf = (v: Verdict) => (compact ? (v === 'imaged' ? 0 : 1) : Math.max(0, lanes.indexOf(v)))
   return {
@@ -115,15 +146,23 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   const reduced = useReducedMotion()
   const m = useMsgs(enResults).timeline
   const vm = useMsgs(enVerdicts)
-  const int = fmt(useLocale()).int
+  const locale = useLocale()
+  const int = fmt(locale).int
   const plotRef = useRef<HTMLDivElement>(null)
   const headRef = useRef<HTMLDivElement>(null)
+  const axisRef = useRef<HTMLDivElement>(null)
+  const labelWidth = useLabelWidth(axisRef, locale)
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [hover, setHover] = useState<{ pass: Pass; x: number } | null>(null)
   const replaying = useApp((st) => st.timeMode !== 'live')
   const seeking = useApp((st) => st.timeMode === 'scrub')
   const hasGeo = report.geo.length > 0
-  const L = useMemo(() => layoutFor(size.w, size.h, compact, hasGeo), [size.w, size.h, compact, hasGeo])
+  // The script follows the language: read the lanes' least height again when either changes.
+  const laneMin = useMemo(() => (size.h ? laneMinOf(plotRef.current) : 0), [size.h, locale])
+  const L = useMemo(
+    () => layoutFor(size.w, size.h, compact, hasGeo, laneMin),
+    [size.w, size.h, compact, hasGeo, laneMin],
+  )
   const xOf = useCallback((t: number) => ((t - t0) / span) * size.w, [t0, span, size.w])
   const captureById = useMemo(() => new Map(report.captures.map((c) => [c.id, c])), [report.captures])
 
@@ -366,9 +405,11 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
   const nowish = Math.abs(Date.now() - t1) < 3_600_000
   const zoneA = zoneAbbr(t0, tz)
   const zoneB = zoneAbbr(t1, tz)
-  const tzLabel = zoneA === zoneB ? zoneA : m.zoneChange(zoneA, zoneB)
+  const zones = zoneA === zoneB ? zoneA : m.zoneChange(zoneA, zoneB)
   const geoNames = report.geo.slice(0, 3).map((g) => g.name)
   const daysN = Math.round(span / 86_400_000)
+  // A zone named by its offset ("UTC+7", "UTC−9 · at sea") is named once: its abbreviation would say it again.
+  const metaText = zoneHasAbbr(t0, tz) ? m.meta(daysN, model.tzLabel, zones) : m.meta(daysN, model.tzLabel)
 
   const laneCount = (v: Verdict) => lanes[v].passes.length
   const dayW = (86_400_000 / span) * size.w
@@ -387,7 +428,8 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
         ? `${fmtLocalTime(t1, tz)} ${zoneAbbr(t1, tz)}`
         : fmtLocalDay(t1, tz)
   const charW = compact ? 6.2 : 6.6
-  const endRoom = endLabel ? endLabel.length * charW + 14 : 0
+  const widthOf = (text: string) => labelWidth?.(text) ?? text.length * charW
+  const endRoom = endLabel ? widthOf(endLabel) + 14 : 0
 
   return (
     <div className={cx(s.timeline, compact && s.compact, className)} role="group" aria-label={m.keysHint(summary)}>
@@ -397,7 +439,7 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
             <span className={s.idx}>{index}</span>
             <span className={s.sep}>/</span>
             {m.title}
-            <span className={s.meta}>{m.meta(daysN, model.tzLabel, tzLabel)}</span>
+            <span className={s.meta}>{metaText}</span>
           </span>
           <span className={s.legend} aria-hidden>
             <span className={s.dayKey}>
@@ -481,13 +523,13 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
           </div>
 
           {/* Day labels at local midnights: one format for every day */}
-          <div className={s.axis} aria-hidden>
+          <div ref={axisRef} className={s.axis} aria-hidden>
             {axisDays.map((d, i) => {
               const next = axisDays[i + 1]?.t ?? t1
               const x = ((d.t - t0) / span) * size.w
               const limit = Math.min(((next - t0) / span) * size.w, size.w - endRoom)
               const text = dayLabel(d, tz, dayW)
-              const fits = x + text.length * charW + 8 <= limit
+              const fits = x + widthOf(text) + 8 <= limit
               return (
                 <span key={d.t} className={cx(s.day, d.t === t0 && s.dayStart)} style={{ left: `${(((d.t - t0) / span) * 100).toFixed(3)}%` }}>
                   {fits ? text : ''}
@@ -502,6 +544,51 @@ export function Timeline({ model, selectedId, onSelect, compact = false, index =
       </div>
     </div>
   )
+}
+
+/**
+ * The width of an axis label as the page draws it, for a script whose letters are not one mono cell each: Devanagari's
+ * vowel signs and virama join their consonant (counted as characters, a Hindi day that fits was blanked), CJK's are
+ * two cells wide, Arabic's join. null for Latin and Cyrillic, whose mono faces are fixed-width: the cell count is exact
+ * enough there, and English is unchanged. Measured again when a web font finishes loading.
+ */
+function useLabelWidth(ref: RefObject<HTMLDivElement | null>, locale: Locale): ((text: string) => number) | null {
+  const script = LOCALE_INFO[locale].script
+  const on = script !== 'latin' && script !== 'cyrillic'
+  const [fontsLoaded, setFontsLoaded] = useState(0)
+  const [measure, setMeasure] = useState<((text: string) => number) | null>(null)
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined
+    if (!on || !fonts) return
+    const bump = () => setFontsLoaded((n) => n + 1)
+    fonts.addEventListener('loadingdone', bump)
+    return () => fonts.removeEventListener('loadingdone', bump)
+  }, [on])
+  useLayoutEffect(() => {
+    const el = ref.current
+    const ctx = on && el ? document.createElement('canvas').getContext('2d') : null
+    if (!el || !ctx) {
+      setMeasure(null)
+      return
+    }
+    const cs = getComputedStyle(el)
+    ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+    if (cs.fontStretch === '87.5%') ctx.fontStretch = 'semi-condensed'
+    const track = parseFloat(cs.letterSpacing) || 0
+    const seg = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(locale, { granularity: 'grapheme' }) : null
+    const cache = new Map<string, number>()
+    setMeasure(() => (text: string) => {
+      let w = cache.get(text)
+      if (w === undefined) {
+        const shown = text.toLocaleUpperCase(locale)
+        const clusters = seg ? [...seg.segment(shown)].length : Array.from(shown).length
+        w = ctx.measureText(shown).width + track * clusters
+        cache.set(text, w)
+      }
+      return w
+    })
+  }, [ref, on, locale, fontsLoaded])
+  return measure
 }
 
 /** What the mark form means, in words (the legend lives here now), in the active language. */

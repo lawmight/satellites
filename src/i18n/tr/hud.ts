@@ -31,6 +31,8 @@ function ageTr(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: 'Nasıl çalışır',
+  sourceLink: 'Açık kaynak',
+  sourceLinkLabel: 'Açık kaynak: kodu GitHub’da',
   home: 'Watched, ana sayfa',
   regionTime: 'Zaman',
   regionCatalog: 'Yörünge kataloğu',

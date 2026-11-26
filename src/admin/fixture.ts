@@ -28,10 +28,36 @@ const PLACES: [string, string, string, number][] = [
   ['Reykjavík, Iceland', 'is', '64.1,-21.9', 9],
 ]
 
-/** Each language's share of the tabs that named one (0027): every one of the 16 has a few. */
+/** Where the map's long tail gathers: lat, lon and a weight (searches in the middle cell, and how many cells around). */
+const CITIES: [number, number, number][] = [
+  [34.1, -118.2, 12], [41.9, -87.6, 9], [29.8, -95.4, 6], [47.6, -122.3, 7], [25.8, -80.2, 6], [45.5, -73.6, 8], [49.3, -123.1, 7], [51.0, -114.1, 5],
+  [19.4, -99.1, 8], [4.7, -74.1, 4], [-12.0, -77.0, 3], [-34.6, -58.4, 6], [-22.9, -43.2, 5], [-33.4, -70.7, 3],
+  [48.9, 2.3, 14], [40.4, -3.7, 9], [41.9, 12.5, 8], [52.4, 4.9, 9], [59.3, 18.1, 5], [50.1, 14.4, 5], [52.2, 21.0, 7], [48.2, 16.4, 5], [50.5, 30.5, 8],
+  [41.0, 29.0, 10], [55.8, 37.6, 6], [38.0, 23.7, 4], [53.3, -6.3, 4],
+  [30.0, 31.2, 6], [-1.3, 36.8, 3], [-26.2, 28.0, 4], [-33.9, 18.4, 4], [33.6, -7.6, 3],
+  [28.6, 77.2, 12], [12.9, 77.6, 9], [24.9, 67.0, 4], [23.8, 90.4, 3], [35.7, 51.4, 4], [24.7, 46.7, 4],
+  [39.9, 116.4, 6], [31.2, 121.5, 8], [22.3, 114.2, 6], [37.6, 127.0, 7], [1.3, 103.8, 6], [13.8, 100.5, 5], [-6.2, 106.8, 5], [14.6, 121.0, 4],
+  [-37.8, 145.0, 8], [-27.5, 153.0, 4], [-36.8, 174.8, 3], [21.3, -157.9, 2],
+]
+
+/** Each language's share of the tabs that named one (0027): every language has a few. */
 const LANGS: [string, number][] = [
   ['en', 0.58], ['es', 0.085], ['de', 0.062], ['fr', 0.053], ['pt-BR', 0.046], ['ja', 0.038], ['it', 0.025], ['nl', 0.02],
-  ['pl', 0.017], ['tr', 0.015], ['ko', 0.013], ['zh-Hans', 0.012], ['id', 0.01], ['uk', 0.008], ['ar', 0.007], ['zh-Hant', 0.005],
+  ['pl', 0.017], ['tr', 0.015], ['ko', 0.013], ['zh-Hans', 0.012], ['id', 0.01], ['uk', 0.008], ['ar', 0.007], ['ru', 0.006], ['zh-Hant', 0.005], ['vi', 0.004], ['fa', 0.003], ['hi', 0.003],
+]
+
+/**
+ * Browser languages (0028): each one's weight among the tabs that recorded one, and the share of its tabs that searched.
+ * The app's languages search about as often as English; most of those it has no translation for, and the four not
+ * listed yet, less. More than the section lists, so its "And N more" line shows too.
+ */
+const BROWSER_LANGS: [string, number, number][] = [
+  ['en', 50, 0.8], ['es', 8, 0.79], ['de', 6, 0.81], ['fr', 5, 0.78], ['pt', 4.5, 0.77], ['ja', 3.5, 0.74], ['it', 2.4, 0.8],
+  ['nl', 2, 0.82], ['ru', 1.8, 0.52], ['zh', 1.6, 0.72], ['pl', 1.6, 0.79], ['tr', 1.4, 0.75], ['sv', 1.2, 0.58], ['ko', 1.2, 0.73],
+  ['id', 1, 0.76], ['cs', 0.9, 0.55], ['uk', 0.8, 0.8], ['ar', 0.7, 0.71], ['he', 0.7, 0.49], ['ro', 0.6, 0.6], ['da', 0.6, 0.62],
+  ['el', 0.5, 0.51], ['hu', 0.5, 0.57], ['th', 0.5, 0.31], ['vi', 0.5, 0.5], ['fi', 0.4, 0.6], ['hi', 0.4, 0.46], ['nb', 0.4, 0.64],
+  ['fa', 0.3, 0.4], ['bn', 0.3, 0.35], ['ms', 0.2, 0.5], ['ca', 0.2, 0.7], ['bg', 0.2, 0.5], ['hr', 0.15, 0.55], ['sk', 0.15, 0.5],
+  ['fil', 0.1, 0.4],
 ]
 
 /** What admin_live would say a few minutes after `stats` were computed. */
@@ -71,14 +97,24 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
   const places = PLACES.map(([l, , , c]) => [l, k(c)] as [string, number])
   const countries: Record<string, number> = {}
   for (const [, cc, , c] of PLACES) countries[cc] = (countries[cc] ?? 0) + k(c)
-  const cells: [string, number][] = PLACES.map(([, , cell, c]) => [cell, k(c)])
-  for (let i = 0; i < 160; i++) {
-    const lat = Math.round((r() * 120 - 50) * 10) / 10
-    const lon = Math.round((r() * 340 - 170) * 10) / 10
-    cells.push([`${lat.toFixed(1)},${lon.toFixed(1)}`, 1 + Math.floor(r() ** 3 * 8)])
+  // Shaped like the real list: a few places far ahead, then cities with their suburbs, then a long tail of ones and
+  // twos scattered around where people live (and a few in the open sea).
+  const cellCounts = new Map<string, number>(PLACES.map(([, , cell, c]) => [cell, k(c)]))
+  const addCell = (lat: number, lon: number, n: number) => {
+    const key = `${(Math.round(lat * 10) / 10 || 0).toFixed(1)},${(Math.round(lon * 10) / 10 || 0).toFixed(1)}`
+    cellCounts.set(key, (cellCounts.get(key) ?? 0) + n)
   }
+  for (const [lat, lon, weight] of CITIES) {
+    addCell(lat, lon, k(weight * (0.6 + r() * 0.8)))
+    for (let i = 0; i < 4 + weight; i++) addCell(lat + (r() - 0.5) * (r() < 0.6 ? 1.4 : 9), lon + (r() - 0.5) * (r() < 0.6 ? 1.8 : 12), 1 + Math.floor(r() ** 3 * 4 * scale))
+  }
+  for (let i = 0; i < 24; i++) addCell(r() * 120 - 50, r() * 340 - 170, 1)
+  const cells = [...cellCounts].sort((a, b) => b[1] - a[1])
   const funnel = { search: Math.round(sessions * 0.78), results: Math.round(sessions * 0.74), pass_open: Math.round(sessions * 0.41), lightbox_open: Math.round(sessions * 0.22), share_open: Math.round(shares * 1.2), share_action: Math.round(shares * 0.85) }
   const minsAgo = (m: number) => now - m * 60e3
+  const weights = BROWSER_LANGS.reduce((a, l) => a + l[1], 0)
+  // A language with no tab in a short range is not listed, as the database lists none: the tabs never outnumber the sessions.
+  const browserTabs = BROWSER_LANGS.map(([l, w, f]) => [l, Math.round((sessions * 0.92 * w) / weights), f] as const).filter(([, n]) => n > 0)
   const out: AdminStats = {
     range,
     generatedAt: now,
@@ -101,6 +137,7 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
       share_action: shares,
       timelapse_open: lapses,
       timelapse_share: Math.round(lapses * 0.075),
+      support_click: Math.round(shares * 0.4),
       error: k(6),
       vitals: Math.round(sessions * 0.6),
     },
@@ -114,12 +151,16 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
       'search.cell': cells,
       'timelapse_open.from': [['results', Math.round(lapses * 0.68)], ['viewer', Math.round(lapses * 0.31)], ['link', Math.max(1, Math.round(lapses * 0.01))]],
       'timelapse_share.action': [['video', Math.round(lapses * 0.061)], ['link', Math.round(lapses * 0.014)]],
+      'support_click.from': [['bar', Math.round(shares * 0.16)], ['share', Math.round(shares * 0.1)], ['landing', Math.round(shares * 0.06)], ['results', Math.round(shares * 0.04)], ['timelapse', Math.round(shares * 0.03)], ['about', Math.round(shares * 0.01)]],
       'session.device': [['desktop', k(298)], ['phone', k(251)], ['tablet', k(19)]],
       'session.country': [['ca', k(150)], ['us', k(131)], ['gb', k(66)], ['de', k(31)], ['in', k(28)], ['jp', k(19)], ['au', k(15)], ['fr', k(12)]],
       'session.ref': [['t.co', k(140)], ['news.ycombinator.com', k(88)], ['reddit.com', k(41)], ['linkedin.com', k(17)], ['google.com', k(12)], ['bsky.app', k(9)]],
       'session.utm': [['newsletter / email / launch', k(21)], ['x / social', k(8)]],
       // Most tabs, not all: those from before the app sent its language have none.
       'session.lang': LANGS.map(([l, f]) => [l, Math.max(1, Math.round(sessions * 0.92 * f))] as [string, number]),
+      // The same tabs' browsers, and how many of each searched.
+      'session.browser_lang': browserTabs.map(([l, n]) => [l, n] as [string, number]).sort((a, b) => b[1] - a[1]),
+      'session.browser_lang_searched': browserTabs.map(([l, n, f]) => [l, Math.round(n * f)] as [string, number]).sort((a, b) => b[1] - a[1]),
       'pass_open.sat': [['Sentinel-2C', k(120)], ['Landsat 9', k(77)], ['Sentinel-2B', k(70)], ['NOAA-20', k(52)], ['ISS (ZARYA)', k(44)], ['WorldView Legion 4', k(31)], ['Terra', k(22)], ['Sentinel-1C', k(18)]],
       'pass_open.verdict': [['imaged', k(288)], ['likely', k(96)], ['could', k(71)], ['overhead', k(48)]],
       'share_action.sat': [['Sentinel-2C', k(14)], ['Landsat 9', k(9)], ['ISS (ZARYA)', k(5)], ['NOAA-20', k(3)]],
@@ -142,7 +183,7 @@ export function mockStats(range: Range, now = Date.now()): AdminStats {
     ],
   }
   for (const [k, rows] of Object.entries(out.top)) out.dimTotals[k] = Math.round(rows.reduce((a, r) => a + r[1], 0) * 1.08)
-  // All 16 languages are listed, so nothing of theirs is cut.
-  out.dimTotals['session.lang'] = out.top['session.lang'].reduce((a, r) => a + r[1], 0)
+  // All 20 languages and every browser language are listed, so nothing of theirs is cut.
+  for (const k of ['session.lang', 'session.browser_lang', 'session.browser_lang_searched']) out.dimTotals[k] = out.top[k].reduce((a, r) => a + r[1], 0)
   return out
 }

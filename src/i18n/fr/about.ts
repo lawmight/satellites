@@ -165,6 +165,7 @@ const about: typeof en = {
   /** Product, agency, licence and people's names as they are; OpenStreetMap's French attribution */
   credits: {
     madeBy: { who: 'Créé par', text: (handle: string): AboutPart[] => ['Armaan, ', link(handle), ' sur X'] },
+    support: { who: 'Soutenir', text: [link('Aidez Watched à rester gratuit :)')] as AboutPart[] },
     gibs: 'Images du service GIBS de la NASA, qui fait partie d’EOSDIS. GOES via la NOAA et le CIRA, Himawari via la JMA.',
     archives: {
       who: 'Archives',

@@ -24,6 +24,8 @@ import enAbout, { type AboutPart, type LinkPart } from '@/i18n/en/about'
 import enVerdicts from '@/i18n/en/verdicts'
 import { useLocale, useMsgs } from '@/i18n/runtime'
 import { useBackLayer } from '@/lib/backStack'
+import { SUPPORT_URL } from '@/lib/maker'
+import { track } from '@/lib/telemetry'
 import { DUR, EASE } from '@/lib/ease'
 import { useApp } from '@/state/store'
 import { Bezel, Glyph, Kbd, Reveal, cx, useExitClone, Wordmark } from '@/ui/system'
@@ -302,6 +304,14 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
               <Reveal as="p" className={s.lede} delay={500} duration={720}>
                 {m.lede}
               </Reveal>
+              {/* The maker's thanks under the intro, where everyone who opens this page reads (owner, 2026-11-23); the
+                  same words as the Support credit below. */}
+              <Reveal as="p" className={s.support} delay={560} duration={720}>
+                <Glyph name="cup" size={14} className={s.supportMark} />
+                <span>
+                  <AboutText parts={m.credits.support.text} href={SUPPORT_URL} onLink={() => track('support_click', { from: 'about_top' })} />
+                </span>
+              </Reveal>
             </header>
 
             <Section id="short" index="00" title={m.sections.short}>
@@ -341,11 +351,23 @@ export function AboutPage({ onClose }: { onClose: () => void }) {
                 <Credit who={m.credits.madeBy.who}>
                   <AboutText parts={m.credits.madeBy.text(MAKER_HANDLE)} href={MAKER_URL} />
                 </Credit>
-                {/* The data licences' attribution lines, in the wording they prescribe: English in every language. */}
-                <Credit who="Sentinel-1 / 2">Contains modified Copernicus Sentinel data {years}, processed by ESA.</Credit>
-                <Credit who="Landsat 8 / 9">Landsat imagery courtesy of the U.S. Geological Survey and NASA.</Credit>
+                <Credit who={m.credits.support.who}>
+                  <AboutText parts={m.credits.support.text} href={SUPPORT_URL} onLink={() => track('support_click', { from: 'about' })} />
+                </Credit>
+                {/* The data licences' attribution lines, in the wording they prescribe: English in every language, each its
+                    own left-to-right island, or a right-to-left page puts the full stop at the line's start. */}
+                <Credit who="Sentinel-1 / 2">
+                  <bdi lang="en">Contains modified Copernicus Sentinel data {years}, processed by ESA.</bdi>
+                </Credit>
+                <Credit who="Landsat 8 / 9">
+                  <bdi lang="en">Landsat imagery courtesy of the U.S. Geological Survey and NASA.</bdi>
+                </Credit>
                 <Credit who="NASA GIBS">{m.credits.gibs}</Credit>
-                <Credit who="Meteosat">Contains modified EUMETSAT Meteosat data {new Date().getUTCFullYear()}, from EUMETSAT’s map service.</Credit>
+                <Credit who="Meteosat">
+                  <bdi lang="en">
+                    Contains modified EUMETSAT Meteosat data {new Date().getUTCFullYear()}, from EUMETSAT’s map service.
+                  </bdi>
+                </Credit>
                 <Credit who={m.credits.archives.who}>{m.credits.archives.text}</Credit>
                 <Credit who={m.credits.orbits.who}>{m.credits.orbits.text}</Credit>
                 <Credit who={m.credits.placeNames.who}>{m.credits.placeNames.text}</Credit>
@@ -419,19 +441,19 @@ function Facts({ rows }: { rows: Record<string, { term: string; text: string }> 
 
 /**
  * An About paragraph's rich parts as the page's own elements: text, mono numbers (s.num), and the paragraph's one
- * link (`href`, opened in a new tab).
+ * link (`href`, opened in a new tab; `onLink` when it is pressed).
  */
-function AboutText({ parts, href }: { parts: readonly AboutPart[]; href?: string }): ReactNode {
-  return parts.map((p, i) => <Fragment key={i}>{aboutPart(p, href)}</Fragment>)
+function AboutText({ parts, href, onLink }: { parts: readonly AboutPart[]; href?: string; onLink?: () => void }): ReactNode {
+  return parts.map((p, i) => <Fragment key={i}>{aboutPart(p, href, onLink)}</Fragment>)
 }
 
 const isLink = (p: AboutPart): p is LinkPart => typeof p === 'object' && 'link' in p
 
-function aboutPart(p: AboutPart, href: string | undefined): ReactNode {
+function aboutPart(p: AboutPart, href: string | undefined, onLink?: () => void): ReactNode {
   if (typeof p === 'string') return p
   if (isLink(p))
     return (
-      <a href={href} target="_blank" rel="noreferrer">
+      <a href={href} target="_blank" rel="noreferrer" onClick={onLink}>
         <AboutText parts={p.link} />
       </a>
     )

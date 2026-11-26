@@ -3,7 +3,7 @@
  * A daily bucket starts at Eastern midnight (from 0016) or UTC midnight (before): Eastern midnight is 04:00 or 05:00 UTC
  * the same date, so either way the bucket's UTC date is the day it counts, and it is labelled by that.
  */
-import { LOCALE_INFO, isLocale } from '../../api/_lib/i18n/locales'
+import { LOCALE_INFO, isLocale, localeForTag } from '../../api/_lib/i18n/locales'
 
 const INT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
 const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
@@ -120,11 +120,78 @@ export const ACTION_NAMES: Record<string, string> = {
 export const TIMELAPSE_FROM_NAMES: Record<string, string> = { results: 'Row under the photos', viewer: 'Photo viewer', link: 'A shared link' }
 export const TIMELAPSE_ACTION_NAMES: Record<string, string> = { video: 'Video saved', link: 'Link shared' }
 
+/** Which Buy Me a Coffee link was pressed (0029's support_click.from; src/ui/results/Colophon.tsx). */
+export const SUPPORT_FROM_NAMES: Record<string, string> = {
+  bar: 'Bar on results (3rd search on)',
+  share: 'Share sheet',
+  results: 'End of the results',
+  about: 'About · Support',
+  timelapse: 'Time-lapse video',
+  landing: 'Landing (returning)',
+  computing: 'Computing screen',
+  about_top: 'About · under the intro',
+}
+
 export const DEVICE_NAMES: Record<string, string> = { desktop: 'Desktop', phone: 'Phone', tablet: 'Tablet' }
 
 /** A tab's language (0027) by its English name: 'pt-BR' → 'Portuguese'; an unknown code as it is. */
 export function languageName(code: string): string {
   return isLocale(code) ? LOCALE_INFO[code].english : code
+}
+
+let languages: Intl.DisplayNames | null | undefined
+/** A browser language (0028: a primary subtag, any language) by its English name: 'bn' → 'Bangla'; else the code. */
+export function browserLanguageName(code: string): string {
+  try {
+    languages ??= new Intl.DisplayNames(['en'], { type: 'language', fallback: 'code' })
+    return languages.of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+/**
+ * Whether the app has a translation for a browser language, by its own matcher (localeForTag), so 'zh' and 'pt' have
+ * one, 'in' is Indonesian and Cantonese reads Traditional Chinese: `listed` (chosen for such a browser), `unlisted`
+ * (translated, but reachable by ?hl= only until it is reviewed: such a browser still gets English) or `none`.
+ */
+export type Translation = 'listed' | 'unlisted' | 'none'
+export function translationFor(code: string): Translation {
+  const hit = localeForTag(code, false)
+  return !hit ? 'none' : LOCALE_INFO[hit].listed ? 'listed' : 'unlisted'
+}
+
+export interface BrowserLangRow {
+  code: string
+  tabs: number
+  /** Of them, the tabs that searched (never more than `tabs`: in 24H a tab can search in the range after it came) */
+  searched: number
+  translation: Translation
+}
+
+/** Tabs and the ones of them that searched, for a group of browser languages. */
+export interface Reach {
+  tabs: number
+  searched: number
+}
+
+/**
+ * The Browser languages section (0028): each browser language's tabs and how many of them searched (two lists, both
+ * every value: admin_stats_compute keeps 200 of each), by tabs, and the same summed over the languages the app has a
+ * translation for and over the ones it has none for. Its searched shares show what English costs.
+ */
+export function browserLangReach(tabs: [string, number][] | undefined, searched: [string, number][] | undefined): {
+  rows: BrowserLangRow[]
+  all: Reach
+  translated: Reach
+  untranslated: Reach
+} {
+  const did = new Map((searched ?? []).map(([v, n]) => [v, n]))
+  const rows = (tabs ?? [])
+    .filter(([v, n]) => v && n > 0)
+    .map(([code, n]) => ({ code, tabs: n, searched: Math.min(n, did.get(code) ?? 0), translation: translationFor(code) }))
+  const sum = (rs: BrowserLangRow[]): Reach => rs.reduce((a, r) => ({ tabs: a.tabs + r.tabs, searched: a.searched + r.searched }), { tabs: 0, searched: 0 })
+  return { rows, all: sum(rows), translated: sum(rows.filter((r) => r.translation !== 'none')), untranslated: sum(rows.filter((r) => r.translation === 'none')) }
 }
 
 export const VERDICT_NAMES: Record<string, string> = { imaged: 'Watched', likely: 'Likely watched', could: 'Could have pointed here', overhead: 'Passed overhead' }

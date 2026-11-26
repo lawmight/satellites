@@ -17,13 +17,13 @@
  * store as MessageRefs ('engine.progress.*', 'app.progress.*'). The fold keeps the ref, never its text: each row is
  * worded when it is painted (refText, both namespaces), so a language switch mid-search rewords the rows.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Rich } from '@/i18n/Rich'
 import enApp from '@/i18n/en/app'
 import enEngine from '@/i18n/en/engine'
 import enResults, { type UtcWhen } from '@/i18n/en/results'
 import { refText } from '@/i18n/messageRef'
-import { msgs, useMsgs } from '@/i18n/runtime'
+import { msgs, useLocale, useMsgs } from '@/i18n/runtime'
 import { gibsWmsUrl, pcCropUrl } from '@/imagery'
 import { northInCropDeg } from '../../../api/_lib/toneRender'
 import type { Share } from '@/lib/backend'
@@ -135,6 +135,32 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
     }
   }, [])
 
+  // A row's height never shrinks while the search runs: its words wrap to a second line where they must (rowText), and
+  // a row that flipped between one and two lines as its counter ticked ("· 9 / 403" → "· 288 / 403") or its line
+  // changed moved the bar and everything under it. Each row keeps the tallest it has been, for this search and
+  // language; a row that never wraps keeps its own height, to the fraction of a pixel.
+  const list = useRef<HTMLOListElement>(null)
+  const locale = useLocale()
+  const tallest = useRef({ key: '', h: [] as number[] })
+  useLayoutEffect(() => {
+    const rows = list.current?.children
+    if (!rows) return
+    const key = `${t0}|${locale}`
+    if (tallest.current.key !== key) {
+      tallest.current = { key, h: [] }
+      for (const row of rows) (row as HTMLElement).style.minHeight = ''
+    }
+    const h = tallest.current.h
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i] as HTMLElement
+      const now = row.getBoundingClientRect().height
+      if (now > (h[i] ?? 0)) {
+        h[i] = now
+        row.style.minHeight = `${now}px`
+      }
+    }
+  })
+
   const { lines, current } = hist.current
   const progress = hist.current.last
   const elapsed = now - t0
@@ -149,7 +175,7 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
       <p className="sr-only">{announce === 'start' ? m.computingPasses : announce === 'done' ? c.ready : idleLabel(announce)}</p>
       {shared ? <SharedPicture tz={tz} /> : null}
       <div aria-hidden className={s.readout} data-readout>
-        <ol className={s.lines}>
+        <ol ref={list} className={s.lines}>
           {STAGES.map((stage, i) => {
             const l = lines[stage]
             const state = i < curIdx ? 'done' : i === curIdx ? 'run' : 'idle'
@@ -159,7 +185,9 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
             return (
               <li key={stage} className={cx(s.line, s[state])}>
                 <span className={s.idx}>{pad2(i + 1)}</span>
-                <span className={s.msg}>{written ?? (state === 'done' ? c.stages[stage].done : idleLabel(stage))}</span>
+                <span className={s.msg}>
+                  {rowText(written ?? (state === 'done' ? c.stages[stage].done : idleLabel(stage)))}
+                </span>
                 <span className={s.dur}>{dur !== undefined && state !== 'idle' ? secs(dur) : '—'}</span>
                 <span className={s.status}>{state === 'done' ? c.ok : state === 'run' ? <span className={s.caret} /> : ''}</span>
               </li>
@@ -184,6 +212,23 @@ export function ComputingBody({ t0, tz }: { t0: number; tz?: string }) {
       ) : null}
     </div>
   )
+}
+
+/** Every progress line puts its counter after its last ' · ' ("PROPAGATING ORBITS · 288 / 403", engine.ts). */
+const COUNTER_SEP = ' · '
+/** Longer than this, what follows the dot is a phrase ("Abgleich · 120 Szenen mit 2.410 Überflügen"), and it wraps. */
+const COUNTER_MAX = 20
+
+/**
+ * A row's words, then its counter, unbroken. The words wrap (a second line rather than an ellipsis, which cut the
+ * counter first: "VERIFYING NASA WEATHER MOSAICS · 12 / 3…"); the counter never breaks, so the numbers that tick stay
+ * whole, and no line starts with its dot: the last word comes down with it. A word joiner after each of the counter's
+ * spaces does it in the one text node the row always was (a span of its own moved its glyphs a quarter pixel).
+ */
+export function rowText(text: string): string {
+  const at = text.lastIndexOf(COUNTER_SEP)
+  if (at <= 0 || text.length - at > COUNTER_MAX) return text
+  return text.slice(0, at) + text.slice(at).replace(/ /g, ' \u2060')
 }
 
 /**

@@ -146,11 +146,23 @@ describe('the PNG’s line breaking and shaping (canvas has no CSS)', () => {
     expect(wrap(ctx, '서울특별시 중구 세종대로', 70, 0, 'ko')).toEqual(['서울특별시', '중구 세종대로'])
   })
 
+  it('keeps a no-break space’s neighbours together in text written without spaces', () => {
+    // Intl.Segmenter cuts "12,345", the no-break space and 张 into three words; the line may not break between them.
+    const lines = wrap(ctx, '至少 12,345\u00a0张图像已公开。', 75, 0, 'zh-Hans')
+    expect(lines.join('')).toBe('至少12,345\u00a0张图像已公开。')
+    expect(lines).toContain('12,345\u00a0张')
+    for (const l of lines) expect(l).not.toMatch(/^\u00a0|\u00a0$/)
+    // zh-Hant ties a Latin name's words with them (keepName): 台北 101 stays one name
+    expect(wrap(ctx, '台北\u00a0101大樓', 40, 0, 'zh-Hant')[0]).toBe('台北\u00a0101')
+  })
+
   it('knows which text a shaping engine must draw as one run', () => {
     expect(needsShaping('Waterloo')).toBe(false)
     expect(needsShaping('東京')).toBe(false)
     expect(needsShaping('٧ أقمار صناعية')).toBe(true)
     expect(needsShaping('תל אביב')).toBe(true)
+    // Devanagari's conjuncts and reordered vowel signs, and its headline stroke that tracking would cut
+    expect(needsShaping('256 उपग्रहों ने देखा।')).toBe(true)
   })
 
   it('keeps the headline’s blocks, in order, for every renderer', () => {

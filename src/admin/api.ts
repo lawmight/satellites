@@ -34,7 +34,9 @@ export interface AdminStats {
   series: [number, number, number, number, number][]
   /** 'search.label', 'search.country', 'search.source', 'search.cell', 'session.device', 'session.country',
    *  'session.ref', 'session.utm', 'pass_open.sat', 'pass_open.verdict', 'share_action.sat', 'share_action.action',
-   *  'timelapse_open.from', 'timelapse_share.action' (0024), 'session.lang' (0027: tabs that named a language, all 16) */
+   *  'timelapse_open.from', 'timelapse_share.action' (0024), 'support_click.from' (0029), 'session.lang' (0027: tabs that named a language, all 20
+   *  from 0028), 'session.browser_lang' and 'session.browser_lang_searched' (0028: tabs by the browser's first
+   *  language, any language, and those of them that searched; every value) */
   top: Record<string, Ranked>
   results: { n: number; p50Ms: number | null; p90Ms: number | null; partial: number; archiveFailed: number }
   vitals: { n: number; lcp: number | null; inp: number | null; cls: number | null }

@@ -1,5 +1,5 @@
 /** The events relay (api/e.ts).  npx vitest run --config scripts/backend-vitest.config.ts */
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { handleEvents, relayBody } from './e.js'
 import { LOCALES } from './_lib/i18n/locales.js'
@@ -14,13 +14,25 @@ describe('relayBody', () => {
     expect(JSON.parse(relayBody(batch(), 'XX')!).batch.ctx).toEqual({ device: 'phone' })
   })
   it('drops extra top-level keys', () => expect(JSON.parse(relayBody(batch({ ip: '1.2.3.4' }), null)!).batch).not.toHaveProperty('ip'))
-  it('passes the tab\'s language on, and the database takes exactly the app\'s languages (0027)', () => {
+  it('passes the tab\'s language on, and the database takes exactly the app\'s languages (0027, 0028)', () => {
     const body = batch({ ctx: { device: 'phone', lang: 'zh-Hant' } })
     expect(JSON.parse(relayBody(body, 'TW')!).batch.ctx).toEqual({ device: 'phone', lang: 'zh-Hant', country: 'tw' })
     // log_events stores ctx.lang only when it is one of these, letter for letter: a locale added to the app needs a migration.
-    const sql = readFileSync(new URL('../supabase/migrations/0027_tab_language.sql', import.meta.url), 'utf8')
+    // The latest migration that defines the list is the one in force.
+    const dir = new URL('../supabase/migrations/', import.meta.url)
+    const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+    const sql = files.map((f) => readFileSync(new URL(f, dir), 'utf8')).filter((t) => /v_langs\s+constant/.test(t)).at(-1)!
     const list = /v_langs\s+constant text\[\] := array\[([^\]]*)\]/.exec(sql)?.[1]
     expect(list?.split(',').map((s) => s.trim().replace(/^'|'$/g, ''))).toEqual([...LOCALES])
+  })
+  it('passes the browser\'s language on, and the database takes a primary language subtag, any language (0028)', () => {
+    const body = batch({ ctx: { device: 'phone', lang: 'en', browser_lang: 'bn' } })
+    expect(JSON.parse(relayBody(body, 'BD')!).batch.ctx).toEqual({ device: 'phone', lang: 'en', browser_lang: 'bn', country: 'bd' })
+    // What the app sends (src/lib/telemetry.ts browserLanguage) is what log_events keeps: 2-3 lowercase letters.
+    const dir = new URL('../supabase/migrations/', import.meta.url)
+    const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+    const sql = files.map((f) => readFileSync(new URL(f, dir), 'utf8')).filter((t) => /jmatch\(v_ctx, 'browser_lang'/.test(t)).at(-1)!
+    expect(/jmatch\(v_ctx, 'browser_lang', '([^']*)', (\d+)\)/.exec(sql)?.slice(1)).toEqual(['^[a-z]{2,3}$', '3'])
   })
   it('rejects junk', () => {
     expect(relayBody('nope', null)).toBeNull()

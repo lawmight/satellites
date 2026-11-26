@@ -55,6 +55,22 @@ function positiveInt(v: string | null): number | undefined {
 }
 
 /**
+ * The place a place page opens on. The page says more than a link can: where the place is, as the search box would
+ * have named it, and whether it is a landmark, which a language names as one (Place.kind).
+ */
+export function pageTarget(page: PagePlace): Place {
+  return {
+    label: page.label,
+    sublabel: page.sublabel,
+    lat: page.lat,
+    lon: page.lon,
+    countryCode: page.cc,
+    source: 'url',
+    ...(page.kind ? { kind: page.kind } : {}),
+  }
+}
+
+/**
  * What `search` (location.search) asks for; null for the landing. `page` is the place of the place page the address
  * is on, if it is one: it opens when the search names nothing else.
  */
@@ -64,12 +80,8 @@ export function readUrlTarget(search: string, now: number = Date.now(), page?: P
   const shareId = params.get('s')
   if (shareId) return { kind: 'share', id: shareId }
   const q = params.get('q')
-  if (!q) {
-    if (!page) return null
-    // The page says more than a link can: where the place is, as the search box would have named it.
-    const place: Place = { label: page.label, sublabel: page.sublabel, lat: page.lat, lon: page.lon, countryCode: page.cc, source: 'url' }
-    return { kind: 'q', place, opts: { selectPassId: params.get('p') ?? undefined } }
-  }
+  const selectPassId = params.get('p') ?? undefined
+  if (!q) return page ? { kind: 'q', place: pageTarget(page), opts: { selectPassId } } : null
   const [lat, lon] = q.split(',').map(Number)
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null
   const label = params.get('n') || `${lat.toFixed(3)}, ${lon.toFixed(3)}`

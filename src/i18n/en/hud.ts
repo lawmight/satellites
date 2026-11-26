@@ -26,6 +26,14 @@ function ageEn(unit: AgeUnit, n: number): string {
 export default ns('hud', {
   /** Top left: opens the About page (the "?" key cap follows on desktops). Keep it short (see above) */
   about: 'How this works',
+  /**
+   * After the language, on the same line (wide screens only; it hides itself where it would come close to a panel or
+   * the top-right readout): a link to the project's code on GitHub, with a ↗ after it. Say that the project is open
+   * source in the words your readers use; keep it about as short as the English
+   */
+  sourceLink: 'Open source',
+  /** Its accessible name: the words above, first and unchanged, then where the link goes ("GitHub" as it is) */
+  sourceLinkLabel: 'Open source: the code on GitHub',
   /** The wordmark's link to the landing (aria only). Keep the brand "Watched" as it is */
   home: 'Watched, home',
   /** The corner groups' accessible names (aria only) */

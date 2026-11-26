@@ -34,6 +34,7 @@ import { sharePageHtml } from './_lib/html.js'
 import { cardMessages } from './_lib/i18n/card/index.js'
 import { DEFAULT_LOCALE, type Locale } from './_lib/i18n/locales.js'
 import {
+  CARD_VERSION,
   DEEP_LINK_PASS_KEYS,
   SHARE_ID_RE,
   SUMMARY_KEYS,
@@ -51,12 +52,8 @@ import {
   summaryTitle,
 } from './_lib/share.js'
 
-/**
- * Bump when the card design changes so unfurler caches (which key on the URL) refetch.
- * 4 (round 3): "watched" vocabulary on pass cards, the summary card's N / K headline (R3-13).
- * 5: no verdict row or coordinates; pass cards lead with the week's N ("7 satellites watched Waterloo.", owner).
- */
-export const CARD_VERSION = '5'
+/** The card's version, written into every card address (api/_lib/share.ts, where the card's cache key reads it). */
+export { CARD_VERSION }
 
 /** `l=<locale>` for a URL this page writes: nothing for English, so English URLs never change. */
 function withLocale(p: URLSearchParams, locale: Locale): URLSearchParams {

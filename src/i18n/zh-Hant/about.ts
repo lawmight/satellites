@@ -150,6 +150,7 @@ const about: typeof en = {
 
   credits: {
     madeBy: { who: '製作', text: (handle: string): AboutPart[] => ['Armaan，X 上的 ', link(handle)] },
+    support: { who: '支持', text: [link('幫 Watched 保持免費 :)')] as AboutPart[] },
     gibs: '影像來自 NASA 的 GIBS（EOSDIS 的一部分）。GOES 經由 NOAA 和 CIRA，Himawari 經由 JMA。',
     archives: {
       who: '影像庫',

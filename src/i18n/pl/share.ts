@@ -45,6 +45,7 @@ const share: typeof en = {
   preparingImage: 'Przygotowywanie obrazu…',
   share: 'Udostępnij',
   copyLink: 'Kopiuj link',
+  copyLinkDesktop: 'Kopiuj link',
   copied: 'Skopiowano',
   // «Wpis na X» (72 px, as «Post to X»); «Opublikuj na X» (112 px) overflows a third of the row.
   postToX: 'Wpis na X',

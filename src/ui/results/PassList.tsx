@@ -8,7 +8,7 @@
  * at all, except the two honest exceptions, 'Mosaic' (coarse daily weather picture) and
  * 'Clouded · 86%' (warn), whose thumbnail is dimmed and hatched instead of a bright white square.
  */
-import { memo, useEffect, useRef, useState, type RefCallback } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef, useState, type RefCallback, type RefObject } from 'react'
 import { useApp } from '@/state/store'
 import type { Capture, Pass } from '@/types'
 import { Glyph, Tag, cx } from '@/ui/system'
@@ -237,7 +237,7 @@ const PassRow = memo(function PassRow({
         <button
           type="button"
           className={s.thumbBtn}
-          aria-label={m.expandLabel(meta.name, t.day, t.time)}
+          aria-label={m.expandLabel(meta.name, fmtSpokenDay(p.tClosest, model.tz), t.time)}
           title={m.expandTitle}
           onClick={(e) => useGallery.getState().openLightbox(photoKey, e.currentTarget)}
           onPointerEnter={prefetch}
@@ -248,6 +248,16 @@ const PassRow = memo(function PassRow({
     </>
   )
 })
+
+/**
+ * The operator beside the name: where all of it does not fit there (the ISS's "NASA / Roscosmos / ESA / JAXA / CSA"),
+ * it goes under the name (PassList.module.css) and breaks only after a slash, each agency's name whole. It was cut with
+ * an ellipsis, which hid agencies: a label says exactly who operates the satellite. One text node, as before (spans
+ * moved the glyphs a quarter pixel): a word joiner after every space but those that follow a slash.
+ */
+export function operatorText(text: string): string {
+  return text.replace(/ /g, (sp, at: number) => (text[at - 1] === '/' ? sp : ' \u2060'))
+}
 
 const SatRow = memo(function SatRow({
   item,
@@ -299,7 +309,7 @@ const SatRow = memo(function SatRow({
         <span className={s.main} ref={fitMeta}>
           <span className={s.nameLine}>
             <span className={s.name}>{meta.name}</span>
-            {meta.operator ? <span className={s.operator}>{meta.operator}</span> : null}
+            {meta.operator ? <span className={s.operator}>{operatorText(meta.operator)}</span> : null}
           </span>
           <span className={s.metaLine}>
             <span className={s.giveWay} data-shed="1">
@@ -427,9 +437,37 @@ const fitHead = shedRef(1, (el) => Array.from(el.querySelectorAll(`.${s.groupNam
 const shownThumbs = new Set<string>()
 
 /** Thumbnail of the real crop: eager for the first rows, else loads when scrolled near. */
+/**
+ * The cloud chip's word, set tighter when it is wider than the thumb (48 px on small phones: Russian «Облака», Polish
+ * «Chmury» were cut at the edge): untracked and narrower, never smaller or ellipsised. English's "Cloud" fits as it is.
+ * Measured again when the thumb changes size and when the web fonts arrive.
+ */
+function useTightChip(ref: RefObject<HTMLSpanElement | null>, on: boolean, word: string) {
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    let alive = true
+    const fit = () => {
+      if (!alive) return
+      el.removeAttribute('data-tight')
+      if (el.scrollWidth > el.clientWidth + 0.5) el.setAttribute('data-tight', '')
+    }
+    fit()
+    void document.fonts?.ready.then(fit)
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null
+    ro?.observe(el)
+    return () => {
+      alive = false
+      ro?.disconnect()
+    }
+  }, [ref, on, word])
+}
+
 function Thumb({ url, eager, clouded }: { url: string; eager: boolean; clouded: boolean }) {
   const m = useMsgs(enPassView)
   const ref = useRef<HTMLSpanElement>(null)
+  const chip = useRef<HTMLSpanElement>(null)
+  useTightChip(chip, clouded, m.cloudChip)
   const known = shownThumbs.has(url) || hasPhotoElement('list', url)
   const [visible, setVisible] = useState(eager || known)
   const [state, setState] = useState<'idle' | 'ok' | 'err'>(known || decodedPhoto(url) ? 'ok' : 'idle')
@@ -461,7 +499,11 @@ function Thumb({ url, eager, clouded }: { url: string; eager: boolean; clouded: 
       {clouded ? <span className={s.hatch} /> : null}
       <span className={s.thumbMark} />
       {/* The word only: the row's tag carries the number, and "CLOUD 100%" does not fit a 56 px thumb. */}
-      {clouded ? <span className={s.cloudChip}>{m.cloudChip}</span> : null}
+      {clouded ? (
+        <span ref={chip} className={s.cloudChip}>
+          {m.cloudChip}
+        </span>
+      ) : null}
       <span className={s.thumbExpand}>
         <Mark name="expand" size={10} />
       </span>

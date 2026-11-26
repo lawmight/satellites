@@ -23,13 +23,13 @@
  */
 import { memo, useEffect, useLayoutEffect, useRef, type KeyboardEvent } from 'react'
 import enResults from '@/i18n/en/results'
-import { msgs, useLocale, useMsgs } from '@/i18n/runtime'
+import enSystem from '@/i18n/en/system'
+import { msgs, useMsgs } from '@/i18n/runtime'
 import { timeZoneAt } from '@/imagery'
 import { useApp } from '@/state/store'
 import type { Pass, Place } from '@/types'
 import { SearchBox } from '@/ui/landing/SearchBox'
 import { Glyph, Kbd, LiveDot, ScrambleOnce, cx, fmtLat, fmtLon, useMediaQuery } from '@/ui/system'
-import { fmt } from '../../../api/_lib/i18n/format'
 import { secs } from './ComputingBody'
 import { Mark } from './Mark'
 import { useOnce } from './once'
@@ -39,7 +39,7 @@ import { clearPass } from './actions'
 import { ONE_LINE_TITLE_QUERY, SHORT_DESK_QUERY } from './shell'
 import { glyphForPass, markColorVar } from './lib/meta'
 import { stepPass } from './lib/timeline'
-import { utcLabel, utcOffsetMin, zoneLabel } from './lib/time'
+import { utcLabel, utcOffsetMin, zoneName } from './lib/time'
 import type { ResultsModel } from './model'
 import { placeName } from './placeName'
 import s from './results.module.css'
@@ -202,7 +202,13 @@ function SearchBar({ place, desk = false, onOpen }: { place: Place; desk?: boole
       <span className={s.searchBarGlyph} aria-hidden>
         <Glyph name="search" size={16} />
       </span>
-      <span className={s.searchBarPlace}>{placeName(place)}</span>
+      {/* The place takes its own direction (dir="auto", which isolates it too): on a right-to-left page a place searched
+          by coordinates read «12.500 ,23.500», and a long Latin name lost its start, not its end, to the ellipsis
+          («…ality, Ontario, Canada»), because the cut falls at the end of the box's direction. It still sits where the
+          page starts (results.module.css). */}
+      <span className={s.searchBarPlace} dir="auto">
+        {placeName(place)}
+      </span>
       <span className={s.searchBarAction} aria-hidden>
         {m.change}
       </span>
@@ -219,7 +225,7 @@ function SearchBar({ place, desk = false, onOpen }: { place: Place; desk?: boole
 function PlaceRow({ place, tz }: { place: Place; tz?: string }) {
   const ref = useRef<HTMLDivElement>(null)
   const now = Date.now()
-  const full = tz ? zoneLabel(now, tz) : undefined
+  const full = tz ? zoneName(now, tz) : undefined
   const short = tz?.startsWith('Etc/') ? utcLabel(utcOffsetMin(now, tz)) : undefined
   useLayoutEffect(() => {
     const row = ref.current
@@ -253,7 +259,9 @@ function PlaceRow({ place, tz }: { place: Place; tz?: string }) {
   }, [place, full, short])
   return (
     <div ref={ref} className={s.placeRow}>
-      <b>{placeName(place)}</b>
+      <b>
+        <bdi>{placeName(place)}</bdi>
+      </b>
       <span className={s.sep}>·</span>
       <Coords lat={place.lat} lon={place.lon} />
       {full ? (
@@ -326,7 +334,7 @@ function InlineSearch({ onSearch, onClose, current }: { onSearch?: (p: Place) =>
           <span className={s.recentLabel}>{m.head.recent}</span>
           {chips.map((p) => (
             <button key={`${p.lat},${p.lon}`} type="button" className={s.chip} onClick={() => submit(p)}>
-              {placeName(p)}
+              <bdi>{placeName(p)}</bdi>
             </button>
           ))}
         </div>
@@ -362,8 +370,8 @@ export function DetailHeader({ model, pass, mobile, onSelect, strip, photo, shar
     if (next && next.id !== pass.id) onSelect(next)
   }
   const r = useMsgs(enResults)
+  const sys = useMsgs(enSystem)
   const m = r.head
-  const f = fmt(useLocale())
   const t = model.times(pass)
   // Phones and short laptops: the name and the time on one line (R2R1: the pass photo gets the height).
   const oneLine = useMediaQuery(ONE_LINE_TITLE_QUERY) || mobile
@@ -383,13 +391,18 @@ export function DetailHeader({ model, pass, mobile, onSelect, strip, photo, shar
   const firstId = useRef(pass.id)
   const titleKey = photo ? pass.id : 'one'
   const titleCls = photo && pass.id !== firstId.current ? s.titleIn : undefined
+  const [posLead, posTail] = sys.counter(index + 1, lane.length)
+  // Longer than any English counter under 1000 ("999 / 999", 9 characters), the row runs out of room on a phone:
+  // past 11 characters under 400 px ("155 trên 210"), past 9 under 370 px ("55 trên 210", measured).
+  const posChars = posLead.length + posTail.length
   const stepper = (
     <span className={cx(s.stepper, photo && s.stepperOff)} aria-hidden={photo || undefined}>
       <span className={s.position} aria-label={m.position(index + 1, lane.length)}>
-        {/* Numbers as the language writes them, as the gallery's position does ("124 / 1,565", "124 / 1.565"). */}
-        {f.int(index + 1)}
-        {/* A big lane on a narrow phone (V1: "1350 / 1362" crowded the row): the position alone. */}
-        <span className={cx(lane.length >= 1000 && s.positionTotalLong)}> / {f.int(lane.length)}</span>
+        {/* The counter as the language writes it, as the gallery's does ("124 / 1,565", "124 / 1.565", "124 trên 1.565"). */}
+        {posLead}
+        {/* A big lane on a narrow phone (V1: "1350 / 1362" crowded the row), or a counter its language writes long
+            ("55 trên 210" pushed Next past a 360 px phone's gutter): the position alone. */}
+        <span className={cx((lane.length >= 1000 || posChars > 11) && s.positionTotalLong, posChars > 9 && s.positionTotalWide)}>{posTail}</span>
       </span>
       <button type="button" className={s.stepBtn} onClick={() => step(-1)} disabled={index <= 0} aria-label={m.previous} aria-keyshortcuts="ArrowLeft" title={m.previousTitle}>
         <Mark name="chevron-left" size={12} />

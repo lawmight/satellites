@@ -257,7 +257,8 @@ const results: typeof en = {
   // ── 04 / 时间线 ─────────────────────────────────────────────────────────────────────────────
   timeline: {
     title: '时间线',
-    meta: (days: number, zoneLabel: string, zones: string) => `${count(days, '天')} · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${count(days, '天')} · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: '此处白天',
     /**
@@ -321,6 +322,10 @@ const results: typeof en = {
   timelapse: {
     title: '延时摄影',
     sub: '这个地方，一年一帧',
+  },
+  colophon: {
+    ask: '帮 Watched 保持免费 :)',
+    via: '在 Buy Me a Coffee 上小额打赏',
   },
 }
 

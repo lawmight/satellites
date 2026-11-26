@@ -29,7 +29,7 @@ import {
   CARD_COLOR,
   CARD_FS,
   HEAD,
-  HEAD_CJK,
+  headLeading,
   headTracking,
   PANEL,
   TONE_COLOR,
@@ -66,6 +66,7 @@ export function ShareCard({ spec: given }: { spec: CardSpec }) {
   // Between two blocks of the headline: the place's clear space above it (or below it, when the place comes first).
   const blockGap = (i: number) => (i ? P * HEAD.placeGap : undefined)
   const track = headTracking(spec.locale)
+  const lh = headLeading(spec)
 
   return (
     // The wrap's height is CSS (aspect-ratio 1200 : 630 on its content box), so layout never waits on `k`: only the
@@ -84,17 +85,18 @@ export function ShareCard({ spec: given }: { spec: CardSpec }) {
         <div className={s.head} style={{ left: PANEL.x, top: PANEL.headTop, width: PANEL.w, height: PANEL.headBottom - PANEL.headTop }}>
           {spec.head.map((part, i) =>
             isAccent(part) ? (
-              <div key={i} className={s.place} style={{ fontSize: P, lineHeight: (spec.cjk ? HEAD_CJK : HEAD).placeLH, marginTop: blockGap(i), letterSpacing: track.place * P }}>
+              <div key={i} className={s.place} style={{ fontSize: P, lineHeight: lh.placeLH, marginTop: blockGap(i), letterSpacing: track.place * P }}>
                 {part.accent.map((q, j) => (
                   <Fragment key={j}>{plain([q])}</Fragment>
                 ))}
               </div>
             ) : (
-              // Chinese, Japanese, Korean: each text part one phrase on one line, at their leading (HEAD_CJK)
+              // Chinese, Japanese, Korean: each text part one phrase on one line (HEAD_CJK); they and Devanagari at their
+              // own leading (headLeading)
               <div
                 key={i}
                 className={s.lead}
-                style={{ fontSize: S, lineHeight: (spec.cjk ? HEAD_CJK : HEAD).leadLH, letterSpacing: track.lead * S, marginTop: blockGap(i), whiteSpace: spec.cjk ? 'nowrap' : undefined }}
+                style={{ fontSize: S, lineHeight: lh.leadLH, letterSpacing: track.lead * S, marginTop: blockGap(i), whiteSpace: spec.cjk ? 'nowrap' : undefined }}
               >
                 {plain([part])}
               </div>

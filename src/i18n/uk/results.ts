@@ -278,7 +278,8 @@ const results: typeof en = {
   // ── 04 / ЧАСОВА ШКАЛА ────────────────────────────────────────────────────────────────────
   timeline: {
     title: 'Часова шкала',
-    meta: (days: number, zoneLabel: string, zones: string) => `${count(days, DAYS)} · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${count(days, DAYS)} · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: 'Тут день',
     // A verdict's name cannot follow a bare count in Ukrainian («12 побачено»), so each count follows its name.
@@ -297,7 +298,8 @@ const results: typeof en = {
 
   // ── 02 / ПОВТОР ──────────────────────────────────────────────────────────────────────────
   replay: {
-    scrubLabel: 'Час кадру в межах прольоту',
+    // The replay's clock, as the HUD's «Повтор»: «кадр» is an image's word, and this is no image's capture time.
+    scrubLabel: 'Час у повторі прольоту',
     scrubValue: (tMinus: string, utc: string) => `${tMinus}, ${utc}`,
     play: 'Відтворити повтор',
     pause: 'Призупинити повтор',
@@ -338,6 +340,10 @@ const results: typeof en = {
   timelapse: {
     title: 'Таймлапс',
     sub: 'Це місце рік за роком',
+  },
+  colophon: {
+    ask: 'Допоможіть Watched лишатися безплатним :)',
+    via: 'Невеликі чайові через Buy Me a Coffee',
   },
 }
 export default results

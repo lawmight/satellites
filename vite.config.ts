@@ -5,6 +5,7 @@ import { LOCALE_INFO } from './api/_lib/i18n/locales.ts'
 import { bootLocale, type BootData } from './src/i18n/boot.ts'
 import { BOOT_TEXT } from './src/i18n/bootText.ts'
 import { PLACE_PREFIX } from './src/lib/placePage.ts'
+import { blockerNames } from './scripts/blockerNames.ts'
 
 /**
  * Production origin for the absolute URLs search engines and link previews read (canonical, og:url, og:image, the
@@ -41,9 +42,11 @@ const PURE_LIB_MODULES = /src[\\/]lib[\\/]geo3\.ts$/
  * them): Rolldown cut each into its own sliver, because the locale chunks import them too, and English's first load
  * went from 17 files to 23. Held in one chunk instead. Only zustand's own entry: its `traditional` one (and
  * use-sync-external-store under it) is React Three Fiber's, and taking it here pulled the globe into the first load.
+ * The place-name tables' loader (src/i18n/optionalChunks.ts) too: the table languages' chunks and the imagery code
+ * share it, and neither may pull the other in.
  */
 const I18N_CORE =
-  /src[\\/]i18n[\\/](ns|accentFont|runtime|Rich)\.tsx?$|api[\\/]_lib[\\/]i18n[\\/](locales|parts|format|units)\.ts$|src[\\/]ui[\\/]system[\\/]format\.ts$|src[\\/]imagery[\\/]placeKey\.ts$|src[\\/]i18n[\\/]en[\\/]time\.ts$|src[\\/]ui[\\/]results[\\/]lib[\\/]time\.ts$|node_modules[\\/]zustand[\\/]esm[\\/](index|vanilla|react)\.mjs$/
+  /src[\\/]i18n[\\/](ns|accentFont|runtime|Rich|optionalChunks)\.tsx?$|api[\\/]_lib[\\/]i18n[\\/](locales|parts|format|units)\.ts$|src[\\/]ui[\\/]system[\\/]format\.ts$|src[\\/]imagery[\\/]placeKey\.ts$|src[\\/]i18n[\\/]en[\\/]time\.ts$|src[\\/]ui[\\/]results[\\/]lib[\\/]time\.ts$|node_modules[\\/]zustand[\\/]esm[\\/](index|vanilla|react)\.mjs$/
 
 /**
  * The verdicts' English names ride with the results' meta (the results panel and About both load it), not in a chunk
@@ -87,6 +90,11 @@ function overflightHtml(): Plugin {
         state.set(file, 'done')
       }
       for (const file of imports.keys()) visit(file, [])
+      // A failed prefetch of the card's measure stays quiet only while its chunk is named so (src/ui/share/measure.ts,
+      // src/lib/staleBuild.ts): renamed, every such failure would reload the results being read.
+      const app = Object.values(bundle).some((o) => o.type === 'chunk' && o.isEntry && /index/.test(o.name))
+      if (app && ![...imports.keys()].some((f) => /(^|\/)cardMeasure-[\w-]+\.js$/.test(f)))
+        this.error('no cardMeasure-*.js chunk: src/ui/share/measure.ts and src/lib/staleBuild.ts match that name')
     },
     configResolved(config) {
       origin = siteOrigin({ ...process.env, ...loadEnv(config.mode, config.root, '') } as Record<string, string>)
@@ -145,16 +153,22 @@ function localePreloads(bundle: OutputBundle, base: string): Record<string, stri
 
 /**
  * A script's faces the first screen paints (src/styles/scripts.css), preloaded by the boot script only for that
- * script: the hero is the largest paint, and its Cyrillic or Arabic face would otherwise be discovered late. The Arabic
- * accent (one word) and every Latin page's fonts are not on this list.
+ * script, or for that language (a key that is a locale): the hero is the largest paint, and its Cyrillic, Arabic,
+ * Vietnamese or Devanagari face would otherwise be discovered late. The Arabic accent (one word) and the brand faces
+ * every page preloads (CRITICAL_FONTS) are not on this list. The Devanagari accent is: Hindi's hero opens its last line
+ * with it («आपको देखा।»), so a late swap would move the rest of the line.
  */
 const LATIN_EXT = /^(?:.*\/)?(instrument-sans-latin-ext-standard-normal|martian-mono-latin-ext-standard-normal|instrument-serif-latin-ext-400-italic)-[\w-]+\.woff2$/
 const SCRIPT_FONTS: Record<string, RegExp> = {
   cyrillic: /^(?:.*\/)?(noto-sans-cyrillic-wdth-normal|noto-serif-display-cyrillic-italic-320-62)-[\w-]+\.woff2$/,
   arabic: /^(?:.*\/)?noto-sans-arabic-wght400-700-wdth75-100-[\w-]+\.woff2$/,
+  devanagari: /^(?:.*\/)?(noto-sans-devanagari-wght400-700-wdth75-100|noto-serif-devanagari-350-87)-[\w-]+\.woff2$/,
   // Latin languages whose own letters (ł ż ś, ş ğ ı) live in the brand faces' latin-ext files (keyed by locale)
   pl: LATIN_EXT,
   tr: LATIN_EXT,
+  // Vietnamese sets every role in faces of its own (scripts.css): their latin and Vietnamese files, the accent's one.
+  // Not the Latin Extended-A files, which only a Polish or Czech name asks for.
+  vi: /^(?:.*\/)?(noto-sans-latin-wdth-normal|noto-sans-vietnamese-wdth-normal|jetbrains-mono-(latin|vietnamese)-wght300-700|noto-serif-display-vietnamese-italic-320-62)-[\w-]+\.woff2$/,
 }
 function scriptFonts(bundle: OutputBundle, base: string): Record<string, string[]> {
   const out: Record<string, string[]> = {}
@@ -201,9 +215,10 @@ function appVersion(): string {
 }
 
 export default defineConfig({
-  plugins: [react(), overflightHtml()],
+  plugins: [react(), overflightHtml(), blockerNames()],
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
-  worker: { format: 'es' },
+  // The workers' own bundles (the pixels worker, the engine pool) get the same name check.
+  worker: { format: 'es', plugins: () => [blockerNames()] },
   build: {
     target: 'es2022',
     sourcemap: true,
@@ -237,5 +252,5 @@ export default defineConfig({
     },
   },
   server: { port: 5173 },
-  test: { environment: 'node', include: ['src/**/*.test.ts'] },
+  test: { environment: 'node', include: ['src/**/*.test.ts'], setupFiles: ['scripts/cardMeasure.setup.ts'] },
 } as any)

@@ -34,6 +34,7 @@ const share: typeof en = {
   preparingImage: '正在准备图像…',
   share: '分享',
   copyLink: '复制链接',
+  copyLinkDesktop: '复制链接',
   copied: '已复制',
   postToX: '发布到 X',
   copyImage: '复制图像',

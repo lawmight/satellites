@@ -1,12 +1,21 @@
 Copyright 2016 Google Inc. All Rights Reserved. (Noto Serif Display)
 Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic)
 Copyright 2010-2022 The Amiri Project Authors (https://github.com/aliftype/amiri)
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari) (Noto Sans and Noto Serif Devanagari)
 
 The files in this directory are cut from the @fontsource packages: noto-serif-display-cyrillic-italic-320-62.woff2 is
 a static instance (wght 320, wdth 62.5) of Noto Serif Display's Cyrillic italic, made by scripts/build-cyrillic-fonts.py;
 noto-sans-arabic-wght400-700-wdth75-100.woff2 (Noto Sans Arabic, weights 400-700, widths 75-100) and
-amiri-400-arabic.woff2 (Amiri) are subset to the basic Arabic block by scripts/build-arabic-fonts.py. None of the fonts
-declares a Reserved Font Name.
+amiri-400-arabic.woff2 (Amiri) are subset to the basic Arabic block by scripts/build-arabic-fonts.py; for Vietnamese
+pages, scripts/build-vietnamese-fonts.py makes noto-sans-latin-ext-a-wdth-normal.woff2 (Noto Sans, Latin Extended-A),
+noto-serif-display-vietnamese-italic-320-62.woff2 (a static instance of Noto Serif Display italic, its latin, Vietnamese
+and Latin Extended-A subsets merged) and jetbrains-mono-*-wght300-700.woff2 (JetBrains Mono, subset, its weight axis
+cut and renamed, its code ligatures removed);
+noto-sans-devanagari-wght400-700-wdth75-100.woff2 (Noto Sans Devanagari, weights 400-700, widths 75-100) and
+noto-serif-devanagari-350-87.woff2 (a static instance of Noto Serif Devanagari, wght 350, wdth 87.5) are subset to the
+Devanagari block by scripts/build-devanagari-fonts.py. None of the fonts declares a Reserved Font Name.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

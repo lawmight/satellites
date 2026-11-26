@@ -320,7 +320,8 @@ const results: typeof en = {
   timeline: {
     title: 'Zeitleiste',
     // `zones` is one abbreviation or the zoneChange pair; zoneDe leaves an already German name as it is.
-    meta: (n: number, zoneLabel: string, zones: string) => `${days(n)} · ${zoneLabel} · ${zones.split(' → ').map(zoneDe).join(' → ')}`,
+    meta: (n: number, zoneLabel: string, zones?: string) =>
+      `${days(n)} · ${zoneLabel}${zones ? ` · ${zones.split(' → ').map(zoneDe).join(' → ')}` : ''}`,
     zoneChange: (before: string, after: string) => `${zoneDe(before)} → ${zoneDe(after)}`,
     daylight: 'Tageslicht hier',
     // Each title, then its count: code never lowercases a German title (§3.6, §6.4).
@@ -387,6 +388,10 @@ const results: typeof en = {
   timelapse: {
     title: 'Zeitraffer',
     sub: 'Dieser Ort, Jahr für Jahr',
+  },
+  colophon: {
+    ask: 'Hilf mit, dass Watched kostenlos bleibt :)',
+    via: 'Ein kleines Trinkgeld, über Buy Me a Coffee',
   },
 }
 

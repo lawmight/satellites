@@ -23,14 +23,19 @@
 }
 .hud::before {
   top: 0;
-  height: calc(var(--bezel-inset) + 96px + env(safe-area-inset-top, 0px));
+  height: calc(var(--bezel-inset) + 96px + var(--scrim-more, 0px) + env(safe-area-inset-top, 0px));
   background: linear-gradient(
     to bottom,
     color-mix(in srgb, var(--ink-0) 88%, transparent),
-    color-mix(in srgb, var(--ink-0) 80%, transparent) calc(var(--bezel-inset) + 50px + env(safe-area-inset-top, 0px)),
-    color-mix(in srgb, var(--ink-0) 36%, transparent) calc(var(--bezel-inset) + 74px + env(safe-area-inset-top, 0px)),
+    color-mix(in srgb, var(--ink-0) 80%, transparent) calc(var(--bezel-inset) + 50px + var(--scrim-more, 0px) + env(safe-area-inset-top, 0px)),
+    color-mix(in srgb, var(--ink-0) 36%, transparent) calc(var(--bezel-inset) + 74px + var(--scrim-more, 0px) + env(safe-area-inset-top, 0px)),
     transparent
   );
+}
+/* The language stepped down to a third line beside a panel (Hud.tsx useLanguageRoom): the plateau reaches one corner
+   line lower (CornerReadout: line-height 1.4, 3 px apart), so that line is as legible over cloud as the two above. */
+.hud:has(.aboutLine[data-lang-below]) {
+  --scrim-more: calc(1.4 * var(--fs-label) + 3px);
 }
 .hud::after {
   bottom: 0;
@@ -171,6 +176,12 @@
     padding: 22px 0 8px;
     margin: -22px 0 -8px;
   }
+  /* With the language on the line below (Hud.tsx useLanguageRoom), it ends at that line, where the language's own
+     box starts (LanguageSwitcher.module.css), and reaches further up instead. */
+  .aboutLine[data-lang-below] .about {
+    padding: 27px 0 3px;
+    margin: -27px 0 -3px;
+  }
 }
 /* A box ring would collide with the wordmark line 3px above; a signal underline marks focus instead
    (on the words only: the key cap beside them keeps its own frame). */
@@ -204,13 +215,81 @@
 .mob {
   display: none !important;
 }
-/* The About line, which the phone's sun line keeps clear of (Hud.tsx useCrowdedSun reads its box by this class). */
+/* The link to the code, ending the About line on wide screens (Hud.tsx useSourceRoom): the About link's type and
+   colours, after the language's own kind of hairline. */
+.source {
+  display: inline-flex;
+  align-items: center;
+}
+.source[data-off] {
+  visibility: hidden;
+}
+.aboutLine[data-lang-below] .source {
+  display: none;
+}
+.sourceRule {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin: 0 12px;
+  background: var(--bone-4);
+}
+.sourceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  margin: -6px 0;
+  color: var(--bone-3);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--d-hover) var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .sourceLink:hover {
+    color: var(--bone);
+  }
+}
+.sourceLink:active {
+  color: var(--bone);
+  transition-duration: 0ms;
+}
+.sourceLink svg {
+  flex: none;
+}
+/* Right to left the arrow points up and out to the left, away from the words, as the landing's links do. */
+:root[dir='rtl'] .sourceLink svg {
+  scale: -1 1;
+}
+/* The About line, which the phone's sun or scene line keeps clear of (Hud.tsx useCrowdedLine reads its box by this
+   class). */
 .aboutLine {
   min-width: 0;
 }
-/* The phone's sun line, where it would crowd "How this works" (Hud.tsx useCrowdedSun): kept in place, unseen. */
+/* Beside a panel that would cover the language (Hud.tsx useLanguageRoom): the language on a line of its own under
+   "How this works", the corner's line gap apart (the switcher drops its hairline and turns its touch box down). */
+.aboutLine[data-lang-below] {
+  flex-direction: column;
+  align-items: flex-start;
+  row-gap: inherit;
+}
+/* The phone's sun line, where it would crowd "How this works" (Hud.tsx useCrowdedLine): kept in place, unseen. */
 .sunLine[data-crowded] {
   visibility: hidden;
+}
+/* The scene time, where it would crowd "How this works" (useCrowdedLine): up in the live clock's line, in its place;
+   the clock keeps its box there, unseen, until the replay ends. Same cell, same right edge: nothing else moves. */
+.sceneLine[data-crowded],
+.clockLine:has(~ .sceneLine[data-crowded]) {
+  grid-area: 1 / 1;
+}
+.clockLine:has(~ .sceneLine[data-crowded]) {
+  visibility: hidden;
+}
+/* Up there and still too close to the wordmark (the narrowest phones, the longer languages: useCrowdedLine), the scene
+   time drops its tracking rather than a word. */
+.sceneLine[data-tight] {
+  letter-spacing: 0;
 }
 
 @media (max-width: 760px) {

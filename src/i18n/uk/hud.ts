@@ -2,7 +2,7 @@
  * Ukrainian copy for the HUD, the instrument chrome in the four corners (see docs/i18n/uk.md §3.8): the About link, the
  * scene line, the orbit catalog's status and the sub-solar readout.
  *
- * Why these words: every corner line is a mono label, so the words are nouns («Кадр», «Каталог», «Підсонячна точка»)
+ * Why these words: every corner line is a mono label, so the words are nouns («Повтор», «Каталог», «Підсонячна точка»)
  * kept about as short as the English (on a 375 px phone «Як це працює» and the sun line nearly touch). Coordinates,
  * clocks, ISO stamps and "GMST" arrive as they are. Units are symbols that never inflect («хв», «год»); «дн.» keeps
  * its period, as Intl prints it, so the catalog's age needs no plural forms.
@@ -24,12 +24,15 @@ function age(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: 'Як це працює',
+  sourceLink: 'Відкритий код',
+  sourceLinkLabel: 'Відкритий код: проєкт на GitHub',
   home: 'Watched, на головну',
   regionTime: 'Час',
   regionCatalog: 'Каталог орбіт',
   regionSun: 'Сонце',
 
-  scene: 'Кадр',
+  // The replay's simulated clock: «Повтор», never «Кадр», which would read as the time an image was taken.
+  scene: 'Повтор',
   sun: (lat: string, lon: string) => `Сонце ${lat} ${lon}`,
   subsolar: 'Підсонячна точка',
   gmst: (time: string) => `GMST ${time}`,

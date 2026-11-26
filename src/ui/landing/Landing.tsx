@@ -1,6 +1,6 @@
 /**
  * <Landing onSubmit enterDelay/>: phases 'idle' and 'locating'. The hero, the place search, "Use my
- * location", curated example places and the maker's credit (on wide screens, a link to the code beside it), laid
+ * location", curated example places and the maker's credit and Buy Me a Coffee link, laid
  * out so the globe stays the hero:
  *
  *   wide            a text column on the left of the 12-column grid; the globe frames to its right.
@@ -29,8 +29,10 @@ import { Rich } from '@/i18n/Rich'
 import enLanding from '@/i18n/en/landing'
 import { useMsgs } from '@/i18n/runtime'
 import { DUR, EASE } from '@/lib/ease'
-import { SHORT_LANDSCAPE_QUERY, isStacked } from '@/lib/layout'
+import { INSET_CLEAR, SHORT_LANDSCAPE_QUERY, isStacked } from '@/lib/layout'
 import { useBackLayer } from '@/lib/backStack'
+import { SUPPORT_URL } from '@/lib/maker'
+import { track } from '@/lib/telemetry'
 import { useApp, type Phase } from '@/state/store'
 import type { Place } from '@/types'
 import {
@@ -71,8 +73,8 @@ useApp.subscribe((st, prev) => {
 
 /** Stacked: the ink panel starts this far above the column's first line (Landing.module.css .column::before). */
 const PANEL_PAD_TOP = 22
-/** Wide: the globe's point cloud keeps this much air from the end of the text. */
-const TEXT_CLEAR = 24
+/** Wide: the globe's point cloud keeps this much air from the end of the text (the same as beside any panel). */
+const TEXT_CLEAR = INSET_CLEAR
 /**
  * The chip row's trailing fade reaches back to the last whole chip once that ends further than this from the edge
  * (Landing.module.css `--chips-fade`, 28 px otherwise): past ~64 px the cut chip's words show beyond the 28 px fade.
@@ -81,8 +83,6 @@ const FADE_REACH = 64
 /** The maker's credit under the example chips. */
 const CREDIT_HANDLE = '@armaangupt0'
 const CREDIT_URL = 'https://x.com/armaangupt0'
-/** Beside the credit on wide screens: the project's code, MIT licensed (README.md). */
-const SOURCE_URL = 'https://github.com/dev-Armaan/satellites'
 
 interface LandingProps {
   onSubmit: (place: Place) => void
@@ -398,25 +398,87 @@ function LandingImpl({ onSubmit: onSubmitProp, enterDelay = 0 }: LandingProps) {
           </div>
 
           <Examples onPick={submit} disabled={locating} locate={locate} />
-          {/* Under the chips: the maker's credit, then (wide screens only, Landing.module.css .source) the link to
-              the code. It shares the credit's line, so it adds no height to a column that must fit between the
-              corner readouts, and phones, where that line is the panel's last and the screen is full, never get it. */}
-          <div className={cx(s.foot, s.rise, s.riseExamples)} data-hero-copy>
-            <a className={s.credit} href={CREDIT_URL} target="_blank" rel="noreferrer">
-              {m.builtBy(CREDIT_HANDLE)}
-            </a>
-            <span className={s.source}>
-              <span className={s.footSep} aria-hidden>
-                ·
-              </span>
-              <a className={cx(s.credit, s.sourceLink)} href={SOURCE_URL} target="_blank" rel="noreferrer" aria-label={m.sourceLinkLabel}>
-                {m.sourceLink}
-                <Glyph name="arrow-up-right" size={10} />
-              </a>
-            </span>
-          </div>
+          <LandingFoot />
         </div>
       </section>
+    </div>
+  )
+}
+
+/**
+ * Under the chips: the maker's credit, then the maker's Buy Me a Coffee link, on one mono caps line, for every visitor
+ * on wide screens (owner, 2026-11-23; the link to the code is in the top-left readout now, src/ui/hud/Hud.tsx). The
+ * credit always shows (owner). The link is the results' ask, word for word ("Help keep Watched free :)"; owner). The line
+ * is never wrapped (a second one would push the column into the bottom readouts), so it is measured: where the whole ask
+ * does not fit beside the credit (a long language, a narrow window), its short form does ("Help keep this free :)"),
+ * and where that does not either, the link is left out. Phones never show it here: their ink panel has no room for it
+ * (owner), and the results, the share sheet and About carry it.
+ */
+function LandingFoot() {
+  const m = useMsgs(enLanding)
+  const footRef = useRef<HTMLDivElement>(null)
+  const creditRef = useRef<HTMLAnchorElement>(null)
+  const sepRef = useRef<HTMLSpanElement>(null)
+  const linkRef = useRef<HTMLAnchorElement>(null)
+  const fullRef = useRef<HTMLSpanElement>(null)
+  const shortRef = useRef<HTMLSpanElement>(null)
+  // The whole ask where it fits beside the credit, else its short form, else no link.
+  const [ask, setAsk] = useState<'full' | 'short' | 'none'>('full')
+  useLayoutEffect(() => {
+    const foot = footRef.current
+    if (!foot) return
+    // Every part is measured on its own, and none changes size with the answer (the dot, the link and the form not
+    // shown leave the flow, still laid out), so the answer cannot flip back and forth.
+    const outer = (el: HTMLElement | null) => {
+      if (!el) return 0
+      const cs = getComputedStyle(el)
+      return el.offsetWidth + parseFloat(cs.marginLeft) + parseFloat(cs.marginRight)
+    }
+    const fit = () => {
+      const link = linkRef.current
+      const full = fullRef.current
+      const short = shortRef.current
+      if (!link || !full || !short) return
+      // The link's arrow and gap: what it has beyond the form it shows.
+      const shown = link.dataset.ask === 'short' ? short : full
+      const extra = link.offsetWidth - shown.offsetWidth
+      const base = outer(creditRef.current) + outer(sepRef.current) + extra + parseFloat(getComputedStyle(link).marginLeft)
+      const room = foot.clientWidth + 0.5
+      setAsk(base + full.offsetWidth <= room ? 'full' : base + short.offsetWidth <= room ? 'short' : 'none')
+    }
+    fit()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(fit)
+    for (const el of [foot, creditRef.current, fullRef.current, shortRef.current]) if (el) ro.observe(el)
+    return () => ro.disconnect()
+  }, [m])
+  return (
+    <div ref={footRef} className={cx(s.foot, s.rise, s.riseExamples, ask === 'none' && s.footTight)} data-hero-copy>
+      <a ref={creditRef} className={s.credit} href={CREDIT_URL} target="_blank" rel="noreferrer">
+        {m.builtBy(CREDIT_HANDLE)}
+      </a>
+      <span className={s.coffee}>
+        <span ref={sepRef} className={s.footSep} aria-hidden>
+          ·
+        </span>
+        <a
+          ref={linkRef}
+          className={cx(s.credit, s.coffeeLink)}
+          href={SUPPORT_URL}
+          target="_blank"
+          rel="noopener"
+          data-ask={ask === 'short' ? 'short' : 'full'}
+          onClick={() => track('support_click', { from: 'landing' })}
+        >
+          <span ref={fullRef} className={s.askFull}>
+            {m.support}
+          </span>
+          <span ref={shortRef} className={s.askShort}>
+            {m.supportShort}
+          </span>
+          <Glyph name="arrow-up-right" size={10} />
+        </a>
+      </span>
     </div>
   )
 }

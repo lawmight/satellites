@@ -1,5 +1,7 @@
 /* The language switcher (LanguageSwitcher.tsx): the trigger sits on the HUD's "How this works" line and inherits its
-   mono caps; the menu is a flat ink panel with a hairline, two columns of language names (DESIGN §1, §4). */
+   mono caps; the menu is a flat ink panel with a hairline, columns of language names (DESIGN §1, §4). The menu is as
+   wide as its columns need (max-content), never wider than the screen; the columns are equal (1fr of a max-content
+   grid is its widest name) and never narrower than a name's longest word, so a name wraps before it is cut. */
 
 .trigger {
   display: inline-flex;
@@ -38,9 +40,30 @@
   text-underline-offset: 4px;
 }
 
-/* A hairline between "How this works" and the language (none when the language is alone on the line). */
-.trigger:first-child .rule {
+/* A hairline between "How this works" and the language (none when the language is alone on the line, or when the HUD
+   has stepped it down to a line of its own beside a panel: Hud.tsx useLanguageRoom). */
+.trigger:first-child .rule,
+[data-lang-below] > .trigger .rule {
   display: none;
+}
+/* Stepped down, the tall touch box reaches down into the free view instead of up over "How this works" just above,
+   whose own box then ends where this one starts (Hud.module.css). The language keeps 44 px of its own (U-6); so does
+   "How this works" right of the wordmark, while under it the wordmark's link (the way home) keeps its box and About has
+   the 17 px between the two (23 px on its usual line). The button keeps its usual 8 px under the words and the rest of
+   the reach is its ::after, outside its box: the menu is placed from the box's bottom (LanguageSwitcher.tsx), so it
+   opens the same 18 px under the name as on its usual line, not 40. */
+@media (pointer: coarse) {
+  [data-lang-below] > .trigger {
+    position: relative;
+    padding: 0 0 8px;
+    margin: 0 0 -8px;
+  }
+  [data-lang-below] > .trigger::after {
+    content: '';
+    position: absolute;
+    inset: 100% 0 auto;
+    height: 22px;
+  }
 }
 .rule {
   display: inline-block;
@@ -53,8 +76,11 @@
 .menu {
   position: fixed;
   z-index: var(--z-overlay);
-  min-width: 296px;
+  width: max-content;
+  min-width: min(296px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px 0 8px;
   background: var(--ink-1);
   border: 1px solid var(--line-strong);
@@ -90,8 +116,9 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(8, auto);
+  /* --cols and --rows are set by the component (two columns on an upright phone, four with room across) */
+  grid-template-columns: repeat(var(--cols, 2), minmax(min-content, 1fr));
+  grid-template-rows: repeat(var(--rows, 10), auto);
   grid-auto-flow: column;
   column-gap: 4px;
   padding: 6px 6px 0;
@@ -118,6 +145,13 @@
   .item {
     min-height: 44px;
     font-size: var(--fs-body);
+  }
+}
+/* Four columns of touch-sized names need 649 px; a phone on its side is often a little narrower (667x375 left 643),
+   so there the names give up some side padding before the longest one wraps. */
+@media (pointer: coarse) and (max-width: 699px) {
+  .grid[data-cols='4'] .item {
+    padding-inline: 8px;
   }
 }
 @media (hover: hover) and (pointer: fine) {
@@ -156,5 +190,8 @@
 
 .name {
   min-width: 0;
-  white-space: nowrap;
+  /* one line wherever the menu has room (it is sized to the longest name); only on a screen too narrow for that does
+     a two-word name ("Bahasa Indonesia") take a second line */
+  white-space: normal;
+  text-wrap: balance;
 }

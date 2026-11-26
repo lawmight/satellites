@@ -112,8 +112,11 @@ loads no analytics script of its own.
 **Meteosat frames need the Worker.** EUMETSAT asks sites not to send each visitor's requests to its map service, so
 the Worker fetches each Meteosat frame once, on a timer (`triggers.crons` in `wrangler.jsonc`: every minute, most
 runs do nothing), keeps it about an hour in a Workers KV namespace and cuts every visitor's small picture from it
-(`api/_lib/geoFill.ts`, `api/geo.ts`). `wrangler.jsonc` names the namespace's binding (`GEO_FRAMES`) without an id:
-the first `wrangler deploy` creates it for your account. Nothing else is needed. The fill writes an estimated half
+(`api/_lib/geoFill.ts`, `api/geo.ts`). `wrangler.jsonc` names the namespace's binding (`GEO_FRAMES`) with the official site's namespace id, which no other
+account can use: delete the `"id"` before your first `wrangler deploy`, which then creates a namespace for your
+account, and write that namespace's id in its place (`npx wrangler kv namespace list` prints it). With no id, a
+deploy takes the binding from the Worker's last uploaded version, and a branch that predates the cache leaves the
+next deploy without one. The fill writes an estimated half
 a million tiles a month, whatever the traffic, against the million writes Workers Paid includes. Under `npm run dev`,
 which has no timer and no store, the two endpoints answer 503 and the Meteosat rows say "No image just now". To see
 them locally, run `npx wrangler dev --test-scheduled` after a build and start a

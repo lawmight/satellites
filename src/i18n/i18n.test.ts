@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { LOCALES, LOCALE_INFO, localeForTag, matchLocale, type Locale } from '../../api/_lib/i18n/locales'
 import { PLURALS, fmt } from '../../api/_lib/i18n/format'
-import { accent, num, numText, plain, strong } from '../../api/_lib/i18n/parts'
+import { accent, isNum, num, numText, plain, strong, type Part } from '../../api/_lib/i18n/parts'
 import { bootLocale, type BootData } from './boot'
 import enApp from './en/app'
+import { heldAfter, heldBefore, holdNum } from './Rich'
 
 const TAGS = [
   'en', 'en-US', 'en-GB', 'EN_us', 'es', 'es-MX', 'es-419', 'fr-CA', 'fr', 'de-AT', 'de-CH', 'pt', 'pt-BR', 'pt-PT', 'pt_br',
@@ -29,13 +30,20 @@ describe('locale matching', () => {
     // Cantonese: Traditional Chinese, the one neighbour chosen over English
     expect(localeForTag('yue')).toBe('zh-Hant')
     expect(localeForTag('yue-Hant-HK')).toBe('zh-Hant')
-    expect(localeForTag('ru')).toBeUndefined()
+    expect(localeForTag('ru-RU')).toBe('ru')
+    expect(localeForTag('fa-IR')).toBe('fa')
+    expect(localeForTag('vi-VN')).toBe('vi')
+    expect(localeForTag('hi-IN')).toBe('hi')
+    // A neighbour is never assumed: Belarusian and Tajik get English, not Russian or Persian
+    expect(localeForTag('be')).toBeUndefined()
+    expect(localeForTag('tg')).toBeUndefined()
     expect(localeForTag('enx')).toBeUndefined()
   })
   it('takes the first language we speak, English when none', () => {
-    expect(matchLocale(['ru-RU', 'uk-UA', 'en'])).toBe('uk')
+    expect(matchLocale(['be-BY', 'uk-UA', 'en'])).toBe('uk')
+    expect(matchLocale(['ru-RU', 'uk-UA', 'en'])).toBe('ru')
     expect(matchLocale(['en-US', 'ja'])).toBe('en')
-    expect(matchLocale(['ru', 'he'])).toBe('en')
+    expect(matchLocale(['be', 'he'])).toBe('en')
     expect(matchLocale([])).toBe('en')
   })
 })
@@ -134,6 +142,55 @@ describe('rich parts', () => {
     expect(plain(s)).toBe('In the last 7 days, 256 satellites watched Waterloo.')
     expect(plain([[num('25', '%')], [num('7.46', 'km/s')]])).toBe('25% 7.46 km/s')
     expect(plain([['今週。'], ['見ていた。']], '')).toBe('今週。見ていた。')
+  })
+})
+
+describe('a number set as a box of its own keeps the words tied to it (holdNum)', () => {
+  it('holds what a no-break space, or no space at all, ties to the number, and nothing across a plain space', () => {
+    expect(heldAfter(' images were made public.')).toBe(0)
+    expect(heldAfter('\u00a0снимков.')).toBe('\u00a0снимков.'.length)
+    expect(heldAfter('\u00a0images ont été rendues publiques.')).toBe('\u00a0images'.length)
+    expect(heldAfter('\u00a0bức\u00a0ảnh đã được công\u00a0bố.')).toBe('\u00a0bức\u00a0ảnh'.length)
+    // A counter right after a number: Japanese 枚, Chinese 张 (one character: Chinese breaks between the next ones),
+    // a Korean word written against it
+    expect(heldAfter('枚。')).toBe(1)
+    expect(heldAfter('\u00a0张图像已公开。')).toBe(2)
+    expect(heldAfter('장 공개됐다.')).toBe(1)
+    expect(heldBefore('At least ')).toBe(0)
+    expect(heldBefore('En\u00a0az\u00a0')).toBe('En\u00a0az\u00a0'.length)
+    expect(heldBefore('Au moins à\u00a0')).toBe('à\u00a0'.length)
+    // Plain text breaks before a number after Japanese kana (少なくとも|12,345枚。): so does the count
+    expect(heldBefore('少なくとも')).toBe(0)
+  })
+
+  it('cuts the parts around the number, and leaves English as it was', () => {
+    const en = [strong('At least '), num('1,713'), ' images were made public.']
+    expect(holdNum(en, 1)).toEqual({ before: [en[0]], held: [en[1]], after: [en[2]] })
+    const tr = [strong('En\u00a0az\u00a0'), num('12.345'), '\u00a0görüntü kamuya açıldı.']
+    expect(holdNum(tr, 1)).toEqual({ before: [], held: [strong('En\u00a0az\u00a0'), num('12.345'), '\u00a0görüntü'], after: [' kamuya açıldı.'] })
+    const ru = ['Опубликовано ', strong('как минимум '), num('1\u00a0037'), '\u00a0снимков.']
+    expect(holdNum(ru, 2)).toEqual({ before: ru.slice(0, 2), held: [ru[2], ru[3]], after: [] })
+  })
+
+  it('holds every language’s second line so that no no-break space is left at a cut', () => {
+    const catalogs = import.meta.glob<{ imagesPublic: (k: number) => Part[] }>('./*/results.ts', { import: 'default', eager: true })
+    expect(Object.keys(catalogs).length).toBe(LOCALES.length)
+    const glue = /[\u00a0\u202f\u2007\u2060]/
+    for (const [file, m] of Object.entries(catalogs))
+      for (const k of [3, 5, 22, 27, 101, 1713, 12345]) {
+        const parts = m.imagesPublic(k)
+        const at = parts.findIndex(isNum)
+        if (at < 0) continue
+        const { before, held, after } = holdNum(parts, at)
+        expect(plain([...before, ...held, ...after]), file).toBe(plain(parts))
+        const lastBefore = plain(before.slice(-1)).slice(-1)
+        const firstAfter = plain(after.slice(0, 1)).slice(0, 1)
+        const heldText = plain(held)
+        expect(glue.test(lastBefore) || glue.test(heldText[0]), `${file} ${k}: ${JSON.stringify(heldText)}`).toBe(false)
+        expect(glue.test(firstAfter) || glue.test(heldText[heldText.length - 1]), `${file} ${k}: ${JSON.stringify(heldText)}`).toBe(false)
+        // English writes plain spaces on both sides of its count: nothing is held, its line renders as it always did
+        if (file === './en/results.ts') expect(held).toHaveLength(1)
+      }
   })
 })
 

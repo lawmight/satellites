@@ -25,6 +25,8 @@ function age(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: '工作原理',
+  sourceLink: '开源',
+  sourceLinkLabel: '开源：GitHub 上的源代码',
   home: 'Watched 首页',
   regionTime: '时间',
   regionCatalog: '轨道目录',

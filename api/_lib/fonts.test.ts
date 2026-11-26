@@ -1,9 +1,10 @@
 /**
  * Which fonts a card reads, and what they draw: an English card reads and renders exactly what it always did; Turkish
- * and Polish letters come from each role's latin-ext file; a card that speaks Ukrainian or prints Cyrillic adds the
- * faces the web gives Cyrillic, each role its own; none of them asks Google Fonts for a letter. A Chinese, Japanese or
- * Korean card tells satori its language. Rendered offline
- * with satori itself, since the point is how satori resolves them.
+ * and Polish letters come from each role's latin-ext file; a card that speaks Ukrainian or Russian or prints Cyrillic
+ * adds the faces the web gives Cyrillic, each role its own; a Vietnamese card sets every word in the faces the web gives
+ * Vietnamese, and any other card takes only the letters the brand faces lack from them; none of them asks Google Fonts
+ * for a letter. A Chinese, Japanese or Korean card tells satori its language. Rendered offline with satori itself, since
+ * the point is how satori resolves them.
  */
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -12,7 +13,7 @@ import satori, { init } from 'satori/standalone'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { defaultCard, shareCard } from './card.js'
 import { buildCardSpec } from './cardSpec.js'
-import { FAMILY, FONT, FONT_FILES, cardFonts, loadFonts, needsCyrillic, type SatoriFont } from './fonts.js'
+import { FAMILY, FONT, FONT_FILES, cardFamily, cardFonts, loadFonts, needsCyrillic, needsVietnamese, type SatoriFont } from './fonts.js'
 import { h, textOf } from './h.js'
 import { LOCALES, type Locale } from './i18n/locales.js'
 import { cardInputFromShare, shareFromParams } from './share.js'
@@ -93,7 +94,7 @@ describe('card fonts', () => {
       ['Overflight Serif Cyrillic', 400, 'italic'],
     ])
     expect(await cardFonts('en', 'Sentinel-2C watched Київ.')).toBe(uk)
-    expect(LOCALES.filter((l) => needsCyrillic(l, ''))).toEqual(['uk'])
+    expect(LOCALES.filter((l) => needsCyrillic(l, ''))).toEqual(['uk', 'ru'])
   })
 
   it('draws Turkish and Polish letters in each role’s own face, offline', async () => {
@@ -129,6 +130,53 @@ describe('card fonts', () => {
     }
     // …and the roles differ (the condensed display is not the body's width).
     expect(await svg(line('Київ', roles[0][1]), fonts)).not.toBe(await svg(line('Київ', roles[1][1]), fonts))
+  })
+
+  it('adds the four Vietnamese cuts, under their own names, for Vietnamese or for any letter the brand faces lack', async () => {
+    const latin = await loadFonts()
+    const vi = await cardFonts('vi', 'Sentinel-2C')
+    expect(vi.slice(0, latin.length)).toEqual(latin)
+    expect(vi.slice(latin.length).map((f) => [f.name, f.weight, f.style])).toEqual([
+      ['Overflight Display Vietnamese', 600, 'normal'],
+      ['Overflight Sans Vietnamese', 400, 'normal'],
+      ['Overflight Mono Vietnamese', 400, 'normal'],
+      ['Overflight Serif Vietnamese', 400, 'italic'],
+    ])
+    expect(await cardFonts('en', 'Sentinel-2C watched Hà Nội.')).toBe(vi)
+    // é, à, ô and ă are the brand faces' own: Lyon, Montréal and Brăila need nothing more
+    expect(await cardFonts('fr', 'Montréal, Brăila, Hà')).toBe(latin)
+    expect(LOCALES.filter((l) => needsVietnamese(l, ''))).toEqual(['vi'])
+    // both, for a Vietnamese card with a Cyrillic place (each cut read once)
+    const both = await cardFonts('vi', 'Київ')
+    expect(both.map((f) => f.name)).toEqual([...latin, ...(await cardFonts('uk', '')).slice(latin.length), ...vi.slice(latin.length)].map((f) => f.name))
+    expect(both[both.length - 1]).toBe(vi[vi.length - 1])
+  })
+
+  it('sets a Vietnamese card’s every word in its Vietnamese cut, Latin letters and digits too', async () => {
+    const fonts = await cardFonts('vi', '')
+    const F = cardFamily('vi')
+    const roles = [
+      ['display', { fontFamily: F.display, fontWeight: 600 }],
+      ['sans', { fontFamily: F.sans }],
+      ['mono', { fontFamily: F.mono }],
+      ['serif', { fontFamily: F.serif, fontStyle: 'italic' }],
+    ] as const
+    for (const [role, style] of roles) {
+      const cut = fonts.filter((f) => f.name === `${FONT[role]} Vietnamese`)
+      // With only that role's cut registered, the same words draw the same outlines: no word is half in Instrument.
+      for (const words of ['256 vệ tinh đã quan sát Waterloo.', 'ĐỘ CAO 786 km · TỐC ĐỘ 7,46 km/s', 'Thành phố Hồ Chí Minh', 'Łódź, Brașov']) {
+        expect(await svg(line(words, style), fonts)).toBe(await svg(line(words, style), cut))
+      }
+    }
+  })
+
+  it('takes only the letters the brand faces lack from the Vietnamese cuts on any other card', async () => {
+    const fonts = await cardFonts('en', 'Hà Nội')
+    const brand = (role: keyof typeof FONT) => fonts.filter((f) => f.name === FONT[role] || f.name === `${FONT[role]} Ext`)
+    const style = { fontFamily: FAMILY.serif, fontStyle: 'italic' }
+    // "Hà N" and "i" in Instrument Serif, as the English card always set them; only ộ from the Vietnamese cut
+    expect(await svg(line('Hà Ni', style), fonts)).toBe(await svg(line('Hà Ni', style), brand('serif')))
+    expect(await svg(line('Hà Nội', style), fonts)).not.toBe(await svg(line('Hà Nội', style), fonts.filter((f) => f.name === 'Overflight Serif Vietnamese')))
   })
 
   it('takes the letters Martian Mono lacks (Serbian, Macedonian, Kazakh) from the sans cut, not the display', async () => {

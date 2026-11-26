@@ -12,6 +12,11 @@
  * shell's planned Num `countKey` / `tick` props (S7).
  *
  * Digits are grouped the visitor's way ("1,715" / "1.715" / "1 715"); a language switch rewrites them in place.
+ *
+ * The count is a box of its own (an inline grid: the crossfade's old digits lie exactly over the new ones, which an
+ * inline span's absolutely placed copy missed by 1–2 px), and a line may break on either side of such a box even against
+ * a no-break space. A sentence that sets it beside words its catalog ties to it puts them in one nowrap span with it
+ * (Rich.tsx holdNum; Summary's PhotosCount).
  */
 import { useLayoutEffect, useRef } from 'react'
 import { fmt } from '../../../api/_lib/i18n/format'

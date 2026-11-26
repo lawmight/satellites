@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import enPlaces from '@/i18n/en/places'
 import { msgs, setBundleForTests } from '@/i18n/runtime'
+import { displayLabel } from '@/imagery/geocode'
 import type { PagePlace } from '@/lib/placePage'
 import type { Pass, Place } from '@/types'
 import { localizedPlace } from '@/ui/landing/curated'
@@ -70,6 +71,20 @@ describe('readUrlTarget', () => {
     expect(readUrlTarget('?s=abcd2345', NOW, page)).toEqual({ kind: 'share', id: 'abcd2345' })
     expect(readUrlTarget('?q=43.47,-80.54&n=Waterloo', NOW, page)).toMatchObject({ kind: 'q', place: { label: 'Waterloo' } })
     expect(readUrlTarget('?sandbox=globe', NOW, page)).toBeNull()
+  })
+
+  it('opens a landmark\'s page as a landmark, which a language names as one (Nhà Trắng, not a town\'s name)', () => {
+    const house: PagePlace = { path: '/place/white-house', label: 'White House', sublabel: 'Washington, D.C., United States', lat: 38.8977, lon: -77.0365, cc: 'us', kind: 'feature' }
+    const opened = readUrlTarget('', NOW, house)
+    expect(opened).toMatchObject({ kind: 'q', place: { label: 'White House', countryCode: 'us', kind: 'feature' } })
+    const city = readUrlTarget('', NOW, { path: '/place/paris', label: 'Paris', lat: 48.8566, lon: 2.3522, cc: 'fr' })
+    expect(city).not.toHaveProperty('place.kind')
+    try {
+      setBundleForTests('vi', { exonyms: { names: 'US:^White House=Nhà Trắng' } })
+      expect(opened?.kind === 'q' && displayLabel(opened.place)).toBe('Nhà Trắng')
+    } finally {
+      setBundleForTests('en', null)
+    }
   })
 
   it('falls back to the pass id when t or norad is missing or invalid', () => {
@@ -199,6 +214,19 @@ describe('headFor: the tab title and the canonical link', () => {
     expect(headFor('idle', undefined, undefined, DE)).toEqual({ title: DE.home, canonical: '/' })
     expect(headFor('results', tokyo, undefined, DE)).toEqual({ title: 'Tokyo · Watched', canonical: '/' })
     expect(headFor('boot', undefined, page, DE, page)).toEqual({ title: 'Paris · Watched', canonical: '/place/paris' })
+  })
+
+  it('names a place as the page shows it in another language (München, as the headline says it)', () => {
+    const munich = { label: 'Munich', lat: 48.137, lon: 11.575 }
+    const name = (p: { label: string }) => (p.label === 'Munich' ? 'München' : p.label)
+    expect(headFor('results', munich, undefined, { ...DE, name }).title).toBe('München · Watched')
+    expect(headFor('results', munich, undefined, { ...EN, name }).title).toBe('Munich: this week’s satellite images and passes · Watched')
+  })
+
+  it('leaves the tab\'s title as it is while the name the page will show is not known yet', () => {
+    const page = { ...DE, name: () => undefined }
+    expect(headFor('computing', tokyo, undefined, page)).toEqual({ title: undefined, canonical: '/' })
+    expect(headFor('idle', undefined, undefined, page)).toEqual({ title: DE.home, canonical: '/' })
   })
 
   it('knows a place page\'s place under the name another language gives it', () => {

@@ -12,6 +12,9 @@
  * Both elements carry .vars so the numbers live in one place.
  */
 .vars {
+  /* The same at every desktop height. Shorter strips (112 px on screens ≤ 720 px tall) cut the three label lanes to
+     7.8 px and the labels' ink overlapped, in every script; on those screens the panel runs beside the strip (below),
+     so the strip's height takes nothing from it, only 20 px from the globe above. */
   --timeline-h: 132px;
   --timeline-gap: 16px;
   --timeline-bottom: 56px;
@@ -26,11 +29,6 @@
    * panel. The hero takes what is left (Gallery.module.css).
    */
   --hero-chrome: calc(2 * var(--bezel-inset) + var(--sheet-clear, 56px) + var(--below-panel) + 572px);
-}
-@media (max-height: 720px) {
-  .vars {
-    --timeline-h: 112px;
-  }
 }
 
 /*
@@ -449,6 +447,9 @@
 .searchBarPlace {
   flex: 1;
   min-width: 0;
+  /* Its own direction is the name's (dir="auto"); where it sits is the page's. Physical, because `start` would read
+     the name's direction (and Chrome has no `match-parent`). */
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -456,6 +457,9 @@
   font-stretch: 87.5%;
   font-weight: 300;
   font-size: 17px;
+}
+:root[dir='rtl'] .searchBarPlace {
+  text-align: right;
 }
 .searchBarAction {
   flex: none;
@@ -649,10 +653,18 @@
 .position {
   margin-inline-end: 6px;
   white-space: nowrap;
+  /* A counter is a mono label: its words (Vietnamese "trên") in capitals, as the gallery's */
+  text-transform: uppercase;
 }
-/* Narrow phones: a four-digit total goes (V1); the search icon beside the stepper keeps its 44 px. */
+/* Narrow phones: a four-digit total, or a counter its language writes long, goes (V1); the search icon beside the
+   stepper keeps its 44 px. */
 @media (max-width: 400px) {
   .positionTotalLong {
+    display: none;
+  }
+}
+@media (max-width: 370px) {
+  .positionTotalWide {
     display: none;
   }
 }
@@ -847,6 +859,16 @@
   font-size: calc(1.16em * var(--accent-k));
   color: var(--bone);
 }
+/* A place that fits the headline's line stays on one (wholePlace.ts): the balance never splits «New / York». */
+.headline .serif[data-whole],
+.mHeadline .serif[data-whole] {
+  white-space: nowrap;
+}
+/* The headline's width for wholePlace.ts to observe: an empty block whose size the place's wrapping never changes. */
+.ruler {
+  display: block;
+  height: 0;
+}
 /* Numbers inside display sentences: the display face, tabular (V19), so "7 days, 7 satellites" match. */
 .numDisplay {
   font-family: inherit;
@@ -952,6 +974,11 @@
 }
 .atLeastOff {
   display: none;
+}
+/* The animated count and the words its no-break space ties to it ("1 037 снимков."): a line may break on either side
+   of the count's box even against that space, never inside this span (Summary.tsx PhotosCount). */
+.held {
+  white-space: nowrap;
 }
 /* Why there is no photo: one plain sentence under the photos line. */
 .why {
@@ -1251,6 +1278,22 @@
 .summaryWide .headlineMore {
   margin-top: 6px;
   font-size: 17px;
+}
+/* No photograph, and none can still come (ResultsView `open`): the words take the summary's whole width (their
+   column alone was 196 px at 844 × 390 beside an empty one, the second line 86 px beside Share, in four lines in
+   Vietnamese). */
+.summaryOpen > .headBlock {
+  grid-column: 1 / -1;
+}
+/* Beside the photo the column is narrow: where the second line and Share do not fit side by side, Share goes under
+   the line, at the same edge, and the line takes the column's width (beside it: 101 px and two lines in English, 48 px
+   and four in Portuguese). */
+.summaryWide .moreRow {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.summaryWide .weekShare {
+  margin-inline-start: auto;
 }
 
 /* The list waiting for the archives (a partial report, U-2): an instrument line, no spinner. */

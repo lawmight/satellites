@@ -64,6 +64,7 @@ Self-hosted via `@fontsource-variable/*`, imported in `src/styles/fonts.css`.
 - **Body:** *Instrument Sans Variable* at `font-stretch: 100%`, weight 400, 15px/1.5. Secondary 13px.
 - **Mono / data:** *Martian Mono Variable* at `font-stretch: 87.5%`, weight 300–400. Labels are 10.5px uppercase with tracking `+0.08em`, their units aside (below). Readouts are 12–13px. Always `font-variant-numeric: tabular-nums`.
 - **Serif accent:** *Instrument Serif* italic. At most **one** phrase per screen, for the human moment ("*you*.", "*this week*"). Never for UI.
+- **Other scripts** add faces behind these, matched to them (docs/I18N.md, Typography by script). Vietnamese, whose letters the brand faces lack, sets every role in matched faces instead: Noto Sans, Noto Serif Display italic and JetBrains Mono at Martian Mono's cell and stems.
 
 Numbers are always mono. Units are smaller and in `--bone-3`: `786.2 km`, `7.46 km/s`, `98.6°`. A unit keeps its case in a
 caps row, in every language (owner, 2026-11-19): `786 km`, `10 m`, never `786 KM` (m is the metre, M is mega). A unit that
@@ -93,6 +94,12 @@ The results headline integer is static: it does not count up. It counts the dist
   - TR: live UTC clock `2026-11-08 03:31:07 UTC` with a blinking signal dot (1Hz, 50% duty, no fade)
   - BL: catalog status `12,847 OBJECTS · TLE EPOCH 2026-11-08 03:15Z · CELESTRAK`
   - BR: sub-solar point `SUN 12.4°S 118.2°E` plus scene FOV or camera altitude
+  - Crowded corners give way in a set order, measured (src/ui/hud/Hud.tsx), and never by shortening the top left's
+    words or showing a language as a code: on a phone, where the top right's second line would come within 14px of
+    `HOW THIS WORKS | ENGLISH`, the sun line hides and a replay's scene time takes the live clock's line in its place
+    (and drops its tracking where that line would come within 14px of the wordmark, at 320px);
+    beside a landscape phone's results panel, a language name that would come within 4px of the panel's edge steps
+    down to a line of its own under `HOW THIS WORKS`.
 - **Stacked layout** (phone-like: bottom sheet, globe above) = width ≤ 760px, or portrait ≤ 1100px wide (portrait tablets). JS uses `src/lib/layout.ts`; CSS copies the query text.
 - 12-column grid inside the bezel, 24px gutters, 32px outer margins on desktop. The content column for panels is 4 columns (≈ 420px) and docks right on desktop, as a bottom sheet on mobile.
 - Hairline section rules have a **label notch**: a mono label sitting on the line, e.g. `── 02 / PASSES ─────────`.

@@ -7,7 +7,7 @@
  * them re-renders with the language (useMsgs / useLocale). English prints exactly the en-US forms it always has.
  */
 import { fmt } from '../../../api/_lib/i18n/format'
-import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
+import { hemisphere, LOCALE_INFO } from '../../../api/_lib/i18n/locales'
 import { currentLocale } from '@/i18n/runtime'
 
 const pad = (n: number, w = 2) => String(Math.trunc(n)).padStart(w, '0')
@@ -40,12 +40,13 @@ export function fmtLocal(ms: number, timeZone?: string, opts: Intl.DateTimeForma
 export function fmtDay(ms: number, timeZone?: string): string {
   return new Intl.DateTimeFormat(LOCALE_INFO[currentLocale()].intl, { weekday: 'short', month: 'short', day: 'numeric', timeZone }).format(ms)
 }
+/** "43.4723°N": international notation, with the language's hemisphere letters where N S E W would mislead (vi) */
 export function fmtLat(lat: number, digits = 4): string {
-  return `${Math.abs(lat).toFixed(digits)}°${lat >= 0 ? 'N' : 'S'}`
+  return `${Math.abs(lat).toFixed(digits)}°${hemisphere(currentLocale(), 'lat', lat)}`
 }
 export function fmtLon(lon: number, digits = 4): string {
   const l = ((((lon + 180) % 360) + 360) % 360) - 180
-  return `${Math.abs(l).toFixed(digits)}°${l >= 0 ? 'E' : 'W'}`
+  return `${Math.abs(l).toFixed(digits)}°${hemisphere(currentLocale(), 'lon', l)}`
 }
 /** A whole number, grouped in the visitor's language: "16,893" */
 export function fmtInt(n: number): string {

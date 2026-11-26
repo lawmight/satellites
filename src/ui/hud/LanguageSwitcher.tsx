@@ -8,8 +8,14 @@
  * trigger's box when it opens. It is a back-stack layer (a phone's Back closes it), closes on Esc (capture phase,
  * so the app's own Esc handler never sees it), on a pick and on a press outside. Arrow keys move through the
  * languages; Enter or Space picks. Picking switches the page in place (src/i18n/runtime.ts setLocale).
+ *
+ * The names fill columns top to bottom (the reading order is ORDER's), as many columns as the screen suits: two on a
+ * phone held upright (ten rows of thumb-sized names), four wherever there is room across (a laptop, a phone on its
+ * side, whose height takes five rows but not ten). The columns are equal, as wide as the longest name ("Bahasa
+ * Indonesia"), and the menu is as wide as they need: a name is never cut or ellipsised, and on a screen too narrow
+ * even for that, the longest wraps onto a second line rather than run into its neighbour (it did, at 390 px).
  */
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { LOCALE_INFO, type Locale } from '../../../api/_lib/i18n/locales'
 import enSwitcher from '@/i18n/en/switcher'
@@ -17,16 +23,34 @@ import { setLocale, useLocale, useMsgs } from '@/i18n/runtime'
 import { useBackLayer } from '@/lib/backStack'
 import s from './LanguageSwitcher.module.css'
 
-/** English first, then the Latin-script languages by their own names, then the others by script. */
-/** Least distance from the menu to the viewport's edges. */
+/** Least distance from the menu to the viewport's edges (the menu's max-width in the CSS keeps the same). */
 const EDGE = 12
 
-const ORDER: readonly Locale[] = ['en', 'id', 'de', 'es', 'fr', 'it', 'nl', 'pl', 'pt-BR', 'tr', 'uk', 'ar', 'ja', 'ko', 'zh-Hans', 'zh-Hant']
+/** From this viewport width the menu sets four columns of names, below it two... */
+const WIDE = 600
+/** ...unless the viewport is shorter than this (a small phone on its side): ten rows would scroll there, five fit. */
+const SHORT_VIEW = 500
+
+/** Whether a name's text runs onto more than one line. */
+const wraps = (name: Element) => {
+  const range = document.createRange()
+  range.selectNodeContents(name)
+  return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size > 1
+}
+
+/** The columns for this viewport. */
+const columnsFor = (width: number, height: number) => (width >= WIDE || height < SHORT_VIEW ? 4 : 2)
+
+/** English first, then the Latin-script languages by their own names, then the others by script, in Unicode's order. */
+const ORDER: readonly Locale[] = [
+  'en', 'id', 'de', 'es', 'fr', 'it', 'nl', 'pl', 'pt-BR', 'vi', 'tr',
+  'ru', 'uk', 'ar', 'fa', 'hi', 'ja', 'ko', 'zh-Hans', 'zh-Hant',
+]
 
 /**
  * The name the trigger shows, on every screen: the language's own name, as the list writes it ("English", "Deutsch",
  * "日本語"), never a code (owner, 2026-11-19: "EN" said less than "English"). Indonesian's is shortened (the list
- * keeps "Bahasa Indonesia"). On a narrow phone the sun line beside it steps aside (Hud.tsx useCrowdedSun).
+ * keeps "Bahasa Indonesia"). On a narrow phone the sun or scene line beside it makes room (Hud.tsx useCrowdedLine).
  */
 const SHORT: Partial<Record<Locale, string>> = { id: 'Indonesia' }
 
@@ -36,9 +60,18 @@ export function LanguageSwitcher({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState<Locale | null>(null)
   const [at, setAt] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
+  // Bumped on a resize or a rotation while the menu is open, which places it again (and picks its columns again).
+  const [viewport, setViewport] = useState(0)
+  // Four columns were tried and did not fit across (a name wrapped) while two fit the height: set two (600x900).
+  const [fallback, setFallback] = useState(false)
+  // The current language takes focus once per opening, not again each time the menu is placed (a resize, which
+  // a phone's toolbar also fires, sent a keyboard user back to it).
+  const focused = useRef(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const listed = ORDER.filter((l) => LOCALE_INFO[l].listed || l === locale)
+  const cols = open && !fallback ? columnsFor(window.innerWidth, window.innerHeight) : 2
+  const rows = Math.ceil(listed.length / cols)
   const close = (focus = true) => {
     setOpen(false)
     if (focus) trigger.current?.focus({ preventScroll: true })
@@ -48,22 +81,60 @@ export function LanguageSwitcher({ className }: { className?: string }) {
   // Place the menu under the trigger, kept inside the viewport (measured hidden first, then shown in place).
   useLayoutEffect(() => {
     if (!open) return setAt(null)
-    if (!trigger.current || !menu.current) return
+    const m = menu.current
+    if (!trigger.current || !m) return
     const r = trigger.current.getBoundingClientRect()
-    const w = menu.current.offsetWidth
     const top = Math.round(r.bottom + 10)
+    const room = window.innerHeight - top - EDGE
+    const items = [...m.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    const rowH = Math.min(...items.map((i) => i.offsetHeight))
+    // Four columns too narrow for their names (a name on two lines): two instead, if their ten rows fit the height.
+    // Otherwise (a phone on its side) the four stay and the longest name wraps. Set before the first paint. Lines are
+    // counted on the text (a Range): the name is a flex item, one box however many lines it holds.
+    if (cols > 2 && [...m.querySelectorAll(`.${s.name}`)].some(wraps)) {
+      const twoHigh = m.scrollHeight + (Math.ceil(listed.length / 2) - rows) * rowH
+      if (twoHigh <= room) return setFallback(true)
+    }
+    const w = m.offsetWidth
     // Its edge on the trigger's reading side: the left one, or the right one in a right-to-left page (the trigger
     // is then in the top-right corner).
     const rtl = getComputedStyle(trigger.current).direction === 'rtl'
     const want = rtl ? r.right + 16 - w : r.left - 16
     const left = Math.round(Math.max(EDGE, Math.min(want, window.innerWidth - w - EDGE)))
-    setAt({ left, top, maxHeight: Math.max(160, window.innerHeight - top - EDGE) })
+    // A menu taller than the screen scrolls; it stops half-way through a row, so the cut row says there is more (cut
+    // on a row's edge, the last row of four names was simply missing at 568x320, the menu looking complete).
+    // Rows are measured where they are, down the first column (a wrapped name makes its row taller).
+    let maxHeight = Math.max(160, room)
+    if (m.scrollHeight > room) {
+      const mids = items.slice(0, rows).map((i) => i.offsetTop + i.offsetHeight / 2)
+      maxHeight = Math.max(mids[0] ?? 0, ...mids.filter((y) => y <= room))
+    }
+    setAt({ left, top, maxHeight })
+  }, [open, viewport, fallback])
+  useEffect(() => {
+    if (!open) return
+    const onResize = () => {
+      setFallback(false)
+      setViewport((v) => v + 1)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [open])
 
   // Focus the current language once the menu is placed and shown: it is measured under visibility: hidden first, and
   // nothing under it takes focus (keyboard users were left on the trigger, the arrows doing nothing).
   useEffect(() => {
-    if (open && at) menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus({ preventScroll: true })
+    if (!open) {
+      focused.current = false
+      setFallback(false)
+      return
+    }
+    if (!at || focused.current) return
+    focused.current = true
+    const current = menu.current?.querySelector<HTMLElement>('[aria-checked="true"]')
+    current?.focus({ preventScroll: true })
+    // In a menu that scrolls, the current language can sit below the cut.
+    current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [open, at])
   // Close on Esc (capture) and on a press outside.
   useEffect(() => {
@@ -101,17 +172,22 @@ export function LanguageSwitcher({ className }: { className?: string }) {
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const items = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])]
     const i = items.indexOf(document.activeElement as HTMLElement)
-    const go = (j: number) => items[(j + items.length) % items.length]?.focus({ preventScroll: true })
-    // Two columns: Left/Right move across, Up/Down within the reading order. Right to left, the first column is
-    // the right one, so the keys that go to the second swap.
-    const half = Math.ceil(items.length / 2)
+    const go = (j: number) => {
+      const item = items[(j + items.length) % items.length]
+      item?.focus({ preventScroll: true })
+      // A short landscape screen can scroll the menu: keep the focused name in view, without moving the page.
+      item?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+    // The names run down the columns: Up/Down move in that reading order, Left/Right a column across (a whole
+    // column's worth of names), staying put at the edge. Right to left, the first column is the right one, so the
+    // keys that go to the next column swap.
     const rtl = getComputedStyle(e.currentTarget).direction === 'rtl'
-    const toSecond = rtl ? 'ArrowLeft' : 'ArrowRight'
-    const toFirst = rtl ? 'ArrowRight' : 'ArrowLeft'
+    const toNext = rtl ? 'ArrowLeft' : 'ArrowRight'
+    const toPrev = rtl ? 'ArrowRight' : 'ArrowLeft'
     if (e.key === 'ArrowDown') go(i + 1)
     else if (e.key === 'ArrowUp') go(i - 1)
-    else if (e.key === toSecond) go(i < half ? Math.min(i + half, items.length - 1) : i)
-    else if (e.key === toFirst) go(i >= half ? i - half : i)
+    else if (e.key === toNext) go(i + rows < items.length ? i + rows : i)
+    else if (e.key === toPrev) go(i - rows >= 0 ? i - rows : i)
     else if (e.key === 'Home') go(0)
     else if (e.key === 'End') go(items.length - 1)
     // Tab leaves the menu where it opened: on the trigger (the focused item unmounts with the menu, which dropped
@@ -138,7 +214,9 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           {SHORT[locale] ?? info.native}
         </span>
       </button>
-      {open
+      {/* The menu goes in the render that switches the language: closed after it (setLocale's finally), it showed
+          the new title, and a right-to-left page's mirrored columns at the old place, for a frame. */}
+      {open && !(busy && busy === locale)
         ? createPortal(
             <div
               ref={menu}
@@ -151,7 +229,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
               <div className={s.title} aria-hidden="true">
                 {m.title}
               </div>
-              <div className={s.grid}>
+              <div className={s.grid} data-cols={cols} style={{ '--cols': cols, '--rows': rows } as CSSProperties}>
                 {listed.map((l) => {
                   const li = LOCALE_INFO[l]
                   return (

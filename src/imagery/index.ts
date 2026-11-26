@@ -12,6 +12,10 @@
  *   searchPlaces, reversePlace, locateMe, timeZoneAt (after ensureTz)
  *   displayLabel     a place's name on screen, in the visitor's language where it has a name there (München)
  *   displaySublabel  a place's "where" line on screen, its country and regions in the visitor's language
+ *   ensureExonyms    load the visitor's place names where they are a chunk of their own (exonymsReady: are they in);
+ *                    prefetchExonyms for what nobody waits for (it never makes a later wait give up sooner)
+ *   resolveLinkCountry  the country a linked place's name has at its point, for its name (linkedForName); a report
+ *                    waits for it EXONYM_WAIT_MS at most (waitForLinkCountry)
  *   preloadImage     fetch + decode, LRU-cached
  *
  * Extras are exported for the UI and engine where they help (detailed search with degradation
@@ -31,6 +35,8 @@ export { spotCloud, spotCheck, classifyScl, classifySclArea, classifyQaPixel, ty
 export type { SpotCloud } from './cloud'
 
 export { searchPlaces, reversePlace, locateMe, timeZoneAt, ensureTz, tzReady, nauticalZone, coordinateLabel, displayLabel, displaySublabel, parseCoordinates, LocateError } from './geocode'
+export { ensureExonyms, exonymsReady, onExonymsReady, prefetchExonyms } from './exonyms'
+export { needsLinkCountry, resolveLinkCountry, waitForLinkCountry, linkedForName } from './linkCountry'
 export type { LocateErrorCode } from './geocode'
 
 export { preloadImage, isImageCached, probeImage, decodeImagePixels, EmptyImageError, tonedImageBlob } from './image'

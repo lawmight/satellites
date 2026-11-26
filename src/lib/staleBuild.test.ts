@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RELOAD_GUARD_MS, reloadForNewBuild } from './staleBuild'
+import { isOptionalChunk, isQuietFailure, RELOAD_GUARD_MS, reloadForNewBuild } from './staleBuild'
 
 function memoryStorage() {
   const m = new Map<string, string>()
@@ -54,5 +54,31 @@ describe('reloadForNewBuild', () => {
     expect(reloadForNewBuild({ storage, reload: () => void reloads++, now: () => 1_000 })).toBe(true)
     expect(reloadForNewBuild({ storage, reload: () => void reloads++, now: () => 2_000 })).toBe(false)
     expect(reloads).toBe(1)
+  })
+})
+
+describe('isQuietFailure', () => {
+  const chromium =
+    'TypeError: Failed to fetch dynamically imported module: https://www.watched.earth/assets/cardMeasure-SbtlgQhk.js'
+  it('lets a running prefetch fail without a reload, and only it', () => {
+    expect(isQuietFailure(chromium, new Set(['cardMeasure-']))).toBe(true)
+    expect(isQuietFailure(chromium.replace('cardMeasure', 'timelapse'), new Set(['cardMeasure-']))).toBe(false)
+    expect(isQuietFailure(chromium, new Set())).toBe(false)
+    expect(isQuietFailure(chromium, undefined)).toBe(false)
+  })
+  it("takes a failure that names no module (Safari's) as the prefetch's while one runs", () => {
+    expect(isQuietFailure('TypeError: Importing a module script failed.', new Set(['cardMeasure-']))).toBe(true)
+    expect(isQuietFailure('TypeError: Importing a module script failed.', new Set())).toBe(false)
+  })
+})
+
+describe('isOptionalChunk', () => {
+  it('knows the place-name chunks, which never reload the page, and nothing else', () => {
+    const failed = (file: string) => new TypeError(`Failed to fetch dynamically imported module: https://www.watched.earth/assets/${file}`)
+    expect(isOptionalChunk(failed('exonyms.gen-BCl2KBzC.js'))).toBe(true)
+    expect(isOptionalChunk(failed('exonymSearch-B06h-WWY.js'))).toBe(true)
+    expect(isOptionalChunk(failed('index-C3klrI0X.js'))).toBe(false)
+    expect(isOptionalChunk(failed('report-DUy9faNl.js'))).toBe(false)
+    expect(isOptionalChunk(undefined)).toBe(false)
   })
 })

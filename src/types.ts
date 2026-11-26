@@ -24,6 +24,12 @@ export interface Place extends LatLon {
   /** The label names a street, a building or an address (set by the geocoder): usage stats save its city instead */
   streetLevel?: boolean
   /**
+   * What the place is, where the data says and it decides the name shown (imagery displayLabel): a first-level region
+   * (a state, an oblast) is named as a region, never as its capital; a landmark or natural feature as one (a sea the
+   * data files under a country keeps its name in the visitor's language). Unset: a town, a street, a spot.
+   */
+  kind?: 'region' | 'feature'
+  /**
    * A curated place (an example chip, a Surprise me pick) shows its label in the visitor's language; this is its
    * English label, the one usage stats and record_lookup keep, so counts never split by language.
    */

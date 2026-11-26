@@ -16,8 +16,8 @@
 ## Quirks that trip agents up
 
 **Checks and style**
-- `npm test` covers `src/**` only. The serverless functions in `api/` and the Cloudflare Worker in `worker/` have their
-  own suite: `npm run test:backend`.
+- `npm test` covers `src/**` only. The serverless functions in `api/`, the Cloudflare Worker in `worker/` and the
+  scripts' tests (`scripts/**/*.test.ts`) have their own suite: `npm run test:backend`.
   Run both, plus `npm run build` (it runs `tsc -b`, two Vite builds: the app and `/admin`, then
   `scripts/build-seo.ts`, which writes the place pages, sitemap and robots.txt into `dist/`).
 - There is no Prettier or ESLint config. Never run `npx prettier`: it downloads Prettier and rewrites files in its
@@ -32,7 +32,10 @@
   `/accounts/<id>/workers/subdomain`; a build takes about two minutes:
   `/accounts/<id>/builds/workers/<tag>/builds`). Previews are `noindex` and write no events. Vercel no longer builds:
   `vercel.json` is only the switch that tells it not to. Don't delete the Vercel project: it is what redirects the
-  launch address (`overflight-psi.vercel.app`) to the site.
+  launch address (`overflight-psi.vercel.app`) to the site. `wrangler.jsonc` names the KV namespace by id on purpose:
+  without one a build takes the binding from the Worker's LAST UPLOADED version, and a branch from before the frame
+  cache uploads one that has none, after which every build fails ("a namespace with this account ID and title already
+  exists", 2026-11-21), production's too. A build that fails that way: merge `main` into the branch.
 - Supabase project `etiebfmgepkcewkkbxwi`: use the Management API
   (`POST https://api.supabase.com/v1/projects/etiebfmgepkcewkkbxwi/database/query`; the session proxy adds the token).
   Do NOT use the Supabase MCP connector: it points at an unrelated project (`xcinlndzgpzjmvmeujor`).
@@ -43,7 +46,8 @@
   asked. Never run `supabase/tests/0004_*` against production (its DDL deadlocks against live traffic). Never
   delete real data, and never use a service-role or secret key; only the publishable key, which is public.
 - Analytics props are allow-listed in SQL (`overflight_private.event_props`, latest definition in
-  `supabase/migrations/0022_*`, which adds the time-lapse's events). A new enum value (a search source, an action) is silently stored as null until a
+  `supabase/migrations/0030_*`: 0029 adds `support_click`, the Buy Me a Coffee link's presses by place, and 0030
+  two more places). A new enum value (a search source, an action) is silently stored as null until a
   migration adds it.
 - Shares keep a capture only from an allow-list of collections in `create_share` (latest definition in
   `supabase/migrations/0012_*`, which adds Sentinel-1 radar); an unknown collection is dropped and the share made
@@ -76,6 +80,10 @@
   every one of its catalog requests with a full 200 (zone analytics: GraphQL `httpRequestsAdaptiveGroups`).
 - Ad-hoc queries on production: at most an hour or two of `public.events` at a time. A 12-hour scan on 2026-11-12
   stalled the API on the small machine.
+- The orbit catalog bot (`.github/workflows/catalog.yml`, `scripts/fetch-catalog.ts`) asks CelesTrak through
+  `scripts/celestrak.ts`: any answer but 200 ends the run's asking (CelesTrak's usage policy; an address that keeps
+  asking goes to its firewall, and a runner's address is shared). Only a request with no answer is asked again. The
+  retry is the next slot: every 3 hours, skipped while the catalog is under 4 hours old. Never add fast retries.
 - `VITE_*` env vars are bundled into the browser. Server secrets (`CDSE_CLIENT_ID` / `CDSE_CLIENT_SECRET`) are only
   read in `api/`. Never print env values.
 - Cloud sessions cannot delete GitHub branches, change repo settings or use GitHub GraphQL (`gh` REST only). The
@@ -113,15 +121,35 @@
   asked again (`retryTimeouts: false`).
 - Globe: React Three Fiber with a manual camera (`cameraMath.ts` applies an off-axis lens shift). DOM labels follow
   scene points every frame through `runtime.anchors` and `anchorListeners`, never React state. The globe chunk is
-  lazy and must not import `src/app/*`: pass callbacks in through `GlobeCanvas` props.
+  lazy and must not import `src/app/*`: pass callbacks in through `GlobeCanvas` props. A WebGL context the browser took
+  and gave back (a phone's background tab) gets a whole new canvas (`contextLoss.ts`: the sharper maps keep no pixels
+  to re-upload, so the Earth came back black); to see it, `WEBGL_lose_context` in the console.
+- Lazy chunks of the app shell go through `src/app/chunks.ts` (asked again after a failure, and the last failure
+  reported): a results panel that cannot load ends in the fault notice, never a globe with nothing beside it. A render
+  exception anywhere shows the same notice (`AppBoundary`).
+- A chunk is named after its module, and ad blockers block some names: AdGuard's `/clarity-*.js` (Microsoft Clarity)
+  blocked `src/lib/clarity.ts`'s chunk, so every search failed with no globe for visitors with that list on (2026-11-22;
+  now `clearness.ts`). The build fails on any name the lists would block (`scripts/blockerNames.ts`, rules from
+  `npm run data:blocker-rules <dir>`, usage at the top of `scripts/build-blocker-rules.ts`). Fix it by renaming the
+  module. When a visitor reports a broken page and uses a blocker, test the asset names against the real lists.
 - Place names: towns (500+ people), states, countries and ~84,000 notable features (with an English Wikipedia
   article) come first from the offline list in `public/places/<version>/` (`src/imagery/localPlaces.ts`, ≤ 15 kB a
-  search, one tile a pin), generated by `npm run data:places <GeoNames dir>` (`scripts/build-places.ts`, usage at its
+  search in English, ~20 kB in a language whose names it also looks up, one tile a pin), generated by `npm run data:places <GeoNames dir>` (`scripts/build-places.ts`, usage at its
   top; never edit the files or `localPlaces.gen.ts` by hand). Each rebuild adds ~10 MB to git history, so rebuild
   rarely. Landmarks people search for are curated in `scripts/landmarks.ts` (add one there, with
   checked coordinates, and rebuild). A search asks the network only when the list has < 3 matches and none exact
   (~2% of searches): Open-Meteo first (free tier ~10,000 requests a day), Photon if Open-Meteo is slow or empty;
-  later rows only ever join below the offline ones. Pins far from a town ask Photon, then Nominatim.
+  later rows only ever join below the offline ones. Pins far from a town ask Photon, then Nominatim. Places stay English
+  in the data; on screen they are named in the visitor's language by generated tables (`npm run data:exonyms <GeoNames
+  dir>`, `scripts/build-exonyms.ts`; rules and hand fixes in `scripts/exonyms.ts`; never edit `exonyms.gen.ts`), which
+  also let a search typed in that language (Москва, Hà Nội) be answered offline. A table over 5 kB is a chunk of its
+  own, fetched at idle and awaited before any name shows (a search reads its own offline file meanwhile): a name never
+  changes once shown (docs/I18N.md, Place names). Every wait for names (the table, its search, a link's country) is 3 s
+  at most, and never twice for one download (a prefetch is no wait: `prefetchExonyms`); a table loads through
+  `tableChunk` (`src/i18n/optionalChunks.ts`), so its failure never reloads the page. A country is its code's row of the
+  list (kind `c`), whatever the list calls it (Palestinian Territory, The Netherlands), and in a language with names,
+  rows of one country that read alike (name and where line) are one row; the < 3 matches rule counts the places before
+  they are merged.
 - Time-lapse (`src/imagery/timelapse.ts`, `src/ui/timelapse/`): the place's clear Sentinel-2 looks, one a year, as a
   loop. Nothing of it loads or is asked until someone opens it (its own chunk; the row under the photos, the viewer's
   button, or a `?tl=1` link), and every request goes from the browser to Planetary Computer: keep both true. Frames
@@ -149,7 +177,11 @@
   it). index.html's head between the `seo:head` markers is `headTags(homeMeta())`: change the generator, then the
   copy (a test compares them). Search engines and assistants never get the app (`src/lib/reader.ts`, by user
   agent): the text under the app is their page, because a crawler's renderer does not wait for a search (Google's
-  live test pictured the computing panel at 4.4 s, 2026-11-21). So that text is what gets indexed: keep it true of
+  live test pictured the computing panel at 4.4 s, 2026-11-21). The Worker hands them the page with the app already
+  taken out (`worker/router.ts appPage`, `src/seo/readerPage.ts`: no loading screen, no script, no preloads), so the
+  text waits for nothing: left to the browser it showed only after the app's 28 scripts had loaded, over half of
+  Googlebot's fetches were those scripts, and Search Console listed each renamed one as "Crawled, currently not
+  indexed" (2026-11-26). The build fails if a page's app cannot be taken out. So that text is what gets indexed: keep it true of
   the page for anyone (no counts), and when the app gains something worth finding, say it there too. Page testers
   (Lighthouse, headless Chrome, so Playwright) still get the app; the client sends no events for either
   (`CRAWLER_RE`). To see a page as Google does, load it with a Googlebot user agent. `src/app/head.ts` is the only
@@ -171,9 +203,21 @@
 - The site is one Cloudflare Worker (`worker/`, `wrangler.jsonc`): `worker/router.ts` holds the routes and
   `public/_headers` the static files' headers (a response the Worker builds itself never gets that file's headers:
   the router adds them). The handlers in `api/` take a `Request` and return a `Response`; the Worker imports each by
-  name (`handleOg`, `handleSharePage`, …). Workers run only WebAssembly bundled at deploy time, so the card renderer
+  name (`handleOg`, `handleSharePage`, …). The edge cache (`router.ts cached`) keeps a card and a pan crop under what
+  their handler reads, not the address as it came (`cardCacheQuery` in `api/_lib/share.ts`, `panCacheQuery`): a
+  parameter a card starts to read must be added there, or two cards share an entry (a test holds this). `/api/pan`
+  remembers a refusal from CDSE (403: the month's quota is spent, as from 2026-11-20; 429) for 15 minutes and asks
+  nothing meanwhile. Workers run only WebAssembly bundled at deploy time, so the card renderer
   takes its fonts and WebAssembly from `api/_lib/bundled.ts` there, and reads them from disk under Node (tests,
   scripts). After `npm run build`, `npm run dev:worker` runs it locally.
+- Admin map (`src/admin/WorldMap.tsx`, geometry in `placeMap.ts`): the searched 0.1° cells on a ground map. The
+  ground (`land.gen.ts`: land, large lakes, borders) is generated by `scripts/build-admin-land.py` from Natural Earth
+  (usage at its top; never edit it by hand, and only the admin bundle may import it). Keep these true: a circle's area
+  is its searches; signal is only on the circles, and the long tail is grey dust whose count the key states; names
+  come from the page's top places looked up in the offline list, never from the town nearest a cell (Central Park's
+  cell is nearest North Bergen); the line under the map says what share of all searches the kept cells are. To look at
+  it with real numbers, serve the stored stats in place of the fixture (`page.route` on `src/admin/fixture.ts`): the
+  fixture is shaped like them but far smaller.
 - Honest labelling is a product rule: a label (resolution, "watched", counts) must say exactly what is on screen.
 - Sentinel-1 radar images (`sentinel-1-rtc`) are real images but not photos: `isDetailed` is false for them, they
   never lead or get a cloud check, and their crops are toned by `radarTone.ts` (route new radar URLs through
@@ -195,8 +239,11 @@
   fetches each frame ONCE (four 2048 px JPEG pieces a layer), keeps it about an hour as raw 512 px tiles in Workers KV
   (`GEO_FRAMES`) and cuts every small picture (up to 176 px) itself; the app reads `/api/geo-frames` and `/api/geo`.
   Keep all of these true: nothing a visitor does may add a request to EUMETView except opening a frame (its 1024 px
-  card, still direct, to `/geoserver/wms`); the app NEVER falls back to EUMETView when the cache does not answer (a
-  broken cache would send everyone there at once), and a Meteosat picture is asked for once, never retried; the fill
+  card, still direct, to `/geoserver/wms`): the globe never fetches a Meteosat frame ahead (`acquisition.ts coverPass`
+  leads with a Sentinel-2 / Landsat photo or a daily mosaic, as the panel does; "not from GIBS" let Meteosat through),
+  and `/api/og` asks EUMETView only for a STORED share's frame, a card drawn from its address saying "Image opens in
+  the app"; the app NEVER falls back to EUMETView when the cache does not answer (a
+  broken cache would send everyone there at once), and a Meteosat picture is asked for once, never retried (the panel's loader, the globe's `textures.ts askedOnce`, and the card, for which no picture is final); the fill
   stays under one request a minute per layer (a new layer or a finer grid multiplies it: do the sum first). Pieces
   are JPEG because EUMETView's download speed is the limit (50–165 kB/s; the same piece as PNG is 7 MB). JPEG work
   in the Worker is MozJPEG in WebAssembly (`worker/jpegCodec.ts`): jpeg-js needs ~116 MB to decode a piece, against

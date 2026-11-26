@@ -2,6 +2,8 @@
  * Where the Worker sends every path, what it caches, and the headers it adds on the way out.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { panCacheQuery, panQuery } from '../api/_lib/pan.js'
+import { cardCacheQuery } from '../api/_lib/share.js'
 import { SECURITY_HEADERS, route, type Routes } from './router.ts'
 
 const BOT = 'Mozilla/5.0 (compatible; Twitterbot/1.0)'
@@ -89,6 +91,60 @@ describe('worker routes', () => {
     expect((await get('/places/20261112/s/zz.txt')).status).toBe(404)
   })
 
+  it('hands a search engine the landing and a place page without the app, and everyone else the file', async () => {
+    const page = (title: string) =>
+      `<!doctype html>\n<html lang="en" data-boot>\n<head><title>${title}</title>\n<link rel="modulepreload" href="/assets/react.js">\n<script type="module" src="/assets/index.js"></script>\n</head>\n` +
+      `<body>\n<div id="boot-static"><div class="bs-ink"><p>Slow connection, still loading</p></div></div>\n<div id="root"><main class="doc"><h1>${title}</h1></main></div>\n</body>\n</html>\n`
+    const files: Record<string, string> = { '/': page('Watched'), '/place/paris': page('Paris'), '/place': '<!doctype html>\n<html lang="en"><body class="doc-page"><main class="doc"><h1>Places</h1></main></body></html>' }
+    const asked: { path: string; conditional: boolean }[] = []
+    const r: Routes = {
+      ...routes(),
+      assets: {
+        fetch: async (req) => {
+          const { pathname } = new URL(req.url)
+          asked.push({ path: pathname, conditional: req.headers.has('if-none-match') || req.headers.has('if-modified-since') })
+          const html = files[pathname]
+          if (html === undefined) return new Response(null, { status: 404 })
+          if (req.headers.get('if-none-match') === '"file"') return new Response(null, { status: 304, headers: { etag: '"file"' } })
+          return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=0, must-revalidate', etag: '"file"', 'content-length': String(html.length) } })
+        },
+      },
+    }
+    const GOOGLEBOT = 'Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+    const get = (path: string, ua: string, headers: Record<string, string> = {}, method = 'GET') => route(new Request(`https://www.watched.earth${path}`, { method, headers: { 'user-agent': ua, ...headers } }), r)
+    vi.stubEnv('PRODUCTION_HOSTS', 'www.watched.earth')
+
+    for (const [path, title] of [['/place/paris', 'Paris'], ['/', 'Watched'], ['/?q=48.85,2.35&n=Paris', 'Watched'], ['/about', 'Watched']] as const) {
+      const res = await get(path, GOOGLEBOT)
+      const body = await res.text()
+      expect(res.status, path).toBe(200)
+      expect(body, path).toBe(`<!doctype html>\n<html lang="en">\n<head><title>${title}</title>\n</head>\n<body class="doc-page">\n\n<div id="root"><main class="doc"><h1>${title}</h1></main></div>\n</body>\n</html>\n`)
+      // Its own bytes: none of the file's validators or its length, and the file's caching and the site's headers.
+      expect([res.headers.get('etag'), res.headers.get('content-length')], path).toEqual([null, null])
+      expect(res.headers.get('content-type'), path).toBe('text/html; charset=utf-8')
+      expect(res.headers.get('cache-control'), path).toBe('public, max-age=0, must-revalidate')
+      expect(res.headers.get('x-content-type-options'), path).toBe('nosniff')
+      expect(res.headers.get('x-robots-tag'), path).toBeNull()
+    }
+    // A reader that holds the file from before is sent its page, not a 304 for the file.
+    asked.length = 0
+    expect((await get('/place/paris', GOOGLEBOT, { 'if-none-match': '"file"' })).status).toBe(200)
+    expect(asked).toEqual([{ path: '/place/paris', conditional: false }])
+    // A visitor gets the file as it is, validators and all.
+    const person = await get('/place/paris', PERSON)
+    expect([await person.text(), person.headers.get('etag')]).toEqual([files['/place/paris'], '"file"'])
+    expect((await get('/place/paris', PERSON, { 'if-none-match': '"file"' })).status).toBe(304)
+    // The list of places has no app to take out, a place with no page is still a 404, a HEAD still has no body.
+    expect(await (await get('/place', GOOGLEBOT)).text()).toBe(files['/place'])
+    const missing = await get('/place/atlantis', GOOGLEBOT)
+    expect([missing.status, (await missing.text()).includes('<body class="doc-page">')]).toEqual([404, true])
+    const head = await get('/place/paris', GOOGLEBOT, {}, 'HEAD')
+    expect([head.status, await head.text()]).toEqual([200, ''])
+    // A preview's copy is marked like everything else it serves.
+    const preview = await route(new Request('https://abc12345-watched.example.workers.dev/place/paris', { headers: { 'user-agent': GOOGLEBOT } }), r)
+    expect(preview.headers.get('x-robots-tag')).toBe('noindex')
+  })
+
   it('adds the security headers, and marks hosts outside PRODUCTION_HOSTS noindex', async () => {
     vi.stubEnv('PRODUCTION_HOSTS', 'www.watched.earth,watched.earth')
     const live = (await at('/')).res.headers
@@ -128,12 +184,12 @@ describe('cache-control as browsers get it', () => {
 
 describe('edge cache', () => {
   /** A cache keyed by URL, as Cloudflare's is for these requests, counting each handler's calls. */
-  function cachedRoutes(answers: Record<string, () => Response>) {
+  function cachedRoutes(answers: Record<string, () => Response>, keys: Pick<Routes, 'cardKey' | 'panKey'> = {}) {
     const store = new Map<string, Response>()
     const calls: string[] = []
     const stored: Promise<unknown>[] = []
     const handler = (name: string) => async (r: Request) => {
-      calls.push(`${name} ${new URL(r.url).pathname}${new URL(r.url).search}`)
+      calls.push(`${name} ${new URL(r.url).pathname}${new URL(r.url).search}${method === 'GET' ? '' : ` ${r.method}`}`)
       return answers[name]()
     }
     const r: Routes = {
@@ -146,9 +202,13 @@ describe('edge cache', () => {
         put: async (key, res) => void store.set(key.url, res),
       },
       waitUntil: (work) => void stored.push(work),
+      ...keys,
     }
-    const get = async (path: string, ua = PERSON) => {
-      const res = await route(new Request(`https://www.watched.earth${path}`, { headers: { 'user-agent': ua } }), r)
+    // The method the visitor used (calls name the handler's own when it differs: a HEAD reaches it as a GET).
+    let method = 'GET'
+    const get = async (path: string, ua = PERSON, as = 'GET') => {
+      method = as
+      const res = await route(new Request(`https://www.watched.earth${path}`, { method: as, headers: { 'user-agent': ua } }), r)
       await Promise.all(stored)
       return res
     }
@@ -175,6 +235,53 @@ describe('edge cache', () => {
     await get('/api/pan?bbox=1')
     await get('/s/missing1')
     expect([...store.keys()]).toEqual(['https://www.watched.earth/api/s?id=missing1'])
+  })
+
+  it('keeps one entry for a card or a pan crop however its address is spelled', async () => {
+    const T = Date.now() - 86_400_000
+    const crop = panQuery([304845, 2771175, 319845, 2786175], 32640, T)
+    const { get, calls, store } = cachedRoutes(
+      { og: respond(200, 'public, max-age=86400, s-maxage=31536000'), pan: respond(200, 'public, max-age=604800, s-maxage=31536000') },
+      { cardKey: cardCacheQuery, panKey: (q) => panCacheQuery(q, Date.now()) },
+    )
+    // A stored share's card: its id, its language and the current version are all it is drawn from.
+    for (const q of ['id=ab3d5f7h&v=5', 'v=5&id=ab3d5f7h', 'id=ab3d5f7h&v=5&x=1', 'id=ab3d5f7h&v=5&x=2&place=Elsewhere', 'id=ab3d5f7h&v=5&l=xx', 'id=ab3d5f7h&v=5&l=ar']) await get(`/api/og?${q}`)
+    expect(calls).toEqual(['og /api/og?id=ab3d5f7h&v=5'])
+    // Another language is another card; so is an out-of-date version (one entry for every such `v`).
+    await get('/api/og?id=ab3d5f7h&v=5&l=ja')
+    await get('/api/og?id=ab3d5f7h&v=4')
+    await get('/api/og?id=ab3d5f7h&v=999')
+    await get('/api/og?id=ab3d5f7h')
+    expect(calls.length).toBe(3)
+    // A card drawn from its address: the same parameters in any order, with anything else dropped.
+    calls.length = 0
+    await get('/api/og?place=Waterloo&lat=43.47&lon=-80.54&verdict=imaged&norad=60989')
+    await get('/api/og?norad=60989&verdict=imaged&lon=-80.54&lat=43.47&place=Waterloo&utm_source=x&fbclid=y')
+    expect(calls.length).toBe(1)
+    // A pan crop: panQuery's own string.
+    calls.length = 0
+    await get(`/api/pan?${crop}`)
+    await get(`/api/pan?x=1&t=${T}&crs=32640&bbox=304845,2771175,319845,2786175`)
+    expect(calls.length).toBe(1)
+    expect([...store.keys()].filter((k) => k.includes('/api/pan'))).toEqual([`https://www.watched.earth/api/pan?${crop}`])
+  })
+
+  it('answers a HEAD from the same entry as a GET, and the handler as a GET when there is none', async () => {
+    const seen: string[] = []
+    const { get, calls, store } = cachedRoutes({
+      og: () => {
+        seen.push('og')
+        return new Response('card', { headers: { 'cache-control': 'public, max-age=86400, s-maxage=31536000' } })
+      },
+    })
+    const head = await get('/api/og?id=ab3d5f7h', PERSON, 'HEAD')
+    expect(head.status).toBe(200)
+    expect(await head.text()).toBe('')
+    expect((await get('/api/og?id=ab3d5f7h')).status).toBe(200)
+    await get('/api/og?id=ab3d5f7h', PERSON, 'HEAD')
+    expect(calls).toEqual(['og /api/og?id=ab3d5f7h GET'])
+    expect(seen.length).toBe(1)
+    expect([...store.keys()]).toEqual(['https://www.watched.earth/api/og?id=ab3d5f7h'])
   })
 
   it('keys a rewritten request by the URL its handler sees', async () => {

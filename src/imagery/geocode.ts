@@ -28,10 +28,31 @@ import { haversineKm } from '@/lib/geo'
 import type { LatLon, Place } from '@/types'
 import enGeo from '@/i18n/en/geo'
 import { currentLocale, msgs } from '@/i18n/runtime'
-import { fmtLat, fmtLon } from '@/ui/system/format'
 import { NOMINATIM, OPEN_METEO_GEOCODE, PHOTON } from './endpoints'
-import { exonym } from './exonyms'
-import { countryName, nearestLocal, searchLocal, shownCountryName, type LocalPlace } from './localPlaces'
+import { LOCALE_INFO } from '../../api/_lib/i18n/locales'
+import {
+  englishCountryKey,
+  ensureExonyms,
+  exonymApostrophes,
+  exonym,
+  exonymAlternates,
+  exonymContested,
+  exonymHome,
+  exonymsActive,
+  exonymsOwnScript,
+  exonymVariants,
+  namesCountries,
+} from './exonyms'
+import {
+  countryCodeOf,
+  countryName,
+  isListCountry,
+  nearestLocal,
+  prefetchLocal,
+  searchLocal,
+  shownCountryName,
+  type LocalPlace,
+} from './localPlaces'
 import { Lru } from './lru'
 import { placeKey } from './placeKey'
 import { fetchJson, hedge, HttpError, isAbortError, sleep, throwIfAborted } from './net'
@@ -90,48 +111,173 @@ export function joinUnique(parts: (string | undefined)[], exclude: (string | und
 }
 
 /**
- * A place's name as shown to the visitor: the name the visitor's language gives that town or region in that country
- * (./exonyms.ts: München, Київ), else its label as it came. In English, the label itself. Read at call time, as
- * displaySublabel is; the Place keeps its English label, which is what the usage stats and lookups send.
+ * A place's name as shown to the visitor: the name the visitor's language gives that town, region or feature in that
+ * country (./exonyms.ts: München, Київ; a region as a region, `kind`), else, for a country in a language whose table
+ * says so, the browser's name for it (Германия for Germany, as the where line names it; a country is known by the
+ * browser's English names or by the offline list's own, Palestinian Territory: isListCountry), else its label as it
+ * came, in the language's apostrophe (Italian: L’Aquila, exonymApostrophes). In English, the label itself. Read at call
+ * time, as displaySublabel is; the Place keeps its English label, which is what the usage stats and lookups send.
  */
-export function displayLabel(place: Pick<Place, 'label' | 'countryCode'>): string {
-  return exonym(place.label, place.countryCode, 'label')
+export function displayLabel(place: Pick<Place, 'label' | 'countryCode' | 'kind'>): string {
+  const bank = place.kind === 'region' ? westBank(place.label, place.countryCode) : undefined
+  if (bank) return bank
+  const shown = exonym(place.label, place.countryCode, place.kind ?? 'label')
+  const cc = place.countryCode
+  if (shown !== place.label || !cc || !namesCountries()) return exonymApostrophes(shown)
+  if (!namesCountry(place.label, cc)) return exonymApostrophes(shown)
+  const local = shownCountryName(cc, currentLocale())
+  return local.toUpperCase() === cc.toUpperCase() ? exonymApostrophes(shown) : local
+}
+
+/**
+ * Does `name` name country `cc`, as the browser does in English, with or without its aside in brackets (Chromium's
+ * Falkland Islands (Islas Malvinas), where the list says Falkland Islands), or as the offline list (Palestinian
+ * Territory)?
+ */
+function namesCountry(name: string, cc: string): boolean {
+  const key = placeKey(name)
+  const [long, short] = [countryName(cc), shownCountryName(cc, 'en')]
+  const bare = (n: string) => n.replace(/\s*\([^)]*\)/g, '')
+  const english = [englishCountryKey(long), englishCountryKey(bare(long)), placeKey(short), placeKey(bare(short))]
+  return english.includes(key) || isListCountry(name, cc)
+}
+
+/**
+ * Israel's region for the West Bank in the place data (GeoNames' and OpenStreetMap's "Judea and Samaria Area", under
+ * which they file the settlements): in a language that names the West Bank (PS's region), that name, and a where line
+ * that ends with it has no country after it (Ariel · Westjordanland). The guides decide neutral naming there (de.md and
+ * it.md §8: Westjordanland, Cisgiordania; never Giudea e Samaria), and "Westjordanland, Israel" would put the West
+ * Bank in Israel. Undefined for any other name, and in a language without a name for the West Bank (as it came).
+ */
+function westBank(name: string, cc: string | undefined): string | undefined {
+  if (cc?.toUpperCase() !== 'IL' || placeKey(name) !== 'judea and samaria area') return undefined
+  const bank = exonym('West Bank', 'PS', 'region')
+  return bank === 'West Bank' ? undefined : bank
 }
 
 /**
  * A place's sublabel as shown to the visitor. When the sublabel ends with the English name of the place's own country
  * (as the offline list and the geocoders, asked in English, write it: CLDR's long name, or the short one SHORT_NAMES
  * shows), that country is named as the visitor reads it (shownCountryName: the browser's own names, a few by their
- * short name) and joined to the rest by the 'geo' namespace's `where`. The rest stays as it came, one piece of data
- * in its own order and punctuation, except that each of its names the visitor's language names otherwise in that
- * country is shown so (./exonyms.ts: "Bavaria" → Bayern). In English that is the sublabel itself, except Hong Kong and
- * Macao by their short names. Any other sublabel (no country code, a geocoder's own spelling of the country, a curated
- * place's copy already in the visitor's language) is shown as it came.
+ * short name) and joined to the rest by the 'geo' namespace's `where`. The rest stays as it came, one piece of data in
+ * its own order and punctuation, except that each of its names the visitor's language names otherwise in that country
+ * is shown so (./exonyms.ts: "Bavaria" → Bayern). In English that is the sublabel itself, except Hong Kong and Macao by
+ * their short names. Any other sublabel (no country code, a geocoder's own spelling of the country, a curated place's
+ * copy already in the visitor's language) is shown as it came.
+ *
+ * In another language, three more things. A landmark's where line, written by hand in English, that names two countries
+ * (the place's and another: "France and Italy") or two regions the language names ("Nevada and Arizona, United States")
+ * lists them in the language (Intl.ListFormat: Francia e Italia, Невада и Аризона). Under a label the language writes
+ * in its own script (Лондон, لندن, लंदन: its namespace's `ownScript`), a part it has no name for is left out rather
+ * than shown in Latin letters beside it (Лондон · Велика Британія, not Лондон · England, Велика Британія), as English
+ * leaves out a geocoder's non-Latin parts (sublabelOf); Korean's where line stays the data's. And a place in an area
+ * the language's readers hold to be their own, filed by the data under another country (the Paracels and Spratlys, in
+ * Vietnamese: ./exonyms.ts exonymContested), shows no where line at all.
  *
  * Read at call time: React callers subscribe to the language (useLocale()) so a switch re-renders it. The Place keeps
  * its English sublabel, which is what the usage stats and lookups send.
  */
-export function displaySublabel(place: Pick<Place, 'sublabel' | 'countryCode'>): string | undefined {
+export function displaySublabel(
+  place: Pick<Place, 'sublabel' | 'countryCode'> & Partial<Pick<Place, 'label' | 'kind' | 'lat' | 'lon'>>,
+): string | undefined {
   const sub = place.sublabel
   const cc = place.countryCode
   if (!sub || !cc) return sub
+  const locale = currentLocale()
+  const { lat, lon } = place
+  if (locale !== 'en' && lat !== undefined && lon !== undefined && exonymContested(lat, lon, cc)) return undefined
   const long = countryName(cc)
   const short = shownCountryName(cc, 'en')
-  const country = [long, short].find((c) => sub === c || sub.endsWith(`, ${c}`))
-  if (country === undefined) return sub
+  let country = [long, short].find((c) => sub === c || sub.endsWith(`, ${c}`))
+  let shown: string | undefined
+  // The country whose names the parts take: the place's, or for a landmark or feature, the one its line ends with (Rome,
+  // Italy for the Vatican: Roma, Italia).
+  let partsIn = cc
+  if (country === undefined && locale !== 'en') {
+    // A landmark's where line, written by hand, may name two countries, the place's one of them, or another country.
+    const at = sub.lastIndexOf(', ')
+    const last = at < 0 ? sub : sub.slice(at + 2)
+    const pair = last.split(' and ').map(countryCodeOf)
+    if (pair.length === 2 && pair[0] && pair[1] && pair.includes(cc.toUpperCase())) {
+      country = last
+      shown = inList(pair.map((c) => shownCountryName(c!, locale)), locale)
+    } else if (pair.length === 1 && pair[0] && place.kind === 'feature') {
+      country = last
+      shown = shownCountryName(pair[0], locale)
+      partsIn = pair[0]
+    }
+  }
+  if (country === undefined) {
+    // A landmark's line with no country in it ("Jerusalem", "Chagos Archipelago"): named in the language if every part is.
+    if (locale === 'en' || place.kind !== 'feature') return sub
+    const all = sub.split(', ')
+    const named = all.map((part) => exonym(part, cc, 'where'))
+    if (named.every((n, i) => n !== all[i])) return exonymApostrophes(named.join(msgs(enGeo).parts ?? ', '))
+    // Under a label in the language's own script, a line left in Latin letters is left out (Диего-Гарсия, not
+    // Диего-Гарсия · Chagos Archipelago), as a where line's Latin parts are.
+    const label = place.label && displayLabel({ label: place.label, countryCode: cc, kind: place.kind })
+    return exonymsOwnScript() && !!label && !LATIN.test(label) && LATIN.test(sub) ? undefined : sub
+  }
   const rest = sub === country ? undefined : sub.slice(0, -(country.length + 2))
-  const shown = shownCountryName(cc, currentLocale())
-  const named = rest
+  if (locale !== 'en' && cc.toUpperCase() === 'IL') {
+    // The West Bank as the language names it, with no country after it (westBank).
+    if (place.label && place.kind === 'region' && westBank(place.label, cc) && rest === undefined) return undefined
+    const at = rest?.lastIndexOf(', ') ?? -1
+    const bank = rest === undefined ? undefined : westBank(rest.slice(at + 1).trim(), cc)
+    if (bank) return at < 0 ? bank : msgs(enGeo).where(rest!.slice(0, at), bank)
+  }
+  shown ??= shownCountryName(cc, locale)
+  // Under a label in the language's own script, a part left in Latin letters is left out (Ukrainian, Russian, Persian,
+  // Hindi: exonymsOwnScript).
+  const label = place.label && displayLabel({ label: place.label, countryCode: cc, kind: place.kind })
+  const script = locale !== 'en' && exonymsOwnScript() && !!label && !LATIN.test(label)
+  const parts = rest
     ?.split(', ')
-    .map((part) => exonym(part, cc, 'where'))
-    .join(', ')
+    // "Washington, D.C." is one name, not Washington (the state) and D.C.
+    .reduce<string[]>(
+      (all, part) => (part === 'D.C.' && all.length ? [...all.slice(0, -1), `${all.at(-1)}, ${part}`] : [...all, part]),
+      [],
+    )
+    // The last part is a region (the offline list's, Photon's state); one another follows is a city (Photon's: Odesa
+    // in "Odesa, Odesa Oblast" is the city, not its oblast).
+    .map((part, i, all) => {
+      const as = i < all.length - 1 ? 'locality' : 'where'
+      const whole = exonym(part, partsIn, as)
+      if (whole !== part || locale === 'en') return whole
+      // Two regions in one part (Nevada and Arizona), each with a name in the language: listed in it, and so are two US
+      // states a Latin table writes as they are (Arizona e Utah). A region named with "and" (Sistan and Baluchestan) is
+      // one name, kept whole.
+      const both = part.split(' and ')
+      const names = both.map((p) => exonym(p, partsIn, as))
+      const states = partsIn.toUpperCase() === 'US' && both.every((p) => /^\p{Lu}/u.test(p))
+      return both.length === 2 && (states || names.every((n, i) => n !== both[i])) ? inList(names, locale) : part
+    })
+    .filter((part) => !script || !LATIN.test(part))
+    // Two parts the language names alike say it once.
+    .filter((part, i, all) => i === 0 || part !== all[i - 1])
+  // As it came, the rest is the geocoder's data; named in the language, it is one list in it (Persian «، »: `parts`).
+  const asCame = parts?.join(', ') === rest
+  const named = parts?.length ? parts.join(asCame ? ', ' : (msgs(enGeo).parts ?? ', ')) : undefined
   // A browser with no name for it in that language answers with the code: keep the English name rather than "CA".
-  return msgs(enGeo).where(named, shown.toUpperCase() === cc.toUpperCase() ? short : shown)
+  return msgs(enGeo).where(named && exonymApostrophes(named), shown.toUpperCase() === cc.toUpperCase() ? short : shown)
 }
 
-/** "43.4723°N 80.5449°W": international notation, the same in every language. */
+/** Names as a list in the visitor's language ("Francia e Italia"), or joined by "/" where the browser has no lists. */
+function inList(names: string[], locale: string): string {
+  try {
+    return new Intl.ListFormat(LOCALE_INFO[locale as keyof typeof LOCALE_INFO].intl, { type: 'conjunction' }).format(names)
+  } catch {
+    return names.join(' / ')
+  }
+}
+
+/**
+ * "43.4723°N 80.5449°W": international notation, the same in every language, Vietnamese included (a place's label is
+ * data: it travels in share links and lookups, so it never takes one page's hemisphere letters, fmtLat).
+ */
 export function coordinateLabel(lat: number, lon: number): string {
-  return `${fmtLat(lat)} ${fmtLon(lon)}`
+  const l = ((((lon + 180) % 360) + 360) % 360) - 180
+  return `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(l).toFixed(4)}°${l >= 0 ? 'E' : 'W'}`
 }
 
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
@@ -228,6 +374,7 @@ export function photonToPlace(feature: PhotonFeature, source: Place['source'] = 
     countryCode: p.countrycode?.toLowerCase() || undefined,
     source,
     ...(isStreetLevel(p, label === address) ? { streetLevel: true } : {}),
+    ...((p.osm_value === 'state' || p.type === 'state') && label === p.name ? { kind: 'region' as const } : {}),
   }
 }
 
@@ -273,19 +420,21 @@ export function photonReverseToPlace(f: PhotonFeature, lat: number, lon: number,
  *    has a city node, its boundary relation and its station);
  *  - anything within 1 km of a better result is the same spot for this product (a pass covers
  *    kilometres; "CN Tower", "CN Tower Edge Walk", "CN Tower tickets").
+ * `nameOf` gives the name compared: the label, or the name the visitor reads (distinctAsShown).
  */
-export function dedupePlaces(places: Place[], withinKm = 25, sameSpotKm = 1): Place[] {
-  return distinctIndexes(places, withinKm, sameSpotKm).map((i) => places[i])
+export function dedupePlaces(places: Place[], withinKm = 25, sameSpotKm = 1, nameOf: (p: Place) => string = (p) => p.label): Place[] {
+  return distinctIndexes(places, withinKm, sameSpotKm, nameOf).map((i) => places[i])
 }
 
 /** Indexes of the places `dedupePlaces` keeps, in order. */
-function distinctIndexes(places: Place[], withinKm = 25, sameSpotKm = 1): number[] {
+function distinctIndexes(places: Place[], withinKm = 25, sameSpotKm = 1, nameOf: (p: Place) => string = (p) => p.label): number[] {
   const kept: number[] = []
+  const keys = places.map((p) => textKey(nameOf(p)))
   places.forEach((p, i) => {
-    const k = textKey(p.label)
+    const k = keys[i]
     const dup = kept.some((j) => {
       const d = haversineKm(p, places[j])
-      return d < sameSpotKm || (d < withinKm && textKey(places[j].label) === k)
+      return d < sameSpotKm || (d < withinKm && keys[j] === k)
     })
     if (!dup) kept.push(i)
   })
@@ -369,6 +518,12 @@ const POINT_PAIR = /^([+-]?\d{1,2}(?:\.\d+)?)\s*([NS])?\s*[,;\s]\s*([+-]?\d{1,3}
  * letter (where it cannot be a decimal one).
  */
 const COMMA_PAIR = /^([+-]?\d{1,2}(?:[.,]\d+)?)\s*(?:([NS])\s*[,;\s]|[;\s])\s*([+-]?\d{1,3}(?:[.,]\d+)?)\s*([EW])?$/
+/**
+ * What is typed or pasted for the minutes mark (prime, either curly quote, modifier prime and apostrophe, acute,
+ * grave) and for the seconds mark (double prime, either curly double quote, modifier double prime, double acute).
+ */
+const MINUTE_MARKS = /[\u2032\u2018\u2019\u02b9\u02bc\u00b4`]/g
+const SECOND_MARKS = /[\u2033\u201c\u201d\u02ba\u02dd]/g
 
 /**
  * Coordinates typed into the search box: "43.4723, -80.5449", "43.4723 -80.5449",
@@ -382,24 +537,138 @@ const COMMA_PAIR = /^([+-]?\d{1,2}(?:[.,]\d+)?)\s*(?:([NS])\s*[,;\s]|[;\s])\s*([
  * French, Spanish and Italian, east in German).
  * Bidirectional marks are dropped, so coordinates copied out of right-to-left text still read, and full-width digits
  * and punctuation (a Chinese, Japanese or Korean input method's "４３．４７，−８０．５４") read as their ASCII forms
- * (NFKC, after the degree signs go: it would turn "º" into the letter o).
+ * (NFKC, after the degree signs go: it would turn "º" into the letter o). So do the digits an Arabic, Persian or Hindi
+ * keyboard types ("۴۳٫۴۷، −۸۰٫۵۴", "٤٣٫٤٧"), with the Arabic decimal sign and comma.
+ *
+ * Whatever those two forms do not read goes to `parseAngles` (below): degrees with minutes and seconds, as Wikipedia
+ * and the map apps print a position ("43°28′20″N 80°32′42″W"), and a hemisphere letter before its number
+ * ("N 43.4723 W 80.5449"). The marks for minutes and seconds are made one character each first, before NFKC, which
+ * would turn a double prime into two primes and an acute accent into a space and a combining mark.
  */
 export function parseCoordinates(q: string): LatLon | null {
   const s = q
+    .replace(/[\u0660-\u0669\u06f0-\u06f9\u0966-\u096f]/g, (d) => {
+      const c = d.codePointAt(0)!
+      return String(c - (c >= 0x0966 ? 0x0966 : c >= 0x06f0 ? 0x06f0 : 0x0660))
+    })
+    .replace(/\u066b/g, '.')
+    .replace(/\u060c/g, ',')
     .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
-    .replace(/[°º]/g, ' ')
+    .replace(/º/g, '°')
+    .replace(MINUTE_MARKS, "'")
+    .replace(SECOND_MARKS, '"')
     .normalize('NFKC')
     .trim()
     .toUpperCase()
     .replace(/[\u2212\u2013]/g, '-')
-  const m = POINT_PAIR.exec(s) ?? COMMA_PAIR.exec(s)
-  if (!m) return null
+  const plain = s.replace(/°/g, ' ').trim()
+  const m = POINT_PAIR.exec(plain) ?? COMMA_PAIR.exec(plain)
+  if (!m) {
+    // The comma parts the numbers where it can, as above; only then is one between two digits a decimal comma.
+    const marked = s.replace(/''/g, '"')
+    return parseAngles(marked) ?? parseAngles(marked.replace(/(\d),(?=\d)/g, '$1.'))
+  }
   let lat = Number(m[1].replace(',', '.'))
   let lon = Number(m[3].replace(',', '.'))
   if (m[2] === 'S') lat = -Math.abs(lat)
   if (m[4] === 'W') lon = -Math.abs(lon)
   if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) return null
   return { lat, lon }
+}
+
+/** One piece of a typed position: a number, a unit mark, a hemisphere letter, or the comma or semicolon between. */
+interface AngleToken {
+  kind: 'num' | 'mark' | 'letter' | 'sep'
+  text: string
+  /** White space came before it */
+  gap: boolean
+}
+
+const ANGLE_TOKEN = /(\s*)(?:([+-]?\d+(?:\.\d+)?)|([°'"])|([NSEW])|([,;]))/y
+/** The mark each part of an angle may carry: degrees, minutes, seconds. */
+const ANGLE_MARKS = ['°', "'", '"']
+
+/** `s` as tokens, or null if anything in it is not part of a position (so no address is ever read as one). */
+function angleTokens(s: string): AngleToken[] | null {
+  const out: AngleToken[] = []
+  ANGLE_TOKEN.lastIndex = 0
+  while (ANGLE_TOKEN.lastIndex < s.length) {
+    const m = ANGLE_TOKEN.exec(s)
+    if (!m) return null
+    const gap = m[1].length > 0
+    if (m[2] !== undefined) out.push({ kind: 'num', text: m[2], gap })
+    else if (m[3] !== undefined) out.push({ kind: 'mark', text: m[3], gap })
+    else if (m[4] !== undefined) out.push({ kind: 'letter', text: m[4], gap })
+    else out.push({ kind: 'sep', text: m[5], gap })
+  }
+  return out
+}
+
+/**
+ * One angle from `t[at]` on: an optional hemisphere letter (one of `letters`) before or after, and one to three
+ * numbers (degrees, minutes, seconds), each with its own mark or none. Only the last number may have a fraction
+ * ("43°28.34'"), and minutes and seconds stay under 60. Null if it is not such an angle, or is over `max` degrees.
+ *
+ * Where the angle ends when nothing parts it from the next: at a number with a sign or a degree mark (the next
+ * angle's degrees), after a number with a fraction, and after the third number.
+ */
+function readAngle(t: AngleToken[], at: number, letters: string, max: number): { value: number; next: number } | null {
+  let i = at
+  let hemi: string | undefined
+  if (t[i]?.kind === 'letter') {
+    if (!letters.includes(t[i].text)) return null
+    hemi = t[i++].text
+  }
+  const led = hemi !== undefined
+  const parts: string[] = []
+  let marked = false
+  while (parts.length < 3 && t[i]?.kind === 'num') {
+    const text = t[i].text
+    if (parts.length && (/^[+-]/.test(text) || t[i + 1]?.text === '°' || parts[parts.length - 1].includes('.'))) break
+    parts.push(text)
+    i++
+    if (t[i]?.kind === 'mark') {
+      if (t[i].text !== ANGLE_MARKS[parts.length - 1]) return null
+      marked = true
+      i++
+    }
+  }
+  if (!parts.length) return null
+  if (!led && t[i]?.kind === 'letter' && letters.includes(t[i].text)) hemi = t[i++].text
+  // Bare numbers are minutes and seconds only beside a mark or a hemisphere letter: "43 28" stays latitude, longitude.
+  if (parts.length > 1 && !marked && !hemi) return null
+  const [deg, min = 0, sec = 0] = parts.map((p) => Math.abs(Number(p)))
+  if (min >= 60 || sec >= 60) return null
+  const size = deg + min / 60 + sec / 3600
+  if (!(size <= max)) return null
+  // As in the plain forms above: S and W are the negative side, and a minus sign is one whatever the letter.
+  const negative = hemi === 'S' || hemi === 'W' || parts[0].startsWith('-')
+  return { value: negative ? -size : size, next: i }
+}
+
+/**
+ * A latitude and a longitude with minutes and seconds, or with their hemisphere letters first: what the two plain
+ * patterns above do not read. `s` is the query as `parseCoordinates` cleaned it.
+ *
+ *   43°28'20"N 80°32'42"W        43° 28' 20" N, 80° 32' 42" W      43°28.34'N 80°32.7'W
+ *   -33°51'54" 151°12'34"        43 28 20 N 80 32 42 W             N 43.4723 W 80.5449
+ *   N 43° 28.340 W 080° 32.700   S33°51'54" E151°12'34"
+ *
+ * Latitude comes first, as everywhere here, and white space, a comma or a semicolon parts the two ("…N80…" is no
+ * position, as "43.47N80.54W" is none above). Something must say these are angles: a mark or a letter somewhere,
+ * or the plain patterns' answer (none) stands.
+ */
+function parseAngles(s: string): LatLon | null {
+  const t = angleTokens(s)
+  if (!t || !t.some((k) => k.kind === 'mark' || k.kind === 'letter')) return null
+  const lat = readAngle(t, 0, 'NS', 90)
+  if (!lat) return null
+  let i = lat.next
+  if (t[i]?.kind === 'sep') i++
+  else if (!t[i]?.gap) return null
+  const lon = readAngle(t, i, 'EW', 180)
+  if (!lon || lon.next !== t.length) return null
+  return { lat: lat.value, lon: lon.value }
 }
 
 // ── Network ────────────────────────────────────────────────────────────────────────────────
@@ -423,6 +692,8 @@ export interface OpenMeteoPlace {
   country?: string
   admin1?: string
   population?: number
+  /** GeoNames' feature code: ADM1 for a first-level region */
+  feature_code?: string
 }
 
 const words = (s: string) => textKey(s).split(/[^\p{L}\p{N}]+/u).filter(Boolean)
@@ -451,6 +722,7 @@ export function openMeteoToPlaces(results: OpenMeteoPlace[] | undefined, query: 
       sublabel: sublabelOf(label, [r.admin1, fixed?.country ?? r.country]),
       countryCode: (fixed?.code ?? r.country_code)?.toLowerCase() || undefined,
       source: 'search',
+      ...(r.feature_code === 'ADM1' ? { kind: 'region' as const } : {}),
     })
   }
   return out
@@ -490,7 +762,9 @@ async function openMeteoSearch(query: string, signal: AbortSignal): Promise<Plac
 
 /**
  * A typed search goes to the network only if the offline list (towns, states, countries, landmarks) has fewer
- * matches than this, and none of them is named exactly what was typed.
+ * matches than this, and none of them is named exactly what was typed. The matches are places, counted before rows
+ * that read alike are shown as one (distinctAsShown): the city of Запоріжжя and its two namesake villages are three,
+ * as in English, so the commonest searches stay offline in every language.
  */
 export const ENOUGH_LOCAL = 3
 
@@ -501,6 +775,7 @@ const localToPlace = (r: LocalPlace, source: Place['source']): Place => ({
   sublabel: r.kind === 'l' ? r.where : r.kind === 'c' ? undefined : sublabelOf(r.name, [echoes(r.admin1, r.name) ? undefined : r.admin1, countryName(r.cc)]),
   countryCode: r.cc.toLowerCase() || undefined,
   source,
+  ...(r.kind === 'r' ? { kind: 'region' as const } : r.kind === 'f' || r.kind === 'l' ? { kind: 'feature' as const } : {}),
 })
 
 /** A state that only repeats the city's name ("Berlin · State of Berlin") says nothing: "Berlin · Germany". */
@@ -508,26 +783,79 @@ function echoes(admin1: string, name: string): boolean {
   return ` ${placeKey(admin1)} `.includes(` ${placeKey(name)} `)
 }
 
-/** `first`, then whatever in `more` is not already there (dedupePlaces' rules), at most MAX_RESULTS. */
-const appendNew = (first: Place[], more: Place[]) => dedupePlaces([...first, ...more]).slice(0, MAX_RESULTS)
+/**
+ * The places of a search as one list: the same rules as dedupePlaces, the names compared as the visitor reads them
+ * (a city-state and its state, both Berlino; Huế and the province the table calls Huế, 14 km apart, are one row).
+ * In a language with names, rows that read the same, name and where line, in one country are one row too, however far
+ * apart: the best-ranked, or the country where a country and a region read alike (Đài Loan); never a country and a
+ * town (Джибути, the country and its capital). Places of one name in
+ * one region read the same once named in the language (Запоріжжя · Запорізька область, Україна: the city and two
+ * villages of that name; Hà Nội · Việt Nam: the capital and a hamlet), and rows nobody can tell apart are noise. A
+ * city whose where line repeats its name is not its region's row (Санкт-Петербург · Санкт-Петербург, Россия, beside
+ * Санкт-Петербург · Россия). The first `fixed` rows, already on screen, stay as they are. In English, each label as it
+ * came.
+ */
+const distinctAsShown = (places: Place[], fixed = 0): Place[] => oneOfAlike(distinctPlaces(places), fixed)
+
+/** dedupePlaces, the names compared as the visitor reads them: the distinct places, as ENOUGH_LOCAL counts them. */
+const distinctPlaces = (places: Place[]) =>
+  dedupePlaces(places, undefined, undefined, exonymsActive() ? displayLabel : undefined)
+
+/** Distinct places as rows: in a language with names, one of those in one country that read alike (distinctAsShown). */
+function oneOfAlike(places: Place[], fixed = 0): Place[] {
+  if (!exonymsActive()) return places
+  const kept: Place[] = []
+  const reads: (string | undefined)[] = []
+  for (const p of places) {
+    const read = p.countryCode && `${p.countryCode.toLowerCase()}|${displayLabel(p)}|${displaySublabel(p) ?? ''}`
+    // A country and a town are two places someone means, however alike they read (Джибути, the country and its
+    // capital): only a country and a region (Đài Loan), or places of one kind, are one row.
+    const at = read ? reads.findIndex((r, i) => r === read && !countryAndTown(p, kept[i])) : -1
+    if (at < 0) {
+      kept.push(p)
+      reads.push(read || undefined)
+    } else if (at >= fixed && isCountry(p) && !isCountry(kept[at])) kept[at] = p
+  }
+  return kept
+}
+
+/** Is the place a country itself: a row with no where line or kind, named as the browser or the list names it? */
+const isCountry = (p: Place) => !p.kind && !p.sublabel && !!p.countryCode && namesCountry(p.label, p.countryCode)
 
 /**
- * Up to 6 places matching `q`, best first. Coordinates are accepted and reverse-geocoded. Resolves [] for queries
- * under 2 characters or with no letters or digits. Rejects on network failure with nothing found offline (show
- * "search unavailable") and on abort.
+ * Is one of the two a country and the other a town? A town is a row with no kind, and may read as the country itself:
+ * a capital named like its country has no where line (Djibouti's would only repeat its name).
+ */
+const countryAndTown = (a: Place, b: Place) => (isCountry(a) && !b.kind) || (isCountry(b) && !a.kind)
+
+/** `first`, then whatever in `more` is not already there (distinctAsShown's rules), at most MAX_RESULTS. */
+const appendNew = (first: Place[], more: Place[]) =>
+  distinctAsShown([...first, ...more], first.length).slice(0, MAX_RESULTS)
+
+/**
+ * Up to 6 places matching `q`, best first. Coordinates are accepted and reverse-geocoded. Resolves [] for queries under
+ * 2 characters or with no letters or digits. Rejects on network failure with nothing found offline (show "search
+ * unavailable") and on abort.
  *
- * The offline list answers first (./localPlaces.ts: towns, states, countries and landmarks, in ~50 ms). With at least
- * ENOUGH_LOCAL matches, or one named exactly what was typed, that is the answer, and no geocoder is asked: most searches never leave the site, which keeps
- * them fast and Open-Meteo's free quota for the rest. Otherwise Open-Meteo is asked, and Photon too if Open-Meteo is
- * slow or has nothing (it knows streets and points of interest); `onEarly` gets the offline matches meanwhile, and
- * the promise resolves with them first and the network's new ones after, so a list on screen only grows at the
- * bottom.
+ * The offline list answers first (./localPlaces.ts: towns, states, countries and landmarks, in ~50 ms), by the names
+ * the visitor's language gives them too (./exonyms.ts: Москва, Hà Nội, Mailand). With at least ENOUGH_LOCAL matches, or
+ * one named exactly what was typed, that is the answer, and no geocoder is asked: most searches never leave the site,
+ * which keeps them fast and Open-Meteo's free quota for the rest. Otherwise Open-Meteo is asked, and Photon too if
+ * Open-Meteo is slow or has nothing (it knows streets and points of interest); `onEarly` gets the offline matches
+ * meanwhile, and the promise resolves with them first and the network's new ones after, so a list on screen only grows
+ * at the bottom.
  */
 export async function searchPlaces(q: string, signal?: AbortSignal, onEarly?: (places: Place[]) => void): Promise<Place[]> {
   throwIfAborted(signal)
   const query = q.trim().replace(/\s+/g, ' ')
   if (query.length < 2 || !hasText(query)) return []
-  const key = textKey(query)
+  // The visitor's own names (./exonyms.ts) are part of the answer, and are shown in it: in before either. The files a
+  // Latin query reads in any case load meanwhile, so the first search after the landing waits for the longer download,
+  // not for both in turn (English has no names to wait for, and reads them as before).
+  if (exonymsActive() && !parseCoordinates(query)) prefetchLocal(query)
+  await ensureExonyms()
+  throwIfAborted(signal)
+  const key = `${currentLocale()}|${textKey(query)}`
   const hit = searchCache.get(key)
   if (hit) return hit
 
@@ -538,17 +866,28 @@ export async function searchPlaces(q: string, signal?: AbortSignal, onEarly?: (p
   }
 
   let exact = false
-  const local = await searchLocal(query, signal).then(
+  let matches = 0
+  const alternates = exonymAlternates(query, countryName)
+  // The names the visitor reads each place by: its label, and a region's name in a where line (قم for استان قم).
+  const namesOf = exonymsActive()
+    ? (r: LocalPlace) => [displayLabel(localToPlace(r, 'search')), ...(r.kind === 'r' ? [exonym(r.name, r.cc, 'where')] : [])]
+    : undefined
+  // Where the visitor's language holds the land its own (the Spratlys, for Vietnamese): named so, it leads abroad.
+  const ownArea = (lat: number, lon: number) => exonymContested(lat, lon, '')
+  const [home, variants] = [exonymHome(), exonymVariants(query)]
+  const local = await searchLocal(query, signal, undefined, alternates, home, variants, namesOf, ownArea).then(
     (rows) => {
       exact = rows.some((r) => r.exact)
-      return dedupePlaces(rows.map((r) => localToPlace(r, 'search')))
+      const places = distinctPlaces(rows.map((r) => localToPlace(r, 'search')))
+      matches = places.length
+      return oneOfAlike(places)
     },
     (err: unknown) => {
       if (isAbortError(err) || signal?.aborted) throw err
       return [] as Place[]
     },
   )
-  if (local.length >= ENOUGH_LOCAL || exact) {
+  if (matches >= ENOUGH_LOCAL || exact) {
     searchCache.set(key, local)
     return local
   }
@@ -560,7 +899,7 @@ export async function searchPlaces(q: string, signal?: AbortSignal, onEarly?: (p
     signal,
   )
   if (!local.length) {
-    const found = await net
+    const found = exonymsActive() ? distinctAsShown(await net) : await net
     searchCache.set(key, found)
     return found
   }
@@ -648,9 +987,17 @@ async function nominatimReverse(lat: number, lon: number, signal: AbortSignal): 
 /**
  * Name the place at (lat, lon). Never rejects except on abort: if neither geocoder has anything nearby (open
  * ocean, ice sheet) or can be reached, the label is the coordinates themselves.
- * The returned position is exactly (lat, lon), not the matched OSM object's.
+ * The returned position is exactly (lat, lon), not the matched OSM object's. Resolves once the visitor's place names
+ * are in too (./exonyms.ts), since the caller shows the name at once (a pin's label, a report).
  */
 export async function reversePlace(lat: number, lon: number, signal?: AbortSignal): Promise<Place> {
+  const names = ensureExonyms()
+  const place = await reverseUnnamed(lat, lon, signal)
+  await names
+  return place
+}
+
+async function reverseUnnamed(lat: number, lon: number, signal?: AbortSignal): Promise<Place> {
   throwIfAborted(signal)
   const fallback: Place = { lat, lon, label: coordinateLabel(lat, lon), source: 'geolocation' }
   if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) return fallback

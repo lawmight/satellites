@@ -32,8 +32,9 @@ import {
   CARD_W,
   CHIP_BOX,
   HEAD,
-  HEAD_CJK,
+  headLeading,
   headTracking,
+  needsShaping,
   PANEL,
   PLATE,
   TONE_COLOR,
@@ -323,6 +324,29 @@ function readStacks() {
   DISPLAY = get('--font-card-display', SANS)
 }
 
+/**
+ * Fetch a stack's faces for `text` as the page draws it: each family only for the characters the families before it
+ * do not claim (a face's unicode-range). FontFaceSet.load(stack) would fetch every family's faces for every character,
+ * and a Vietnamese page's stack, its own faces first with the brand faces behind them for a rare symbol, then fetched
+ * the brand faces' latin-ext files for its ă and đ, which its own faces draw. A Latin, Cyrillic or Arabic page fetches
+ * the same files as before.
+ */
+async function loadStack(font: string, stack: string, text: string): Promise<void> {
+  const fonts = typeof document !== 'undefined' ? document.fonts : undefined
+  if (!fonts) return
+  let rest = [...new Set(text)]
+  for (const family of stack.split(',').map((f) => f.trim())) {
+    if (!rest.length) return
+    if (!/^["']/.test(family)) continue // a generic or system family: nothing to fetch
+    const faces = await fonts.load(`${font} ${family}`, rest.join(''))
+    const ranges = faces.flatMap((f) => f.unicodeRange.split(',').map((r) => r.trim().replace(/^U\+/i, '').split('-').map((h) => parseInt(h, 16))))
+    rest = rest.filter((ch) => {
+      const c = ch.codePointAt(0)!
+      return !ranges.some(([a, z = a]) => c >= a && c <= z)
+    })
+  }
+}
+
 type Ctx = CanvasRenderingContext2D & { fontStretch?: string; letterSpacing?: string }
 interface Face {
   family: string
@@ -356,13 +380,13 @@ function setFace(ctx: Ctx, f: Face) {
 const nativeTracking = (ctx: Ctx) => Reflect.has(ctx, 'letterSpacing')
 
 /**
- * Scripts whose letters a shaping engine joins and reorders (Arabic, Hebrew, the Indic and South-East Asian scripts):
- * such text is always drawn as one run and never tracked (spacing letters apart breaks Arabic's joins).
+ * Text in a script whose letters a shaping engine joins and reorders (Arabic, Hebrew, the Indic and South-East Asian
+ * scripts) is always drawn as one run and never tracked (needsShaping, cardSpec.ts): spacing its letters apart breaks
+ * Arabic's joins and cuts Devanagari's headline stroke.
  */
-const SHAPED = /[\u0590-\u08FF\u0900-\u0DFF\u0E00-\u0FFF\u1000-\u109F\u1780-\u17FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
+export { needsShaping }
 /** Right-to-left letters: a run whose first letter is one of them is laid out right to left (its own direction). */
 const RTL = /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
-export const needsShaping = (text: string) => SHAPED.test(text)
 const rtlRun = (text: string) => {
   // read outside its isolates, as the preview's unicode-bidi: plaintext reads it (bidi.ts)
   const first = /\p{L}/u.exec(outsideIsolates(text))
@@ -447,13 +471,23 @@ function wordSegmenter(locale: Locale) {
   return segmenters.get(locale)
 }
 
-/** The pieces of a run written without spaces, each a place a line may break before (by word; by character without Intl.Segmenter). */
+/** No-break spaces (and the word joiner) at a piece's start or end: no line breaks on either side of one. */
+const GLUE_START = /^[\u00a0\u202f\u2007\u2060]/
+const GLUE_END = /[\u00a0\u202f\u2007\u2060]$/
+
+/**
+ * The pieces of a run written without spaces, each a place a line may break before (by word; by character without
+ * Intl.Segmenter). Intl.Segmenter makes a no-break space a piece of its own ("12,345", "\u00a0", "张"), so a piece that
+ * starts with one, or follows one, joins the piece before it: zh-Hans "12,345\u00a0张图像已公开。" breaks after the 张, as the
+ * preview and satori break it, never between the count and its noun.
+ */
 function spacelessPieces(text: string, locale: Locale): string[] {
   const seg = wordSegmenter(locale)
   const raw = seg ? Array.from(seg.segment(text), (x) => x.segment) : Array.from(text)
   const out: string[] = []
   for (const piece of raw) {
-    if (out.length && (NO_START.test(piece) || NO_END.test(out[out.length - 1]))) out[out.length - 1] += piece
+    const prev = out[out.length - 1]
+    if (prev !== undefined && (NO_START.test(piece) || NO_END.test(prev) || GLUE_START.test(piece) || GLUE_END.test(prev))) out[out.length - 1] += piece
     else out.push(piece)
   }
   return out
@@ -664,11 +698,11 @@ async function plateImage(spec: CardSpec): Promise<{ img: HTMLImageElement; rect
  */
 export async function renderCardPng(spec: CardSpec): Promise<Blob> {
   readStacks()
-  const fontsToLoad = [`560 84px ${DISPLAY}`, `400 24px ${SANS}`, `350 13px ${MONO}`, `500 16px ${MONO}`, `italic 400 84px ${SERIF}`]
+  const fontsToLoad: [string, string][] = [['560 84px', DISPLAY], ['400 24px', SANS], ['350 13px', MONO], ['500 16px', MONO], ['italic 400 84px', SERIF]]
   // The card's own words, so a script face behind a unicode-range (Cyrillic, Arabic) is fetched before it is drawn.
   const sample = JSON.stringify(spec)
   const [, pic] = await Promise.all([
-    Promise.all(fontsToLoad.map((f) => document.fonts?.load(f, sample))).catch(() => undefined), // fall back to whatever is available
+    Promise.all(fontsToLoad.map(([font, stack]) => loadStack(font, stack, sample))).catch(() => undefined), // fall back to whatever is available
     plateImage(spec),
   ])
   const img = pic?.img ?? null
@@ -727,8 +761,8 @@ export async function renderCardPng(spec: CardSpec): Promise<Blob> {
   const lead: Face = { family: DISPLAY, size: S, weight: spec.cjk ? 600 : 560, stretch: 'condensed', tracking: track.lead * S }
   const place: Face = { family: SERIF, size: P, italic: true, tracking: track.place * P }
   const sub: Face = { family: SANS, size: CARD_FS.sub }
-  // Chinese, Japanese, Korean: their leading, and each text part one phrase on one line (HEAD_CJK)
-  const lh = spec.cjk ? HEAD_CJK : HEAD
+  // Chinese, Japanese, Korean and Devanagari: their leading (headLeading); CJK's text parts one phrase on one line each
+  const lh = headLeading(spec)
   const leadLH = S * lh.leadLH
   const placeLH = P * lh.placeLH
   const subLH = CARD_FS.sub * HEAD.subLH

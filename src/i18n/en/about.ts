@@ -175,6 +175,8 @@ export default ns('about', {
   credits: {
     /** `handle` is the maker's X handle ("@armaangupt0", the link); "Armaan" is his name */
     madeBy: { who: 'Made by', text: (handle: string): AboutPart[] => ['Armaan, ', link(handle), ' on X'] },
+    /** The row under it: the results' ask, which is the link to the maker's Buy Me a Coffee page. Keep the brand "Watched" */
+    support: { who: 'Support', text: [link('Help keep Watched free :)')] as AboutPart[] },
     gibs: 'Imagery from NASA’s GIBS, part of EOSDIS. GOES via NOAA and CIRA, Himawari via JMA.',
     archives: {
       who: 'Archives',

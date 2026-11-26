@@ -31,6 +31,7 @@
  * except the licence credit, which is English and uppercased as English (Chip.lang). Units keep their case in every
  * renderer ("10 m", "1 km", a readout's "km": ./i18n/units.ts).
  */
+import type * as Measure from './cardMeasure.js'
 import { cardMessages, type CardMessages } from './i18n/card/index.js'
 import { fmt } from './i18n/format.js'
 import { DEFAULT_LOCALE, LOCALE_INFO, type Locale } from './i18n/locales.js'
@@ -117,16 +118,38 @@ export const HEAD = { leadLH: 0.94, placeScale: 1.06, placeLH: 0.9, placeGap: 0.
  * is never left alone on a line and a word is never cut ("注 / 视过"). headlineSize picks the size they all fit at.
  */
 export const HEAD_CJK = { leadLH: 1.12, placeLH: 1.1 } as const
+/**
+ * Hindi headlines (Devanagari): HEAD's leading × 1.3, the page's --lh-k (src/styles/scripts.css). Vowel signs rise to
+ * 0.9 em above the baseline (ि ी े ं) and hang to 0.37 em below it (ु ृ, stacked conjuncts): at 0.94 a line's े touched
+ * the conjunct hanging from the line above it.
+ */
+export const HEAD_DEVANAGARI = { leadLH: 1.22, placeLH: 1.17 } as const
+
+/** The headline's leading for a card: HEAD, or its script's (Chinese, Japanese and Korean; Devanagari). */
+export function headLeading(spec: Pick<CardSpec, 'cjk' | 'locale'>): { leadLH: number; placeLH: number } {
+  return spec.cjk ? HEAD_CJK : LOCALE_INFO[spec.locale].script === 'devanagari' ? HEAD_DEVANAGARI : HEAD
+}
 
 /**
  * The headline's tracking in em, by script, as the page's --track-display (src/styles/scripts.css): Latin −0.02,
- * Cyrillic's denser lowercase −0.015, CJK −0.01, Arabic none (tracking breaks its joins). The place's serif −0.01,
- * none in Arabic. Every renderer of the card reads these, so the preview, the PNG and the unfurl agree.
+ * Cyrillic's denser lowercase −0.015, CJK −0.01, Arabic and Devanagari none (tracking breaks Arabic's joins and cuts
+ * Devanagari's headline stroke between letters). The place's serif −0.01, none in Arabic and Devanagari. Every renderer
+ * of the card reads these, so the preview, the PNG and the unfurl agree.
  */
 export function headTracking(locale: Locale): { lead: number; place: number } {
   const script = LOCALE_INFO[locale].script
-  return script === 'arabic' ? { lead: 0, place: 0 } : { lead: script === 'cyrillic' ? -0.015 : script === 'cjk' ? -0.01 : -0.02, place: -0.01 }
+  if (script === 'arabic' || script === 'devanagari') return { lead: 0, place: 0 }
+  return { lead: script === 'cyrillic' ? -0.015 : script === 'cjk' ? -0.01 : -0.02, place: -0.01 }
 }
+
+/**
+ * Text that must be drawn as one run and never tracked: scripts whose letters a shaping engine joins and reorders
+ * (Arabic, Hebrew, the Indic scripts with their headline stroke and conjuncts, South-East Asian scripts). Spacing their
+ * letters apart breaks Arabic's joins and cuts Devanagari's stroke between letters. The canvas (src/ui/share/card.ts)
+ * and satori (./card.ts) both turn a mono row's tracking off for such text, as the page's scripts.css does.
+ */
+const SHAPED = /[\u0590-\u08FF\u0900-\u0DFF\u0E00-\u0FFF\u1000-\u109F\u1780-\u17FF\uFB1D-\uFDFF\uFE70-\uFEFF]/
+export const needsShaping = (text: string): boolean => SHAPED.test(text)
 
 // ── Spec ────────────────────────────────────────────────────────────────────────────────────
 
@@ -408,6 +431,79 @@ export function accentText(head: Rich, locale: Locale): string {
 }
 
 /**
+ * The headline's measure (cardMeasure.ts: the faces' widths, ~22 kB gzip with its tables), handed in rather than
+ * imported: the app's first search loads this module with the share sheet, and only a share needs the measure, so the
+ * app fetches it ahead of a press (src/ui/share/measure.ts). The server card (api/og.tsx) and the tests (their setup
+ * file) hand it in up front.
+ */
+export type CardMeasure = Pick<typeof Measure, 'textPx' | 'unbreakable' | 'widestPiecePx'>
+let measure: CardMeasure | undefined
+export function provideCardMeasure(m: CardMeasure): void {
+  measure = m
+}
+/** Whether the headline's measure is installed (every card builder needs it; the post's words do not). */
+export const hasCardMeasure = (): boolean => measure !== undefined
+function measured(): CardMeasure {
+  if (!measure) throw new Error('cardSpec: the headline measure is not installed (provideCardMeasure)')
+  return measure
+}
+const textPx: CardMeasure['textPx'] = (...a) => measured().textPx(...a)
+const unbreakable: CardMeasure['unbreakable'] = (t) => measured().unbreakable(t)
+const widestPiecePx: CardMeasure['widestPiecePx'] = (...a) => measured().widestPiecePx(...a)
+
+/** The smallest headline: every size search stops here (a longer word is cut short instead: fittedPlace). */
+export const HEAD_MIN = 36
+
+/** Letters and digits outside the full-width set (cjkEm's): a Latin name in a CJK text part. */
+const NARROW_LETTER = /(?![\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef])[\p{L}\p{N}]/u
+
+/**
+ * Whether every piece of the headline that no renderer breaks fits the 466 px column at size S, in its face and
+ * tracking, measured with the faces' own widths (cardMeasure.ts). The browser, the canvas and satori all set a word
+ * wider than the column alone on its line and let it run out of the card («Visakhapatnam.» at 84 px, a satellite's
+ * name in capitals), whatever the line counts said. A CJK text part is one line whatever its length (HEAD_CJK): it is
+ * measured whole, when it holds a Latin name (cjkEm alone sizes the rest, as it always has).
+ */
+export function headlineFits(head: Rich, locale: Locale, S: number, cjk = false): boolean {
+  const P = S * HEAD.placeScale
+  const track = headTracking(locale)
+  return head.every((part) => {
+    if (isAccent(part)) return widestPiecePx(plain(part.accent), 'serif', P, track.place, locale) <= PANEL.w
+    const text = plain([part])
+    if (!cjk) return widestPiecePx(text, 'display', S, track.lead, locale) <= PANEL.w
+    return !NARROW_LETTER.test(text) || textPx(text.trim(), 'display', S, track.lead, locale) <= PANEL.w
+  })
+}
+
+/** Only the headline's serif blocks (the place and its words) fit at S: what a shorter place can mend. */
+const accentFits = (head: Rich, locale: Locale, S: number) => headlineFits(head.filter(isAccent), locale, S)
+
+/**
+ * The place as the card sets it: cardPlace's, cut shorter still (with an ellipsis, as a name over 48 code points is) when
+ * one of its words would be wider than the column even at HEAD_MIN: a 47-letter Welsh name, a run of coordinates with
+ * no space. `build` makes the headline around a place.
+ */
+function fittedPlace(label: string, locale: Locale, build: (place: string) => Rich): string {
+  let place = cardPlace(label)
+  if (accentFits(build(place), locale, HEAD_MIN)) return place
+  // Cut between graphemes, so a conjunct («द्य»), a flag or an accented letter in NFD is never split, and drop a
+  // joiner left at the end
+  let parts = graphemes(place.endsWith('…') ? place.slice(0, -1) : place)
+  while (parts.length > 1) {
+    parts = parts.slice(0, -1)
+    place = `${parts.join('').replace(/[\s\u200c\u200d]+$/, '')}…`
+    if (accentFits(build(place), locale, HEAD_MIN)) break
+  }
+  return place
+}
+
+/** The user-perceived characters of `text` (Intl.Segmenter; code points where a runtime has none). */
+function graphemes(text: string): string[] {
+  const S = (Intl as { Segmenter?: new (l?: string, o?: { granularity: 'grapheme' }) => { segment(t: string): Iterable<{ segment: string }> } }).Segmenter
+  return S ? Array.from(new S(undefined, { granularity: 'grapheme' }).segment(text), (g) => g.segment) : Array.from(text)
+}
+
+/**
  * Headline size so the lead wraps to at most three condensed lines and the serif place to at most
  * two in the 466px column: the smaller of what the lead and the place (accentText) each allow.
  */
@@ -428,9 +524,10 @@ export function cjkEm(text: string): number {
 
 /**
  * A Chinese, Japanese or Korean headline's size: the largest (84 px down, in 2 px steps) at which every text part
- * fits one line of the column, the place fits two, and the whole block, sub-line included, fits its band.
+ * fits one line of the column, the place fits two, and the whole block, sub-line included, fits its band. Given the
+ * card's `locale`, also one at which no word is wider than the column (headlineFits: a Latin place, a satellite's name).
  */
-export function headlineSizeCjk(head: Rich, sub?: string): number {
+export function headlineSizeCjk(head: Rich, sub?: string, locale?: Locale): number {
   const texts = head.filter((p): p is string => typeof p === 'string').map((t) => t.trim()).filter(Boolean)
   const places = head.filter(isAccent).map((p) => plain(p.accent))
   const widest = Math.max(0, ...texts.map(cjkEm))
@@ -438,6 +535,7 @@ export function headlineSizeCjk(head: Rich, sub?: string): number {
   for (let S = 84; S > 36; S -= 2) {
     const P = S * HEAD.placeScale
     if (widest * S * 0.98 > PANEL.w) continue
+    if (locale && !headlineFits(head, locale, S, true)) continue
     // Whole characters per line (a line never holds a fraction of one), so 11 at 78 px take three lines, not 1.85.
     const perLine = Math.max(1, Math.floor(PANEL.w / P))
     const placeLines = places.map((t) => Math.ceil(cjkEm(t) / perLine))
@@ -449,9 +547,109 @@ export function headlineSizeCjk(head: Rich, sub?: string): number {
   return 36
 }
 
+/**
+ * Width in em of a Hindi card's sub-line, per UTF-16 unit: the widest of the Hindi card's lines measured in the sans
+ * (HarfBuzz, 2026-11-21). A vowel sign, a virama or a nukta is a unit that adds little or no width, so a count of
+ * units errs wide, never narrow.
+ */
+const DEVANAGARI_EM = { sub: 0.41 } as const
+
+/** The words of `text` as the renderers break it: at breaking spaces only (a no-break space ties its words into one). */
+const runs = (text: string) => text.split(/[^\S\u00a0]+/).filter(Boolean)
+
+/** How many lines `text` takes in `width` px when each UTF-16 unit is `unit` px wide (greedy, by word). */
+function linesByUnits(text: string, unit: number, width: number): number {
+  let lines = 0
+  let w = 0
+  for (const word of runs(text)) {
+    const ww = word.length * unit
+    if (lines && w + unit + ww <= width) w += unit + ww
+    else {
+      lines++
+      w = ww
+    }
+  }
+  return lines
+}
+
+/**
+ * The lines a headline block takes in the column (greedy, by word), each its words, measured in its face at its size
+ * (cardMeasure.ts): Latin by the face's advances, so a name in capitals (PROTOMETHEE, 0.47 em a letter) is as wide
+ * as it is set, and Devanagari by its letters' forms, so a vowel sign or a nukta adds nothing. Counting 0.37 em a UTF-16
+ * unit had both wrong: capitals too narrow (PROTOMETHEE / गुज़रा। left the verb alone) and «गुज़रा।» too wide by its
+ * two marks (ISS (ZARYA) गुज़रा। then broke at 72 px where it is one line).
+ */
+function linesOf(text: string, role: 'display' | 'serif', size: number, locale: Locale): string[][] {
+  const track = headTracking(locale)[role === 'display' ? 'lead' : 'place']
+  const px = (t: string) => textPx(t, role, size, track, locale)
+  const space = px(' ')
+  const lines: string[][] = []
+  let w = 0
+  for (const word of runs(text)) {
+    // a run breaks after its hyphens too («Baden-» / «Württemberg तक»): counted whole, a two-line place was one line
+    // and the block ran past the readouts' rule
+    unbreakable(word).forEach((piece, i) => {
+      const gap = i ? 0 : space
+      const ww = px(piece)
+      if (lines.length && w + gap + ww <= PANEL.w) {
+        w += gap + ww
+        lines[lines.length - 1].push(piece)
+      } else {
+        lines.push([piece])
+        w = ww
+      }
+    })
+  }
+  return lines
+}
+
+/**
+ * One word alone on the last of two or more lines (a lone «देखा।» under «262 उपग्रहों ने»). A last line that is one
+ * run of words tied by no-break spaces («ने देखा।») is not alone.
+ */
+function lonelyLast(lines: string[][]): boolean {
+  const last = lines[lines.length - 1]
+  return lines.length > 1 && last.length === 1 && !last[0].includes('\u00a0')
+}
+
+/**
+ * A Hindi headline's size: at most headlineSize's (the lead in three lines, the place in two), and small enough that
+ * the whole block, at HEAD_DEVANAGARI's taller leading and with its sub-line, fits its band. At HEAD's sizes a
+ * two-line place, a two-line lead and a sub-line ran into the readouts. A size is also passed over when a word or a
+ * run the copy ties is wider than the column (headlineFits: the renderers never break it, so it would overflow), or
+ * when a block's last line would hold one word alone: the copy ties the words that must not part (hi.ts), and this
+ * keeps a size from leaving an untied one alone.
+ */
+export function headlineSizeDevanagari(head: Rich, lead: string, place: string, sub?: string, locale: Locale = 'hi'): number {
+  const leads = head.filter((p) => !isAccent(p)).map((p) => plain([p]).trim()).filter(Boolean)
+  const places = head.filter(isAccent).map((p) => plain(p.accent).trim())
+  const subH = sub ? HEAD.subGap + linesByUnits(sub, DEVANAGARI_EM.sub * CARD_FS.sub, PANEL.w) * CARD_FS.sub * HEAD.subLH : 0
+  for (let S = headlineSize(lead, place); S > HEAD_MIN; S -= 2) {
+    const P = S * HEAD.placeScale
+    if (!headlineFits(head, locale, S)) continue
+    const leadSets = leads.map((t) => linesOf(t, 'display', S, locale))
+    const placeSets = places.map((t) => linesOf(t, 'serif', P, locale))
+    if ([...leadSets, ...placeSets].some(lonelyLast)) continue
+    const leadLines = leadSets.reduce((n, l) => n + l.length, 0)
+    const placeLines = placeSets.map((l) => l.length)
+    if (leadLines > 3 || placeLines.some((n) => n > 2)) continue
+    const blocks = leads.length + places.length
+    const h =
+      leadLines * S * HEAD_DEVANAGARI.leadLH + placeLines.reduce((a, n) => a + n * P * HEAD_DEVANAGARI.placeLH, 0) + Math.max(0, blocks - 1) * P * HEAD.placeGap + subH
+    if (h <= PANEL.headBottom - PANEL.headTop - 8) return S
+  }
+  return HEAD_MIN
+}
+
 /** The headline's size and script flags for a card in `locale` (English and every other script: headlineSize). */
 function headSizing(locale: Locale, head: Rich, lead: string, sub?: string): { size: number; cjk?: true } {
-  return LOCALE_INFO[locale].script === 'cjk' ? { size: headlineSizeCjk(head, sub), cjk: true } : { size: headlineSize(lead, accentText(head, locale)) }
+  const script = LOCALE_INFO[locale].script
+  if (script === 'cjk') return { size: headlineSizeCjk(head, sub, locale), cjk: true }
+  if (script === 'devanagari') return { size: headlineSizeDevanagari(head, lead, accentText(head, locale), sub, locale) }
+  // A word wider than the column steps the size down until it fits (2 px at a time, so it stays as large as it can).
+  let S = headlineSize(lead, accentText(head, locale))
+  while (S > HEAD_MIN && !headlineFits(head, locale, S)) S -= 2
+  return { size: S }
 }
 
 // ── Numbers and places ──────────────────────────────────────────────────────────────────────
@@ -911,7 +1109,7 @@ function cardSpaces<T>(v: T): T {
 
 export function buildCardSpec(input: CardInput, locale: Locale = DEFAULT_LOCALE): CardSpec {
   const m = cardMessages(locale)
-  const place = cardPlace(input.placeLabel)
+  const place = fittedPlace(input.placeLabel, locale, (p) => passHeadline(m, input.verdict, input.satName, p, input.satellites))
   const head = passHeadline(m, input.verdict, input.satName, place, input.satellites)
   const pieces = headPieces(head, locale)
   const c = input.capture
@@ -1068,7 +1266,7 @@ export function buildSummarySpec(i: SummaryInput, locale: Locale = DEFAULT_LOCAL
   const m = cardMessages(locale)
   const int = fmt(locale).int
   const n = Math.max(0, Math.round(i.satellites))
-  const place = cardPlace(i.placeLabel)
+  const place = fittedPlace(i.placeLabel, locale, (p) => m.headlineWeek(n, p, isCut(p)))
   // The results headline, in the card's two type faces (R3-13): the condensed lead, then the serif place.
   const head = m.headlineWeek(n, place, isCut(place))
   const pieces = headPieces(head, locale)

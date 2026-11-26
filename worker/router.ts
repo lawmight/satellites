@@ -10,6 +10,8 @@
  *     → the app, as a 404;
  *   - a path with no dot outside `/api/` and `/s/` → the app's index.html, which routes it itself;
  *   - anything else → 404.
+ * A search engine or an assistant gets the landing and the place pages without the app: the same file, its text
+ * shown and its scripts gone (`appPage`, src/seo/readerPage.ts).
  * Cards, share pages, pan crops and the Meteosat cuts and frame list are kept in Cloudflare's cache when they say
  * `s-maxage`: Cloudflare caches nothing a Worker builds unless the Worker stores it (`cached`). Static files get
  * their headers from public/_headers, which does not reach responses built here, so this adds the same security
@@ -21,6 +23,8 @@
  */
 import { isProductionHost } from '../api/_lib/env.js'
 import { isPlacePath } from '../src/lib/placePage.ts'
+import { isReader } from '../src/lib/reader.ts'
+import { readerPage } from '../src/seo/readerPage.ts'
 
 /** Link unfurlers: the fetchers that read a pasted link's Open Graph tags, by user agent. */
 export const UNFURLER_UA =
@@ -60,6 +64,12 @@ export interface Routes {
   /** Cloudflare's cache, and the Worker's `ctx.waitUntil` to store into it after answering. None: no caching. */
   cache?: EdgeCache
   waitUntil?: (work: Promise<unknown>) => void
+  /**
+   * The query a card or a pan crop is cached under (`cached`): only what its handler reads, in one order
+   * (api/_lib/share.ts cardCacheQuery, api/_lib/pan.ts panCacheQuery). Null, or no function: the query as it came.
+   */
+  cardKey?: (query: URLSearchParams) => string | null
+  panKey?: (query: URLSearchParams) => string | null
 }
 
 /** The same request at another path on the same host: a rewrite, so the visitor's address does not change. */
@@ -79,14 +89,25 @@ export function edgeCacheable(res: Response): boolean {
 /**
  * A GET answered from the cache when it holds this URL, else by the handler (then stored, after answering). The key
  * is the URL the handler sees, nothing else: every one of these responses depends on its URL alone.
+ *
+ * For a card and a pan crop the key is narrower still: `keyQuery` gives the part of the query the handler reads.
+ * Keyed on the whole address, `&x=1` (or the same parameters in another order) was a miss, so one address spelled
+ * a thousand ways drew a card a thousand times and asked its archive for the picture each time: EUMETSAT's map
+ * service for a Meteosat frame, CDSE's monthly quota for a pan crop.
+ *
+ * A HEAD is the same question as a GET (some unfurlers ask one first): it is answered from the same entry, by the
+ * handler as a GET when there is none, and it used to go to the handler uncached every time.
  */
-async function cached(request: Request, handler: Handler, routes: Routes): Promise<Response> {
+async function cached(request: Request, handler: Handler, routes: Routes, keyQuery?: (query: URLSearchParams) => string | null): Promise<Response> {
   const cache = routes.cache
-  if (!cache || request.method !== 'GET') return handler(request)
-  const key = new Request(request.url)
+  const head = request.method === 'HEAD'
+  if (!cache || (request.method !== 'GET' && !head)) return handler(request)
+  const url = new URL(request.url)
+  const query = keyQuery?.(url.searchParams) ?? null
+  const key = new Request(query === null ? request.url : `${url.origin}${url.pathname}${query ? `?${query}` : ''}`)
   const hit = await cache.match(key)
   if (hit) return hit
-  const res = await handler(request)
+  const res = await handler(head ? new Request(request.url, { method: 'GET', headers: request.headers }) : request)
   if (edgeCacheable(res)) {
     const store = cache.put(key, res.clone()).catch((err: unknown) => console.error('[worker] cache put failed', err))
     if (routes.waitUntil) routes.waitUntil(store)
@@ -111,13 +132,40 @@ const notFound = (path: string) =>
     },
   })
 
+/** What a reader's copy of a page must not carry over from the file: they describe the file's own bytes. */
+const FILE_ONLY_HEADERS = ['content-length', 'content-encoding', 'etag', 'last-modified']
+
+/**
+ * A page that starts the app (index.html, a place page), as `file` names it among the static files. Everyone gets
+ * the file, except a reader (src/lib/reader.ts: search engines and assistants, by the name they give themselves),
+ * which gets it with the app taken out: the page's own text, shown, and no script (src/seo/readerPage.ts says why).
+ * In the browser the app steps aside for a reader anyway (src/main.tsx), so this changes what a reader has to fetch
+ * and wait for, not what it reads.
+ *
+ * A reader is always sent the whole page: its copy is made here, so the file's validators say nothing about it
+ * (and a search engine that held one from before would be answered 304 and keep the page with the app).
+ */
+async function appPage(request: Request, routes: Routes, file: Request = request): Promise<Response> {
+  if (request.method !== 'GET' || !isReader(request.headers.get('user-agent'))) return routes.assets.fetch(file)
+  const whole = new Request(file)
+  whole.headers.delete('if-none-match')
+  whole.headers.delete('if-modified-since')
+  const res = await routes.assets.fetch(whole)
+  if (res.status !== 200 || !(res.headers.get('content-type') ?? '').includes('text/html')) return res
+  const page = readerPage(await res.clone().text())
+  if (page === null) return res
+  const headers = new Headers(res.headers)
+  for (const name of FILE_ONLY_HEADERS) headers.delete(name)
+  return new Response(page, { status: 200, headers })
+}
+
 async function dispatch(request: Request, url: URL, routes: Routes): Promise<Response> {
   const path = url.pathname
   if (path === '/') {
     if (url.searchParams.has('q') && UNFURLER.test(request.headers.get('user-agent') ?? '')) {
       return cached(rewrite(request, new URL(`/api/s${url.search}`, url)), routes.share, routes)
     }
-    return routes.assets.fetch(request)
+    return appPage(request, routes)
   }
   const share = SHARE_PATH.exec(path)
   if (share) {
@@ -129,20 +177,20 @@ async function dispatch(request: Request, url: URL, routes: Routes): Promise<Res
   }
   switch (path) {
     case '/api/og':
-      return cached(request, routes.og, routes)
+      return cached(request, routes.og, routes, routes.cardKey)
     case '/api/s':
       return cached(request, routes.share, routes)
     case '/api/e':
       return routes.events(request)
     case '/api/pan':
-      return cached(request, routes.pan, routes)
+      return cached(request, routes.pan, routes, routes.panKey)
     case '/api/geo':
       return cached(request, routes.geo, routes)
     case '/api/geo-frames':
       return cached(request, routes.geoFrames, routes)
   }
   if (isPlacePath(path)) return placePage(request, url, routes)
-  if (APP_PATH.test(path)) return routes.assets.fetch(rewrite(request, new URL('/', url)))
+  if (APP_PATH.test(path)) return appPage(request, routes, rewrite(request, new URL('/', url)))
   return notFound(path)
 }
 
@@ -154,9 +202,9 @@ async function dispatch(request: Request, url: URL, routes: Routes): Promise<Res
  * address can still search, and a search engine drops the address instead of filing the landing under it.
  */
 async function placePage(request: Request, url: URL, routes: Routes): Promise<Response> {
-  const res = await routes.assets.fetch(request)
+  const res = await appPage(request, routes)
   if (res.status !== 404) return res
-  const app = await routes.assets.fetch(rewrite(request, new URL('/', url)))
+  const app = await appPage(request, routes, rewrite(request, new URL('/', url)))
   return new Response(app.body, { status: 404, headers: app.headers })
 }
 
@@ -187,7 +235,8 @@ export async function route(request: Request, routes: Routes): Promise<Response>
     },
   }
   const res = await dispatch(request, url, { ...routes, assets: files })
-  const out = new Response(res.body, res) // static-file responses have immutable headers
+  // static-file responses have immutable headers; a HEAD's answer (a card drawn or found for it) goes without its body
+  const out = new Response(request.method === 'HEAD' ? null : res.body, res)
   // Static files keep their headers (public/_headers); everything built here gets the browser's form of its own.
   if (!fromFiles.has(res)) out.headers.set('Cache-Control', browserCacheControl(res.headers.get('cache-control')))
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) if (!out.headers.has(name)) out.headers.set(name, value)

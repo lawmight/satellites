@@ -227,7 +227,16 @@ ${linkList(near)}
 </div></main>`
 }
 
-export const toPagePlace = (p: SeoPlace): PagePlace => ({ path: `${PLACE_PREFIX}/${p.slug}`, label: p.label, sublabel: p.sublabel, lat: p.lat, lon: p.lon, cc: p.cc || undefined })
+export const toPagePlace = (p: SeoPlace): PagePlace => ({
+  path: `${PLACE_PREFIX}/${p.slug}`,
+  label: p.label,
+  sublabel: p.sublabel,
+  lat: p.lat,
+  lon: p.lon,
+  cc: p.cc || undefined,
+  // A landmark's name is looked up as a landmark's (src/lib/placePage.ts PagePlace.kind); a city's page says nothing.
+  kind: p.kind === 'landmark' ? 'feature' : undefined,
+})
 
 /** A place's page: the built index.html (`template`) with its head, its place and its text. */
 export function placePage(template: string, origin: string, place: SeoPlace, near: readonly SeoPlace[], social: PlaceSocial): string {

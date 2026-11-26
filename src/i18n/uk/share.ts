@@ -48,6 +48,7 @@ const share: typeof en = {
   preparingImage: 'Підготовка картки…',
   share: 'Поділитися',
   copyLink: 'Копіювати',
+  copyLinkDesktop: 'Копіювати посилання',
   copied: 'Скопійовано',
   // «в», not «у»: X is read «ікс», a vowel.
   postToX: 'Допис в X',

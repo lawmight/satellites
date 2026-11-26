@@ -277,7 +277,8 @@ const results: typeof en = {
   // ── 04 / Linha do tempo ──────────────────────────────────────────────────────────────────
   timeline: {
     title: 'Linha do tempo',
-    meta: (n: number, zoneLabel: string, zones: string) => `${days(n)} · ${zoneLabel} · ${zones}`,
+    meta: (n: number, zoneLabel: string, zones?: string) =>
+      `${days(n)} · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: 'Dia aqui',
     // The lane words, never a title after a bare number (*12 observou*): §3.5. The titles are not needed.
@@ -340,6 +341,10 @@ const results: typeof en = {
   timelapse: {
     title: 'Time-lapse',
     sub: 'Este lugar, ano a ano',
+  },
+  colophon: {
+    ask: 'Ajude o Watched a continuar grátis :)',
+    via: 'Uma pequena gorjeta, pelo Buy Me a Coffee',
   },
 }
 

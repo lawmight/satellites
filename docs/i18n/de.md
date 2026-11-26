@@ -566,7 +566,7 @@ the display title has room for the spoken phrase. *Enter* is the common name of 
 | note | Jedes Bild zeigt dasselbe Quadrat von 10 km Seitenlänge, aufgenommen von Sentinel-2 und farblich so abgestimmt wie jedes Foto hier. Jedes Jahr zielt auf eine andere Jahreszeit; ein Jahr ohne klaren Blick fällt weg. |
 | noteOneSeason | Jedes Bild zeigt dasselbe Quadrat von 10 km Seitenlänge, aufgenommen von Sentinel-2 und farblich so abgestimmt wie jedes Foto hier. Alle Bilder stammen aus derselben Jahreszeit; ein Jahr ohne klaren Blick in dieser Jahreszeit fällt weg. |
 | source | Copernicus Sentinel-2, über Planetary Computer |
-| listing / choosing / developing | Archivsuche · 03 / 12 / Auswahl klarer Blicke · 03 / 12 / Entwicklung der Bilder · 03 / 12 |
+| listing / choosing / developing | Archivsuche · 03 / 12 / Auswahl klarer Blicke · 03 / 12 / Entwicklung der Bilder · 03 / 12 (the counters, `system.counter`, keep the slash: German dates take dots, *20.12.2017*, *Mi 28.10.*, so `03 / 12` beside them reads as a count, never a day; checked 2026-11-22, when Vietnamese, whose dates are d/m, dropped it) |
 | choosingProgress / developingProgress (aria) | Auswahl klarer Blicke, 3 von 12 / Entwicklung der Bilder, 3 von 12 |
 | tooCloudy / tooFew | Zu bewölkt für einen Zeitraffer. / Kein klarer Blick seit 2015 · 3 nötig (`2 klare Blicke seit 2015 · 3 nötig`) |
 | noAnswer / unreachable / retry | Das Archiv hat nicht geantwortet. / Planetary Computer war nicht erreichbar / Erneut versuchen |
@@ -993,10 +993,10 @@ is accepted because it is rare: towns and cities, which most searches are, take 
 article to a gazetteer label**, and do not port English `placeInProse`.
 
 **Gazetteer labels are usually English.** The geocoders are asked for English names (`lang=en` / `language=en` in
-`geocode.ts`) and the offline list is English, so a visitor who types *München* gets *Munich*, *Wien* gives *Vienna*,
-and the where line can read *Bavaria, Deutschland*. This is expected, and it is never fixed in a catalog string. The
-label may also be in a local script (*Москва*). Never translate it and never fix its spelling. (A German display-name
-table is an open question for the owner; see the summary.)
+`geocode.ts`) and the offline list is English. On screen, the generated German table names them (*München*, *Wien*,
+*Bayern, Deutschland*, *Mailand*, *Kyjiw*: `src/i18n/de/exonyms.gen.ts`, docs/I18N.md, Place names), and a search for
+*München* finds Munich; a place it does not name shows as it came. This is never fixed in a catalog string: a wrong
+name is fixed in `scripts/exonyms.ts`. Never translate a label and never fix its spelling.
 
 ### 5.2 [SAT]: gender unknown
 
@@ -1208,7 +1208,8 @@ The owner's condition is that German costs nothing more to serve and stays as fa
 7. **Country names:** `Intl.DisplayNames(['de'], { type: 'region' })`, long style, except three regions that take the
    short style: **US** (*USA*: what every German writes; *Vereinigte Staaten* is stiff in a where line), **HK**
    (*Hongkong*) and **MO** (*Macau*). Everything else long: GB stays *Vereinigtes Königreich* (short is *UK*), PS stays
-   *Palästinensische Autonomiegebiete* (short is *Palästina*, politically loaded).
+   *Palästinensische Autonomiegebiete* (short is *Palästina*, politically loaded). A search for either name, or for the
+   English *Palestinian*, finds the country and shows it so; *USA* finds the US.
 8. **X post length.** `xLength` counts every German letter and „ “ as 1, so German costs no extra weight, but its text
    runs longer. Both hooks are under 45 characters, so the invitation is dropped only for long place names.
 

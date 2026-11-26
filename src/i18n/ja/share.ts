@@ -40,6 +40,7 @@ const share: typeof en = {
   preparingImage: '画像を準備中…',
   share: '共有',
   copyLink: 'リンクをコピー',
+  copyLinkDesktop: 'リンクをコピー',
   copied: 'コピー済み',
   postToX: 'Xに投稿',
   copyImage: '画像をコピー',

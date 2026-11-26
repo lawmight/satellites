@@ -27,6 +27,8 @@ function ageNl(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: 'Hoe het werkt',
+  sourceLink: 'Open source',
+  sourceLinkLabel: 'Open source: de code op GitHub',
   home: 'Watched, beginpagina',
   regionTime: 'Tijd',
   regionCatalog: 'Baancatalogus',

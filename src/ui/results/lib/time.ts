@@ -225,6 +225,25 @@ export function zoneLabel(ms: number, timeZone: string): string {
   return timeZone.replace(/_/g, ' ')
 }
 
+/**
+ * The zone as the place row names it: its name where the zone has an abbreviation of its own ("America/Toronto",
+ * whose rows say EST), else the offset the pass rows print ("UTC+7"). A zone with no abbreviation is often a city
+ * that stands for a whole region (tz-lookup gives Hanoi "Asia/Bangkok"), so its name would name another country;
+ * the offset is what the rest of the page says. The footnote and the timeline say the same (owner, 2026-11-22).
+ */
+export function zoneName(ms: number, timeZone: string): string {
+  return timeZone.startsWith('Etc/') || zoneHasAbbr(ms, timeZone) ? zoneLabel(ms, timeZone) : zoneAbbr(ms, timeZone)
+}
+
+/**
+ * Whether the zone has an abbreviation of its own ("EST"), so its name and its abbreviation say different things. A
+ * zone named by its offset ("UTC+7", "UTC−9 · at sea") already says what its abbreviation would: a label that gives
+ * both says it once.
+ */
+export function zoneHasAbbr(ms: number, timeZone: string): boolean {
+  return !timeZone.startsWith('Etc/') && !zoneAbbr(ms, timeZone).startsWith('UTC')
+}
+
 const clock = (p: DateFields, seconds: boolean) => `${pad2(p.hour)}:${pad2(p.minute)}${seconds ? `:${pad2(p.second)}` : ''}`
 
 /** "11:21" or "11:21:13" at the place. */

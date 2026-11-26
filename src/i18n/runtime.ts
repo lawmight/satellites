@@ -59,10 +59,14 @@ export function useMsgs<T extends object>(english: T): T {
 export const useLocale = (): Locale => useLocaleStore((s) => s.locale)
 
 // One bundle per locale, each its own chunk. English has none: its namespaces ship with the code that uses them.
-/** A language's chunk: its messages, and for CJK the serif accent face (src/i18n/accentFont.ts). */
+/**
+ * A language's chunk: its messages, for CJK the serif accent face (src/i18n/accentFont.ts), and what a switch to it
+ * waits for besides (`ready`: a large place-name table, which is a chunk of its own: src/i18n/<locale>/exonyms.ts).
+ */
 interface LocaleModule {
   default: Bundle
   accentFont?: AccentFont
+  ready?: () => Promise<void>
 }
 const loaders = import.meta.glob<LocaleModule>(['./*/index.ts', '!./en/**'])
 
@@ -114,6 +118,28 @@ export async function startLocale(): Promise<void> {
   useLocaleStore.setState({ locale, version: useLocaleStore.getState().version + 1 })
 }
 
+/**
+ * How long a switch waits for what the language's `ready` loads (its place names), at most: a request that stalls must
+ * not hold the switch for ever. Never rejects.
+ */
+const READY_WAIT_MS = 3_000
+function withinWait(p: Promise<unknown>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const limit = new Promise<void>((done) => (timer = setTimeout(done, READY_WAIT_MS)))
+  return Promise.race([p.then(() => undefined, () => undefined), limit]).finally(() => clearTimeout(timer))
+}
+
+/** What a switch to a language with place names also waits for (waitBeforeSwitch), at most READY_WAIT_MS. */
+let beforeSwitch: ((locale: Locale) => Promise<unknown>) | undefined
+
+/**
+ * The app's part of a switch to `locale` (src/app/controller.ts): the country of a link's place on screen, which a page
+ * in English never looked up, so the place is named in the new language as opening the link there would name it.
+ */
+export function waitBeforeSwitch(fn: (locale: Locale) => Promise<unknown>): void {
+  beforeSwitch = fn
+}
+
 /** The latest language asked for: a chunk that arrives after a newer choice is never applied over it. */
 let wanted: Locale | undefined
 
@@ -132,7 +158,10 @@ export async function setLocale(locale: Locale): Promise<void> {
   const mod = await fetchModule(locale)
   if (wanted !== locale) return
   if (!mod && locale !== DEFAULT_LOCALE) return
-  await installAccentFont(mod?.accentFont)
+  // The place names too: a name on screen (the results' place, a suggestion) changes once, with the rest of the page.
+  // At most READY_WAIT_MS for them: past it the page switches with the names as they came (and keeps them so).
+  const names = mod?.ready && withinWait(Promise.all([mod.ready(), beforeSwitch?.(locale)]))
+  await Promise.all([installAccentFont(mod?.accentFont), names])
   if (wanted !== locale) return
   bundle = mod?.default ?? null
   active = locale

@@ -16,7 +16,8 @@
 import enPass from '@/i18n/en/pass'
 import enResults, { watchedPhraseEn } from '@/i18n/en/results'
 import enVerdicts from '@/i18n/en/verdicts'
-import { msgs } from '@/i18n/runtime'
+import { currentLocale, msgs } from '@/i18n/runtime'
+import { hemisphere } from '../../../../api/_lib/i18n/locales'
 import type { Capture, GeoWatcher, MessageRef, Pass, Report } from '@/types'
 import { isStrong, plain, type Part, type Rich } from '../../../../api/_lib/i18n/parts'
 import { isDailyMosaic, isRadar, sensorName } from './captures'
@@ -267,8 +268,8 @@ export interface PassCopyCtx {
   now?: number
 }
 
-/** "0.2°W" / "140.8°E": a geostationary seat (international notation in every language). */
-const fmtLonShort = (lon: number) => `${Math.abs(lon).toFixed(1)}°${lon < 0 ? 'W' : 'E'}`
+/** "0.2°W" / "140.8°E": a geostationary seat (international notation, with Vietnamese's own letters: locales.ts). */
+const fmtLonShort = (lon: number) => `${Math.abs(lon).toFixed(1)}°${hemisphere(currentLocale(), 'lon', lon)}`
 
 /** After this long, a missing scene is not "lag": it doesn't exist. */
 const SCENE_LAG_MS = 48 * 3_600_000

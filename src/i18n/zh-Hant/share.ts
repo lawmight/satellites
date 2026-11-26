@@ -40,6 +40,7 @@ const share: typeof en = {
   preparingImage: '正在準備圖片…',
   share: '分享',
   copyLink: '複製連結',
+  copyLinkDesktop: '複製連結',
   copied: '已複製',
   postToX: '發佈到 X',
   copyImage: '複製圖片',

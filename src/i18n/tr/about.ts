@@ -178,6 +178,7 @@ const about: typeof en = {
   /** §3.11's labels and lines; product, agency, licence and people's names as they are, *via* as *üzerinden* */
   credits: {
     madeBy: { who: 'Yapan', text: (handle: string): AboutPart[] => ['Armaan, X’te ', link(handle)] },
+    support: { who: 'Destek', text: [link('Watched’ın ücretsiz kalmasına destek ol :)')] as AboutPart[] },
     gibs: 'Görüntüler NASA GIBS’ten (EOSDIS’in bir parçası). GOES, NOAA ve CIRA üzerinden; Himawari, JMA üzerinden.',
     archives: {
       who: 'Arşivler',

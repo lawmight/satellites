@@ -32,8 +32,9 @@ import type { EngineReport } from '@/engine/report'
 import { isCatalogLoadError, loadCatalog, loadCatalogNames } from '@/engine/catalog'
 import enApp from '@/i18n/en/app'
 import enPlaces from '@/i18n/en/places'
-import { msgs } from '@/i18n/runtime'
-import { ensureTz } from '@/imagery'
+import { msgs, waitBeforeSwitch } from '@/i18n/runtime'
+import { ensureTz, needsLinkCountry, prefetchExonyms, resolveLinkCountry, waitForLinkCountry } from '@/imagery'
+import { placeNamesReady } from './namesReady'
 import { getShare, recordLookup, type Share } from '@/lib/backend'
 import { addressOf, bootPlace, homePath, pagePlace } from '@/lib/placePage'
 import { installHeadSync } from './head'
@@ -78,11 +79,16 @@ const LOGO_MIN_MS = 650
 const FIRST_FONTS = ['500 16px "Instrument Sans Variable"', '400 16px "Martian Mono Variable"', 'italic 400 16px "Instrument Serif"']
 /**
  * …and a script's own faces (src/styles/scripts.css), asked for with a letter of that script: their unicode-range
- * would never be fetched for the space a bare load() measures, and the hero would swap fonts after boot.
+ * would never be fetched for the space a bare load() measures, and the hero would swap fonts after boot. Keyed by
+ * script (faces added to the brand ones), or by language for one whose page sets every role in faces of its own
+ * (Vietnamese, its Latin letters too): that page waits for those instead of the brand faces, which it never draws (asked
+ * with its words, they would fetch their latin-ext files for its ă and đ).
  */
 const SCRIPT_FONTS: Record<string, [font: string, text: string][]> = {
   cyrillic: [['560 16px "Watched Cyrillic"', 'щ'], ['italic 400 16px "Watched Cyrillic Serif"', 'т']],
   arabic: [['600 16px "Watched Arabic"', 'ب'], ['italic 400 16px "Watched Arabic Serif"', 'أ']],
+  vi: [['560 16px "Watched Vietnamese"', 'Việt'], ['italic 400 16px "Watched Vietnamese Serif"', 'Việt'], ['350 16px "Watched Vietnamese Mono"', 'VIỆT']],
+  devanagari: [['560 16px "Watched Devanagari"', 'क'], ['italic 400 16px "Watched Devanagari Serif"', 'क']],
 }
 /** Boot never waits longer than this for the faces (system fallbacks are fine on a very slow link). */
 const FONTS_CAP_MS = 4000
@@ -169,6 +175,11 @@ export async function boot() {
   const bootStart = performance.now()
   mark('boot')
   installHeadSync()
+  // A switch to a language with place names names a link's place on screen in it too, as opening the link there would.
+  waitBeforeSwitch((locale) => {
+    const place = useApp.getState().place
+    return place && needsLinkCountry(place, locale) ? waitForLinkCountry(place) : Promise.resolve()
+  })
   const target = readUrlTarget(location.search, Date.now(), bootPlace())
   // A place link that carries `tl` opens the time-lapse over its results (ui/results/TimelapseEntry.tsx).
   if (target?.kind === 'q') useTimelapseUi.getState().request(timelapseParam(location.search))
@@ -181,6 +192,10 @@ export async function boot() {
   if (target) {
     void ensureTz()
     void loadEngine().catch(() => undefined)
+    // Its report waits for the visitor's place names (runReport, src/imagery/exonyms.ts) and, for a link, the country
+    // its name has at its point: fetched now, beside the engine, they are in long before it starts.
+    const linked = target.kind === 'q' ? target.place : undefined
+    void prefetchExonyms().then(() => (linked && needsLinkCountry(linked) ? resolveLinkCountry(linked) : undefined))
   }
   startCatalog()
   const fonts = loadFirstFonts()
@@ -225,11 +240,15 @@ export async function boot() {
   warmAfterLanding()
 }
 
-/** Once the landing's entrance is over: the report engine, its workers, the time-zone table and the hover names. */
+/**
+ * Once the landing's entrance is over: the report engine, its workers, the time-zone table, the hover names, and the
+ * visitor's place names where they are a chunk of their own (src/imagery/exonyms.ts: in long before a search shows any).
+ */
 function warmAfterLanding() {
   afterLandingEntrance(() => {
     void loadEngine().then(warmPassWorkers, () => undefined)
     void ensureTz()
+    void prefetchExonyms()
     loadNamesWhenIdle()
   })
 }
@@ -239,12 +258,14 @@ async function loadFirstFonts(): Promise<void> {
   const fonts = (document as Document & { fonts?: FontFaceSet }).fonts
   if (!fonts) return
   try {
-    const own = SCRIPT_FONTS[document.documentElement.getAttribute('data-script') ?? ''] ?? []
+    const root = document.documentElement
+    const language = SCRIPT_FONTS[root.lang]
+    const own = language ?? SCRIPT_FONTS[root.getAttribute('data-script') ?? ''] ?? []
     // With the page's own words (the landing's title is the hero line in the visitor's language), so a latin-ext face
     // (Polish ł, Turkish ş) is fetched before the hero shows, not swapped in under its wipe. From the catalog, not
     // document.title: on a place page the tab names the place instead (src/app/head.ts).
     const words = `${msgs(enApp).documentTitle} `
-    await Promise.all([...FIRST_FONTS.map((f) => fonts.load(f, words)), ...own.map(([f, text]) => fonts.load(f, text))])
+    await Promise.all([...(language ? [] : FIRST_FONTS).map((f) => fonts.load(f, words)), ...own.map(([f, text]) => fonts.load(f, text))])
     await fonts.ready
   } catch {
     /* system fallbacks */
@@ -376,6 +397,11 @@ function retryCatalog(): Promise<void> {
 }
 
 export async function runReport(place: Place, opts: RunOpts = {}) {
+  // The place's name is on screen from the first frame of the search: in the visitor's language, never before it
+  // (src/imagery/exonyms.ts). Its table is in by now (the search, the pin and the link wait for it), unless a language's
+  // table is still on its way: then the search waits for it, rather than show a name that changes. A link's place is
+  // named in the country the offline list gives its name at its point (imagery resolveLinkCountry, begun at boot).
+  await placeNamesReady(place)
   mark('run-report')
   // The visitor's own search (or the late share itself, already answered): a pending share no longer opens.
   lateShare.cancel()
@@ -845,6 +871,20 @@ function waitForCamera(started: number, flightBefore: number, signal: AbortSigna
     signal.addEventListener('abort', finish, { once: true })
     plan()
   })
+}
+
+/**
+ * The results panel's code could not be loaded (Main's chunk request, after its retries): the search has nowhere to
+ * show itself, so it ends in the fault notice instead of a globe with nothing beside it. The place stays in the
+ * store, so "Try again" runs it again, and the panel's chunk is asked for anew as the phase turns to computing.
+ */
+export function failPanel(cause: unknown) {
+  const st = useApp.getState()
+  if (st.phase !== 'computing' && st.phase !== 'results') return
+  inflight?.abort()
+  inflight = null
+  console.error(cause)
+  st.setPhase('error', COMPUTE_FAULT, `results chunk: ${causeOf(cause)}`)
 }
 
 export function resetToLanding() {

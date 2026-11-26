@@ -471,13 +471,35 @@
   color: var(--signal);
   transition-duration: 0ms;
 }
-/* The link to the code: the credit's own type and colours, and the external-link arrow after the words. Hidden on
-   stacked and short landscape layouts (below). */
-.source {
+/* The maker's Buy Me a Coffee link after the credit (LandingFoot), on wide screens. The credit always shows (owner):
+   where the two do not fit one line (.footTight, measured) the link is out of the flow, unseen but still laid out (so
+   the measurement never flips); phones and short landscape never show it (owner, 2026-11-23: no room on a phone's ink
+   panel; the computing screen, the results and About carry it there). */
+.coffee {
   flex: none;
   display: inline-flex;
   align-items: baseline;
 }
+.footTight .coffee {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+/* The link's two forms: the one not shown is out of the flow, unseen, still measured (LandingFoot). */
+.coffeeLink[data-ask='full'] .askShort,
+.coffeeLink[data-ask='short'] .askFull {
+  position: absolute;
+  visibility: hidden;
+}
+@media (max-width: 760px), (orientation: portrait) and (max-width: 1100px), (orientation: landscape) and (max-height: 540px) {
+  .coffee {
+    display: none;
+  }
+}
+.foot {
+  position: relative;
+}
+/* The coffee link: the credit's own type and colours, and the external-link arrow after the words. */
 .footSep {
   margin: 0 0.7em;
   font-family: var(--font-mono);
@@ -485,17 +507,17 @@
   line-height: 1.4;
   color: var(--bone-4);
 }
-.sourceLink {
+.coffeeLink {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-.sourceLink svg {
+.coffeeLink svg {
   flex: none;
 }
 /* Right to left the arrow ends the line on the left, so it points up and out to the left, away from the words, as it
    points away from them here (PassDetail's arrows lead their words, so they keep pointing right). */
-:root[dir='rtl'] .sourceLink svg {
+:root[dir='rtl'] .coffeeLink svg {
   scale: -1 1;
 }
 /* Touch (U-6): a 44 px tall target for the 15 px line, reaching mostly downward: the chips' own 44 px targets end
@@ -1101,28 +1123,12 @@
   }
 }
 
-/* CJK (scripts.css): the phone, portrait-tablet and short-landscape heroes above are fixed sizes that never read
-   --display-k, so Han, kana and hangul came out at the full English size there, a much heavier block than the condensed
-   Latin. Each line takes the factor itself; English and every other script never match this rule. */
+/* CJK and Devanagari (scripts.css): the phone, portrait-tablet and short-landscape heroes above are fixed sizes that
+   never read --display-k, so Han, kana and hangul came out at the full English size there, a much heavier block than
+   the condensed Latin, and Hindi at its taller leading pushed the sheet up the globe. Each line takes the factor
+   itself; English and every other script never match this rule. */
 @media (max-width: 760px), (orientation: portrait) and (max-width: 1100px), (orientation: landscape) and (max-height: 540px) {
-  :root[data-script='cjk'] .hl {
+  :root:is([data-script='cjk'], [data-script='devanagari']) .hl {
     font-size: calc(1em * var(--display-k));
-  }
-}
-
-/* The link to the code is for wide screens only: on phones and portrait tablets the credit is the ink panel's last line
-   on a full screen, and short landscape has no room beside it. */
-/* ...and only where the line holds it in every language: the longest pair, Indonesian's "Dibuat oleh @armaangupt0 ·
-   Sumber terbuka ↗", is 329 px (Spanish and Italian 322); the line is 321 px at a 761 px window, 340 at 800. Hidden
-   below that, never wrapped (a second line would push the column into the bottom readouts) or let past the search
-   line's edge. */
-@container (max-width: 339px) {
-  .source {
-    display: none;
-  }
-}
-@media (max-width: 760px), (orientation: portrait) and (max-width: 1100px), (orientation: landscape) and (max-height: 540px) {
-  .source {
-    display: none;
   }
 }

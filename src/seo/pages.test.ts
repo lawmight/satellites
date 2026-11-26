@@ -49,6 +49,14 @@ describe('a place page', () => {
     const json = /<script type="application\/json" id="place-page">(.*?)<\/script>/.exec(html)?.[1]
     expect(parsePagePlace(json)).toEqual({ path: '/place/paris', label: 'Paris', sublabel: 'Île-de-France, France', lat: 48.853, lon: 2.349, cc: 'fr' })
     expect(toPagePlace({ ...PARIS, cc: '', sublabel: undefined })).toEqual({ path: '/place/paris', label: 'Paris', sublabel: undefined, lat: 48.853, lon: 2.349, cc: undefined })
+    expect(json).not.toContain('"kind"')
+  })
+
+  it('says a landmark is one, so the app names it as a landmark in the visitor\'s language', () => {
+    const json = /id="place-page">(.*?)<\/script>/.exec(placePage(TEMPLATE, ORIGIN, EIFFEL, [PARIS], SOCIAL))?.[1]
+    expect(parsePagePlace(json)).toEqual({ path: '/place/eiffel-tower', label: 'Eiffel Tower', sublabel: 'Paris, France', lat: 48.8584, lon: 2.2945, cc: 'fr', kind: 'feature' })
+    // Any other value (an older or hand-edited page) is a city's.
+    expect(parsePagePlace(json?.replace('"feature"', '"region"'))?.kind).toBeUndefined()
   })
 
   it('says in plain text what the page shows, and links on', () => {

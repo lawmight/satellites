@@ -28,6 +28,7 @@ export type GlyphName =
   | 'share'
   | 'download'
   | 'search'
+  | 'cup' // a cup with steam: the maker's Buy Me a Coffee page
 
 interface Props {
   name: GlyphName
@@ -122,6 +123,9 @@ export function Glyph({ name, size = 16, color = 'currentColor', className, titl
       break
     case 'download':
       body = <path d="M8 2.5v8M5 7.5l3 3 3-3M3.5 13.5h9" {...s} />
+      break
+    case 'cup':
+      body = <path d="M2.5 7.5h9v2a4 4 0 0 1-4 4h-1a4 4 0 0 1-4-4zM11.5 8.5h1a1.5 1.5 0 0 1 0 3h-1.25M5.5 2.5v2.5M8.5 2.5v2.5" {...s} />
       break
     case 'search':
       body = (

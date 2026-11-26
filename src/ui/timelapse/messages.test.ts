@@ -143,8 +143,10 @@ describe('the video’s lines in any script', () => {
     expect(textDir('CAIRO القاهرة')).toBe('ltr')
   })
 
-  it('tracks every line but those whose letters join', () => {
-    for (const s of ['22 OCT 2015 · SENTINEL-2A', 'SÃO PAULO', 'KYİV', 'КИЇВ', '東京', 'नमस्ते']) expect(joins(s)).toBe(false)
+  it('tracks every line but those whose letters join or share a stroke', () => {
+    for (const s of ['22 OCT 2015 · SENTINEL-2A', 'SÃO PAULO', 'KYİV', 'КИЇВ', '東京']) expect(joins(s)).toBe(false)
     for (const s of ['القاهرة', '22 أكتوبر 2015 · SENTINEL-2A', 'CAIRO القاهرة']) expect(joins(s)).toBe(true)
+    // Devanagari's letters hang from one headline stroke, which tracking cuts into a dash per letter
+    for (const s of ['नमस्ते', '22 अक्टूबर 2015 · SENTINEL-2A', 'NEW DELHI नई दिल्ली', 'কলকাতা', 'ਅੰਮ੍ਰਿਤਸਰ']) expect(joins(s)).toBe(true)
   })
 })

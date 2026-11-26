@@ -3,6 +3,7 @@ import { cityLevelLabel } from './backend'
 import {
   appVersion,
   _testing,
+  browserLanguage,
   buildBatches,
   cellOf,
   deviceClass,
@@ -204,6 +205,32 @@ describe('batching', () => {
     track('about_open')
     expect(() => flush()).not.toThrow()
     expect(JSON.parse(sent[3]).ctx).toEqual({ device: 'phone' })
+  })
+})
+
+describe('browser language (0028)', () => {
+  it('is the first language\'s primary subtag, lowercase, any language', () => {
+    expect(browserLanguage(['hi-IN', 'en-US'])).toBe('hi')
+    expect(browserLanguage(['zh-TW'])).toBe('zh')
+    expect(browserLanguage(['pt-BR', 'pt'])).toBe('pt')
+    expect(browserLanguage(['EN_us'])).toBe('en')
+    expect(browserLanguage(['fil-PH'])).toBe('fil')
+    expect(browserLanguage(['sv'])).toBe('sv')
+    expect(browserLanguage(['es-419'])).toBe('es')
+    expect(browserLanguage(['de-CH', 'hi'])).toBe('de') // only the first
+  })
+  it('reads the old codes some Android browsers send as today\'s', () => {
+    expect(browserLanguage(['in-ID'])).toBe('id')
+    expect(browserLanguage(['iw-IL'])).toBe('he')
+    expect(browserLanguage(['ji'])).toBe('yi')
+  })
+  it('is nothing for no language, or for what is not a language code', () => {
+    for (const tags of [undefined, [], [''], ['*'], ['x-klingon'], ['i-klingon'], ['english'], ['e'], ['12'], [5 as unknown as string]])
+      expect(browserLanguage(tags)).toBeUndefined()
+  })
+  it('is always what log_events keeps (2-3 lowercase letters)', () => {
+    for (const t of ['en-US', 'zh-Hant-TW', 'yue-HK', 'sr-Latn-RS', 'nb-NO', 'ast', ' ru ', 'AR-eg'])
+      expect(browserLanguage([t])).toMatch(/^[a-z]{2,3}$/)
   })
 })
 

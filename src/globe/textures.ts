@@ -479,15 +479,19 @@ async function fetchDecode(url: string, signal?: AbortSignal): Promise<DecodedMa
   return decodeBlob(await res.blob())
 }
 
+/** An archive whose pictures are asked for once and never again, whatever the answer (CLAUDE.md: EUMETSAT's map service). */
+export const askedOnce = (url: string) => url.startsWith('https://view.eumetsat.int/')
+
 /**
  * Fetch (CORS) and decode any image for the GPU, off the main thread (Imagery's regional patches: globe-only URLs,
- * one request each per session). One retry after a short pause, as the panel's image loader does.
+ * one request each per session). One retry after a short pause, as the panel's image loader does, and like it never
+ * for a Meteosat picture (imagery/image.ts preloadImage): a failed one stays failed.
  */
 export async function decodeImageUrl(url: string, signal?: AbortSignal): Promise<DecodedMap> {
   try {
     return await fetchDecode(url, signal)
   } catch (e) {
-    if (signal?.aborted) throw e
+    if (signal?.aborted || askedOnce(url)) throw e
     await new Promise((r) => setTimeout(r, 700 + Math.random() * 500))
     return fetchDecode(url, signal)
   }

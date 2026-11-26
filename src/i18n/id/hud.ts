@@ -24,6 +24,8 @@ function ageId(unit: AgeUnit, n: number): string {
 
 const hud: typeof en = {
   about: 'Cara kerja',
+  sourceLink: 'Sumber terbuka',
+  sourceLinkLabel: 'Sumber terbuka: kodenya di GitHub',
   home: 'Watched, beranda',
   regionTime: 'Waktu',
   regionCatalog: 'Katalog orbit',

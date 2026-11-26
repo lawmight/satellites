@@ -37,6 +37,11 @@ export interface PagePlace {
   lon: number
   /** ISO 3166-1 alpha-2, lowercase */
   cc?: string
+  /**
+   * 'feature' on a landmark's page: the app names it as a search for it does, as a landmark (a language's name for the
+   * White House, not for a town called White House: src/imagery/exonyms.ts). Unset: a city.
+   */
+  kind?: 'feature'
 }
 
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -55,7 +60,7 @@ export function parsePagePlace(json: string | null | undefined): PagePlace | und
   }
   if (!v || typeof v !== 'object') return undefined
   const o = v as Record<string, unknown>
-  const { path, label, sublabel, lat, lon, cc } = o
+  const { path, label, sublabel, lat, lon, cc, kind } = o
   if (typeof path !== 'string' || !path.startsWith(`${PLACE_PREFIX}/`) || !SLUG.test(path.slice(PLACE_PREFIX.length + 1))) return undefined
   if (typeof label !== 'string' || !label.trim()) return undefined
   if (typeof lat !== 'number' || typeof lon !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return undefined
@@ -66,6 +71,7 @@ export function parsePagePlace(json: string | null | undefined): PagePlace | und
     lat,
     lon,
     cc: typeof cc === 'string' && /^[a-z]{2}$/.test(cc) ? cc : undefined,
+    kind: kind === 'feature' ? kind : undefined,
   }
 }
 

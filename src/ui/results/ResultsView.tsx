@@ -32,7 +32,7 @@ import type { ShareFrom } from '@/lib/telemetry'
 import { useApp } from '@/state/store'
 import { useTimelapseUi } from '@/state/timelapse'
 import type { Pass, Place } from '@/types'
-import { ShareSheet } from '@/ui/share'
+import { ShareSheet, usePrefetchCardMeasure } from '@/ui/share'
 import { Button, Glyph, Rule, Sheet, cx, safeAreaTop, useIsMobile, useMediaQuery, useReducedMotion, useViewportHeight } from '@/ui/system'
 import { ComputingBody } from './ComputingBody'
 import { Gallery, galleryCtl } from './Gallery'
@@ -41,9 +41,10 @@ import { GeoWatchers } from './GeoWatchers'
 import { DetailHeader, OverviewHeader, rememberPlace } from './Headers'
 import { PassDetail, PhotoPassView } from './PassDetail'
 import { PassList } from './PassList'
-import { Headline, MoreLine, Notes, Verdicts, enterStyle } from './Summary'
+import { Headline, MoreLine, Notes, Verdicts, countPending, enterStyle } from './Summary'
 import { Timeline } from './Timeline'
 import { TimelapseLayer, TimelapseRow } from './TimelapseEntry'
+import { Colophon, ColophonBar } from './Colophon'
 import { clearPass, focusPass, quiet, startReplay, togglePlay } from './actions'
 import { crossed, onSceneFrame } from './capture'
 import { useGallery } from './gallery'
@@ -316,6 +317,8 @@ export function ResultsView({ onBack, onRetry, onSearch }: ResultsViewProps) {
   const shareHero = useCallback((pass: Pass) => setSharing({ pass, from: 'hero' }), [])
   const sharePass = useCallback((pass: Pass) => setSharing({ pass, from: 'pass' }), [])
   const shareViewed = useCallback((pass: Pass) => setSharing({ pass, from: 'viewer' }), [])
+  // The share card's headline measure is fetched once these results are final, ahead of any press (ui/share/measure.ts).
+  usePrefetchCardMeasure(!computing && !!model)
   // A selection that vanished (report replaced by the final one) falls back to the overview.
   useEffect(() => {
     if (selectedId && model && !model.passById.has(selectedId)) clearPass()
@@ -882,6 +885,15 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
     </div>
   ) : null
   const timelapse = hero ? <TimelapseRow model={model} /> : null
+  // Short landscape phones: with no photo the words take the summary's whole width (open), but only when none can
+  // still arrive (no partial report, no weather mosaic still being checked): a photo that came later would move the
+  // headline into its column after it was read. Decided when the place's summary first shows; a photo that arrives
+  // all the same closes it.
+  const openKey = `${report.place.lat},${report.place.lon},${report.windowStart}`
+  const opened = useRef<{ key: string; open: boolean } | undefined>(undefined)
+  if (opened.current?.key !== openKey) opened.current = { key: openKey, open: !hero && !countPending(report) }
+  else if (hero) opened.current.open = false
+  const open = wide && opened.current.open
   const inviteBar = invite ? (
     <div className={s.invite}>
       <p className={s.inviteText}>{m.invite.text}</p>
@@ -896,11 +908,16 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
     </div>
   ) : null
 
+  // From a browser's third result on, until it is closed: the maker's thanks (Colophon.tsx). Phones: the first thing
+  // under the headline; laptops: after the photos, never ahead of the headline.
+  const thanks = <ColophonBar placeKey={openKey} blocked={invite} />
+
   return (
     <>
       {inviteBar}
       {mobile ? (
         <section className={s.section} aria-label={m.sections.summary}>
+          {thanks}
           {hero}
           {timelapse}
           <div data-peek-end={hero ? undefined : ''}>
@@ -915,7 +932,7 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
           )}
         </section>
       ) : (
-        <section className={cx(s.section, wide && s.summaryWide)} aria-label={m.sections.summary}>
+        <section className={cx(s.section, wide && s.summaryWide, open && s.summaryOpen)} aria-label={m.sections.summary}>
           {noSummaryRule ? null : (
             <Rule index="01" className={s.rule}>
               {m.sections.summary}
@@ -927,6 +944,7 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
           </div>
           {hero}
           {timelapse}
+          {thanks}
           <Verdicts model={model} enter={enter} />
           {compactTimeline ? (
             <div className={s.mTimeline}>{full ? <Timeline model={model} selectedId={selectedId} onSelect={onSelect} compact /> : null}</div>
@@ -954,6 +972,8 @@ function Overview({ model, mobile, compactTimeline, noSummaryRule = false, wide 
             <p className={s.footnote}>
               {m.notes.passTimes(placeName(report.place), report.catalogFetchedAt ? `${report.catalogFetchedAt.slice(0, 16).replace('T', ' ')}Z` : undefined, model.tzLabel)}
             </p>
+            {/* Last of all, once the reader has had the week: how to thank the maker (Colophon.tsx). */}
+            <Colophon />
           </section>
         </>
       ) : (

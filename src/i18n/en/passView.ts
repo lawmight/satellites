@@ -80,7 +80,7 @@ export default ns('passView', {
   distanceKm: (km: number) => `${en.int(km)} km`,
   /** The scene's cloud cover (mono caps, dimmer, after a ·) */
   cloudPct: (pct: number) => `cloud ${en.int(pct)}%`,
-  /** A row thumbnail's accessible name: it opens the photo large */
+  /** A row thumbnail's accessible name: it opens the photo large (`day` in words: "Sunday 1 November") */
   expandLabel: (sat: string, day: string, time: string) => `Expand the photo: ${sat}, ${day} ${time}`,
   /** Its tooltip */
   expandTitle: 'Expand the photo',

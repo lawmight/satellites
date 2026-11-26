@@ -19,5 +19,9 @@ import ko from './ko.js'
 import zhHans from './zh-Hans.js'
 import zhHant from './zh-Hant.js'
 import ar from './ar.js'
+import ru from './ru.js'
+import vi from './vi.js'
+import fa from './fa.js'
+import hi from './hi.js'
 
-provideServerCards({ es, fr, de, 'pt-BR': ptBR, it, nl, pl, tr, id, uk, ja, ko, 'zh-Hans': zhHans, 'zh-Hant': zhHant, ar })
+provideServerCards({ es, fr, de, 'pt-BR': ptBR, it, nl, pl, tr, id, uk, ja, ko, 'zh-Hans': zhHans, 'zh-Hant': zhHant, ar, ru, vi, fa, hi })

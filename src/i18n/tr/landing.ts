@@ -73,8 +73,8 @@ const landing: typeof en = {
       other: [SUB_HEAD, count(days), ` günde${SUB_TAIL}`],
     }),
   builtBy: (handle: string) => `Yapan: ${handle}`,
-  sourceLink: 'Açık kaynak',
-  sourceLinkLabel: 'Açık kaynak: kodu GitHub’da',
+  support: 'Watched’ın ücretsiz kalmasına destek ol :)',
+  supportShort: 'Ücretsiz kalmasına destek ol :)',
 
   // ── The place search ──────────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Bir yer ara',

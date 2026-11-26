@@ -46,8 +46,6 @@ export default ns('gallery', {
     weather: 'Daily weather mosaics, 250 m per pixel and coarser',
     radar: 'Sentinel-1 radar images, 20 m per pixel: through cloud, day or night',
   },
-  /** The counter on a photo of the window: photo `k` of `n` ("3 / 27"; mono, tabular, read aloud as it changes) */
-  position: (k: number, n: number) => `${en.int(k)} / ${en.int(n)}`,
   /**
    * The counter on the last clear look (a photo from before the window, so it has no number): how many of the
    * window's photos follow it. Mono caps, nowrap, its box sized to about 12 characters.
@@ -80,7 +78,8 @@ export default ns('gallery', {
    */
   lead: LEAD,
   /**
-   * A slide's accessible name. `lead`: why it leads (cover only); `day` "Sun 1 Nov" and `time` "16:14" at the place;
+   * A slide's accessible name. `lead`: why it leads (cover only); `day` "Sunday 1 November" (the day in words, as
+   * screen readers say it) and `time` "16:14" at the place;
    * `photo`: its place among the window's photos (absent for the last clear look, which is not one of them).
    */
   slideLabel: (lead: CoverLead | undefined, sat: string, day: string, time: string, photo?: { k: number; n: number }) =>

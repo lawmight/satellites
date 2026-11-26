@@ -33,6 +33,10 @@ export const PLURALS = {
   'zh-Hans': ['other'],
   'zh-Hant': ['other'],
   ar: ['zero', 'one', 'two', 'few', 'many', 'other'],
+  ru: ['one', 'few', 'many', 'other'],
+  vi: ['other'],
+  fa: ['one', 'other'],
+  hi: ['one', 'other'],
 } as const satisfies Record<Locale, readonly PluralCategory[]>
 
 export interface Fmt<L extends Locale = Locale> {

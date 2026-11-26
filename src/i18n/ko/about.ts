@@ -150,6 +150,7 @@ const about: typeof en = {
   credits: {
     /** "Armaan, X @armaangupt0": the handle is the link */
     madeBy: { who: '만든 사람', text: (handle: string): AboutPart[] => ['Armaan, X ', link(handle)] },
+    support: { who: '후원', text: [link('Watched가 계속 무료일 수 있게 도와주세요 :)')] as AboutPart[] },
     /** The one place NASA, NOAA and JMA carry their Korean names; the particle follows the acronym (NOAA(…)와) */
     gibs: '이미지: NASA(미국 항공우주국)의 GIBS(EOSDIS의 일부). GOES는 NOAA(미국 해양대기청)와 CIRA, Himawari는 JMA(일본 기상청) 제공.',
     archives: {

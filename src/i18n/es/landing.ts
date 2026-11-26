@@ -48,8 +48,8 @@ const landing: typeof en = {
     `Busca cualquier lugar de la Tierra. Mira todos los satélites que lo sobrevolaron en ${lastWindow(days)} y las imágenes reales que tomaron.`,
   ],
   builtBy: (handle: string) => `Creado por ${handle}`,
-  sourceLink: 'Código abierto',
-  sourceLinkLabel: 'Código abierto: el proyecto en GitHub',
+  support: 'Ayuda a que Watched siga siendo gratis :)',
+  supportShort: 'Ayuda a que siga gratis :)',
 
   // ── The place search ──────────────────────────────────────────────────────────────────────
   searchPlaceholder: 'Buscar un lugar',

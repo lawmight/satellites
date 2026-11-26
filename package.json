@@ -13,6 +13,8 @@
     "test": "vitest run",
     "data:celestrak": "tsx scripts/fetch-catalog.ts",
     "data:places": "tsx scripts/build-places.ts",
+    "data:exonyms": "tsx scripts/build-exonyms.ts",
+    "data:blocker-rules": "tsx scripts/build-blocker-rules.ts",
     "textures": "python3 scripts/build-textures.py",
     "test:backend": "vitest run --config scripts/backend-vitest.config.ts"
   },
@@ -46,7 +48,10 @@
     "zustand": "^5.1.0"
   },
   "devDependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/noto-sans-arabic": "^5.3.0",
+    "@fontsource-variable/noto-sans-devanagari": "^5.3.0",
+    "@fontsource-variable/noto-serif-devanagari": "^5.3.0",
     "@fontsource/amiri": "^5.3.0",
     "@fontsource/instrument-sans": "^5.3.0",
     "@fontsource/martian-mono": "^5.3.0",

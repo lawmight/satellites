@@ -11,14 +11,14 @@
  * Every word comes from the 'results' and 'verdicts' namespaces, read at render: the model they describe holds only
  * numbers and kinds, so a language switch rewords the summary without rebuilding it.
  */
-import { Fragment, type CSSProperties } from 'react'
+import { Fragment, useRef, type CSSProperties } from 'react'
 import { LOCALE_INFO } from '../../../api/_lib/i18n/locales'
-import { isNum, isStrong, plain } from '../../../api/_lib/i18n/parts'
+import { isNum, isStrong, plain, type Part } from '../../../api/_lib/i18n/parts'
 import enEngine from '@/i18n/en/engine'
 import enResults, { type WindowWhen } from '@/i18n/en/results'
 import enVerdicts from '@/i18n/en/verdicts'
 import { refText } from '@/i18n/messageRef'
-import { Rich } from '@/i18n/Rich'
+import { holdNum, Rich } from '@/i18n/Rich'
 import { currentLocale, msgs, useMsgs } from '@/i18n/runtime'
 import { Button, Glyph, cx, prefersReducedMotion } from '@/ui/system'
 import { Count } from './Count'
@@ -27,6 +27,7 @@ import { darkSentences, photosLine, radarSentence, zeroSentence, type Sentence }
 import { VERDICTS, VERDICT_GLYPH, type Verdict } from './lib/meta'
 import type { ResultsModel } from './model'
 import { placeName } from './placeName'
+import { useWholePlace } from './wholePlace'
 import s from './results.module.css'
 
 /** A window that ended more than an hour ago is described by its dates, not as "the last 7 days". */
@@ -54,6 +55,8 @@ const ENGINE = { engine: enEngine }
 
 /** The headline's looks: its count in the display face's figures, the place in the serif. */
 const HEADLINE = { num: s.numDisplay, accent: s.serif }
+/** The headline's place, for useWholePlace. */
+const PLACE = `.${s.serif}`
 
 /** The headline's parts, in the active language (read at call time). */
 function headlineParts(model: ResultsModel) {
@@ -69,12 +72,17 @@ function headlineParts(model: ResultsModel) {
 export function Headline({ model, compact = false, enter = false }: { model: ResultsModel; compact?: boolean; enter?: boolean }) {
   useMsgs(enResults)
   const cls = cx(compact ? s.mHeadline : s.headline, enter && s.enterWipe)
+  const parts = headlineParts(model)
+  const ref = useRef<HTMLHeadingElement>(null)
+  const ruler = useRef<HTMLSpanElement>(null)
+  useWholePlace(ref, ruler, PLACE, `${compact}:${plain(parts)}`)
   return (
     // The overview's one top heading, as the hero is the landing's and the satellite's name a pass's: the three never
     // share the screen, so every view has one <h1> for a screen reader and a search engine to read it by. (Its looks
     // are all the class's.) Announced when it changes (the final report replacing the partial one), not on every render.
-    <h1 className={cls} aria-live="polite" style={enterStyle(0)}>
-      <Rich parts={headlineParts(model)} classes={HEADLINE} />
+    <h1 ref={ref} className={cls} aria-live="polite" style={enterStyle(0)}>
+      <Rich parts={parts} classes={HEADLINE} />
+      <span ref={ruler} className={s.ruler} aria-hidden />
     </h1>
   )
 }
@@ -85,8 +93,9 @@ export function Headline({ model, compact = false, enter = false }: { model: Res
  * with Try again.
  *
  * `onShare`: Share rides at the end of this line (the week's summary: the headline's own numbers and the gallery's
- * first image). It is where the finding is read, on every layout, and takes no row of its own: a hairline button at
- * the summary's right edge, level with the line. Not offered when nothing watched the place, or while the archives
+ * first image). It is where the finding is read, on every layout: a hairline button at the summary's right edge, level
+ * with the line, and in the landscape column under it, at the same edge, where the line set on one line and the
+ * button do not fit side by side (`.summaryWide .moreRow`). Not offered when nothing watched the place, or while the archives
  * are down (Try again is the action then).
  */
 export function MoreLine({
@@ -158,22 +167,31 @@ export function MoreLine({
 /**
  * "27 images were made public." with the number set in the display face; partial → final settles in place. The
  * message's strong part is the "at least" words: always in the DOM, hidden once the count is final.
+ *
+ * <Count> is a box of its own (its crossfade lays the old digits over the new), and a line may break on either side of
+ * such a box even against a no-break space: Russian's «Опубликовано 1 037 / снимков.» at 360 px. So the count and the
+ * words a catalog ties to it share one nowrap span (holdNum); English ties nothing and renders as it always did.
  */
 function PhotosCount({ k, partial }: { k: number; partial: boolean }) {
   const parts = useMsgs(enResults).imagesPublic(k)
+  const piece = (p: Part, key: number) =>
+    typeof p === 'string' ? (
+      <Fragment key={key}>{p}</Fragment>
+    ) : isStrong(p) ? (
+      <span key={key} className={cx(s.atLeast, !partial && s.atLeastOff)} aria-hidden={!partial}>
+        {plain(p.strong)}
+      </span>
+    ) : isNum(p) ? (
+      <Count key={key} value={k} className={s.numDisplay} />
+    ) : null
+  const at = parts.findIndex(isNum)
+  if (at < 0) return <>{parts.map(piece)}</>
+  const { before, held, after } = holdNum(parts, at)
   return (
     <>
-      {parts.map((p, i) =>
-        typeof p === 'string' ? (
-          <Fragment key={i}>{p}</Fragment>
-        ) : isStrong(p) ? (
-          <span key={i} className={cx(s.atLeast, !partial && s.atLeastOff)} aria-hidden={!partial}>
-            {plain(p.strong)}
-          </span>
-        ) : isNum(p) ? (
-          <Count key={i} value={k} className={s.numDisplay} />
-        ) : null,
-      )}
+      {before.map(piece)}
+      {held.length > 1 ? <span className={s.held}>{held.map(piece)}</span> : piece(held[0], at)}
+      {after.map((p, i) => piece(p, at + 1 + i))}
     </>
   )
 }

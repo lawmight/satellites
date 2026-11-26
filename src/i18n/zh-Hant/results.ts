@@ -301,7 +301,8 @@ const results: typeof en = {
   timeline: {
     title: '時間軸',
     /** "7 天 · America/Toronto · EST". zh-Hant-HK overlay (§1.4): `${f.int(days)} 日 · ${zoneLabel} · ${zones}` */
-    meta: (days: number, zoneLabel: string, zones: string) => `${f.int(days)} 天 · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${f.int(days)} 天 · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: '當地白天',
     /**
@@ -374,6 +375,10 @@ const results: typeof en = {
   timelapse: {
     title: '縮時影像',
     sub: '這個地點，逐年變化',
+  },
+  colophon: {
+    ask: '幫 Watched 保持免費 :)',
+    via: '在 Buy Me a Coffee 上小額打賞',
   },
 }
 

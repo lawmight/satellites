@@ -35,6 +35,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import { EXAMPLE_PLACES, SURPRISE_PLACES } from '../src/ui/landing/places'
+import { FEATURES, featurePop } from './features'
 import { LANDMARKS } from './landmarks'
 import { compactKey, placeKey, SHARD_HEAD_PLACES, SHARD_MAX_PLACES, SHARD_MAX_PREFIX, shardOf, TILE_COLS, TILE_MAX_PLACES, TILE_ROWS, tileAt, tileFile, tileIndex } from '../src/imagery/placeKey'
 
@@ -42,21 +43,6 @@ const SRC = process.argv[2]
 if (!SRC) throw new Error('usage: tsx scripts/build-places.ts <geonames dir>')
 const OUT = 'public/places'
 const GEN = 'src/imagery/localPlaces.gen.ts'
-
-/**
- * Named features and buildings people look for from orbit (GeoNames feature codes), kept only if they have an
- * English Wikipedia article: a mountain, lake or dam with one is one people have heard of; the thousands without
- * one would bury the real answers.
- */
-const FEATURES = new Set(
-  [
-    ...['MT', 'MTS', 'PK', 'PKS', 'VLC', 'ISL', 'ISLS', 'ATOL', 'CNYN', 'DSRT', 'PEN', 'CAPE', 'CRTR', 'MESA', 'GRGE', 'DLTA'],
-    ...['LK', 'LKS', 'LKN', 'BAY', 'BAYS', 'GLCR', 'STRT', 'LGN', 'RSV', 'FLLS', 'RF', 'GULF', 'FJD', 'SD', 'SEA', 'CNL', 'GYSR'],
-    ...['PRK', 'RESN', 'RESF', 'RESW'],
-    ...['AIRP', 'STDM', 'DAM', 'MNMT', 'CSTL', 'UNIV', 'PAL', 'TMPL', 'MUS', 'BDG', 'TOWR', 'PYR', 'PYRS', 'RUIN', 'ANS'],
-    ...['OBS', 'ZOO', 'HSTS', 'CTRS', 'SQR', 'OPRA', 'WALL', 'GDN', 'FT', 'MN'],
-  ],
-)
 
 /** Feature codes left out: historical, abandoned or destroyed places, and religious centres. */
 const SKIP = new Set(['PPLH', 'PPLQ', 'PPLW', 'PPLCH', 'PPLR'])
@@ -75,13 +61,6 @@ interface Entry {
   kind: '' | 'r' | 'c' | 'f'
   section: boolean
 }
-
-/**
- * A feature has no population to rank by. How many names it has (languages, spellings) says how widely it is known:
- * ranked as a place of 10^(2 + 1.5·log10(names + 1)) people, e.g. ~3,000 for a lake with 9 names, ~1 million for a
- * mountain with 50, capped at 10 million.
- */
-const featurePop = (names: number) => Math.min(1e7, 10 ** (2 + 1.5 * Math.log10(names + 1)))
 
 /**
  * GeoNames lists some cities' districts as towns of their own, named after the city ("Paris 16 Passy", "Lyon 03"):

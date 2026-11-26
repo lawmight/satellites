@@ -1,13 +1,12 @@
 /**
  * Hand-rolled SVG charts for the admin page, drawn in the Instrument style (docs/DESIGN.md): hairlines,
- * bone marks, mono labels, signal used only for shares and the places people looked at.
+ * bone marks, mono labels, signal used only for shares and the places people looked at (the map: WorldMap.tsx).
  */
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { Ranked } from './api'
-import { etParts, fmtBucket, fmtInt, fmtPct, funnelShares, niceMax, type FunnelStage } from './format'
-import { dotLevel, dotRadius, GRID_STEP, legendCounts, placeGrid } from './placeGrid'
+import { browserLanguageName, etParts, fmtBucket, fmtInt, fmtPct, funnelShares, niceMax, type BrowserLangRow, type FunnelStage } from './format'
 
-function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null)
   const [w, setW] = useState(0)
   useLayoutEffect(() => {
@@ -153,7 +152,8 @@ function tickIndexes(ts: number[], bucket: 'hour' | 'day', want: number): number
 
 /** `total`: the whole dimension (the RPC's dimTotals), so a share is of everything, not of the top 15. */
 /** `cols`: the list in two columns, read down then across (a long one in a wide panel). */
-export function RankList({ rows, total, max = 8, label, empty = 'Nothing yet', accent = false, cols = false }: { rows: Ranked | undefined; total?: number; max?: number; label?: (v: string) => ReactNode; empty?: string; accent?: boolean; cols?: boolean }) {
+/** `onPoint`: told which row the pointer is on (its value) and when it leaves (null): the places list lights its map. */
+export function RankList({ rows, total, max = 8, label, empty = 'Nothing yet', accent = false, cols = false, onPoint }: { rows: Ranked | undefined; total?: number; max?: number; label?: (v: string) => ReactNode; empty?: string; accent?: boolean; cols?: boolean; onPoint?: (v: string | null) => void }) {
   const list = (rows ?? []).filter(([v]) => v !== '').slice(0, max)
   if (!list.length) return <p className="a-empty">{empty}</p>
   total = Math.max(total ?? 0, (rows ?? []).reduce((a, r) => a + r[1], 0))
@@ -161,7 +161,7 @@ export function RankList({ rows, total, max = 8, label, empty = 'Nothing yet', a
   return (
     <ol className={cols ? 'a-rank a-rank-cols' : 'a-rank'}>
       {list.map(([v, n], i) => (
-        <li key={v}>
+        <li key={v} onPointerEnter={onPoint && (() => onPoint(v))} onPointerLeave={onPoint && (() => onPoint(null))}>
           <span className="a-rank-i">{String(i + 1).padStart(2, '0')}</span>
           <span className="a-rank-label">{label ? label(v) : v}</span>
           <span className="a-rank-n">{fmtInt(n)}</span>
@@ -172,6 +172,69 @@ export function RankList({ rows, total, max = 8, label, empty = 'Nothing yet', a
         </li>
       ))}
     </ol>
+  )
+}
+
+// ── Browser languages: tabs, and the share of them that searched ────────────────────────────
+
+const TRANSLATION_TAGS = { none: 'No translation', unlisted: 'Unlisted' } as const
+
+/**
+ * Each browser language's tabs, their share of `total`, and the share of them that searched (0028). The line under a
+ * row is that searched share of the whole width, and its tick `avg`, the share of all the listed tabs: a language whose
+ * visitors leave without searching ends short of it. A language the app has no translation for (or has one not yet
+ * listed) says so. Two columns, each with its header, when the list is long.
+ */
+export function ReachList({ rows, total, avg, max = 24, empty }: { rows: BrowserLangRow[]; total: number; avg: number | null; max?: number; empty: string }) {
+  if (!rows.length) return <p className="a-empty">{empty}</p>
+  const shown = rows.slice(0, max)
+  const rest = rows.slice(max)
+  const half = shown.length > 8 ? Math.ceil(shown.length / 2) : shown.length
+  const cols = half < shown.length ? [shown.slice(0, half), shown.slice(half)] : [shown]
+  const whole = Math.max(total, rows.reduce((a, r) => a + r.tabs, 0))
+  const pct = (f: number) => `${Math.max(0, Math.min(1, f)) * 100}%`
+  return (
+    <>
+      <div className="a-reach">
+        {cols.map((col, c) => (
+          <div key={c} className="a-reach-col">
+            <div className="a-reach-head a-label" aria-hidden>
+              <span />
+              <span>Language</span>
+              <span>Tabs</span>
+              <span>Share</span>
+              <span>Searched</span>
+            </div>
+            <ol className="a-rank a-reach-list">
+              {col.map((r, i) => (
+                <li key={r.code}>
+                  <span className="a-rank-i">{String(c * half + i + 1).padStart(2, '0')}</span>
+                  <span className="a-rank-label a-reach-label">
+                    <span>{browserLanguageName(r.code)}</span>
+                    {r.translation !== 'listed' && <span className="a-tag">{TRANSLATION_TAGS[r.translation]}</span>}
+                  </span>
+                  <span className="a-rank-n">{fmtInt(r.tabs)}</span>
+                  <span className="a-rank-pct">{fmtPct(r.tabs / whole)}</span>
+                  <span className="a-reach-pct" aria-label={`${fmtPct(r.searched / r.tabs)} searched`}>
+                    {fmtPct(r.searched / r.tabs)}
+                  </span>
+                  <span className="a-reach-bar" aria-hidden>
+                    <span style={{ width: pct(r.searched / r.tabs) }} />
+                    {avg != null && <i style={{ left: pct(avg) }} />}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </div>
+      {rest.length > 0 && (
+        <p className="a-note">
+          And {fmtInt(rest.length)} more {rest.length === 1 ? 'language' : 'languages'}: {fmtInt(rest.reduce((a, r) => a + r.tabs, 0))} tabs (
+          {fmtPct(rest.reduce((a, r) => a + r.tabs, 0) / whole)}), {fmtInt(rest.filter((r) => r.translation === 'none').length)} with no translation.
+        </p>
+      )}
+    </>
   )
 }
 
@@ -194,47 +257,6 @@ export function Funnel({ stages, sessions }: { stages: FunnelStage[]; sessions: 
         )
       })}
     </ol>
-  )
-}
-
-// ── World map: searched cells on a 2.5° grid, no base map (placeGrid.ts) ────────────────────────
-
-const fmtKey = (n: number) => (n >= 1000 && n % 1000 === 0 ? `${n / 1000}K` : fmtInt(n))
-
-export function WorldMap({ cells }: { cells: Ranked | undefined }) {
-  const [ref, w] = useWidth<HTMLDivElement>()
-  const g = placeGrid(cells)
-  const px = w / 360 // the legend's dots are drawn at the map's own scale
-  const keyBox = Math.max(2, Math.ceil(GRID_STEP * px))
-  return (
-    <div className="a-map" ref={ref}>
-      <svg viewBox={`0 ${g.top} 360 ${g.bottom - g.top}`} role="img" aria-label={`Map of ${g.cells} searched cells`}>
-        {g.dots.map((d) => (
-          <circle key={`${d.x},${d.y}`} cx={d.x} cy={d.y} r={dotRadius(d.n, g.max)} fillOpacity={0.55 + 0.45 * dotLevel(d.n, g.max)} className="a-map-dot">
-            <title>{`${fmtInt(d.n)} searches`}</title>
-          </circle>
-        ))}
-      </svg>
-      <div className="a-map-legend">
-        <span>
-          {fmtInt(g.dots.length)} DOTS · {GRID_STEP}° GRID · {fmtInt(g.cells)} CELLS
-        </span>
-        {g.dots.length > 0 && w > 0 && (
-          <span className="a-map-key" aria-label="Dot size by searches, log scale">
-            <span>SEARCHES</span>
-            {legendCounts(g.max).map((n) => (
-              <span key={n} className="a-map-key-i">
-                <svg width={keyBox} height={keyBox} viewBox={`0 0 ${GRID_STEP} ${GRID_STEP}`} aria-hidden="true">
-                  <circle cx={GRID_STEP / 2} cy={GRID_STEP / 2} r={dotRadius(n, g.max)} fillOpacity={0.55 + 0.45 * dotLevel(n, g.max)} className="a-map-dot" />
-                </svg>
-                {fmtKey(n)}
-              </span>
-            ))}
-            <span>LOG</span>
-          </span>
-        )}
-      </div>
-    </div>
   )
 }
 

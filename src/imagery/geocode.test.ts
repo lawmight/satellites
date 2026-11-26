@@ -191,6 +191,10 @@ describe('coordinates', () => {
   })
   it('parses typed coordinates', () => {
     expect(parseCoordinates('43.4723, -80.5449')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    // Arabic, Persian and Devanagari digits, with the Arabic decimal sign and comma
+    expect(parseCoordinates('۴۳٫۴۷۲۳، −۸۰٫۵۴۴۹')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    expect(parseCoordinates('٤٣٫٤٧ -٨٠٫٥٤')).toEqual({ lat: 43.47, lon: -80.54 })
+    expect(parseCoordinates('२८.६१, ७७.२०')).toEqual({ lat: 28.61, lon: 77.2 })
     expect(parseCoordinates('43.4723 -80.5449')).toEqual({ lat: 43.4723, lon: -80.5449 })
     expect(parseCoordinates('43.4723°N 80.5449°W')).toEqual({ lat: 43.4723, lon: -80.5449 })
     expect(parseCoordinates('33.8688S,151.2093E')).toEqual({ lat: -33.8688, lon: 151.2093 })
@@ -243,6 +247,106 @@ describe('coordinates', () => {
     // O is west in French, Spanish and Italian but east (Ost) in German: never guessed.
     expect(parseCoordinates('43.47N 80.54O')).toBeNull()
     expect(parseCoordinates('41,01N 28,98E')).toEqual({ lat: 41.01, lon: 28.98 })
+  })
+  it('reads degrees, minutes and seconds', () => {
+    const at = (q: string, lat: number, lon: number) => {
+      const p = parseCoordinates(q)
+      expect(p, q).not.toBeNull()
+      expect(p!.lat, q).toBeCloseTo(lat, 6)
+      expect(p!.lon, q).toBeCloseTo(lon, 6)
+    }
+    const lat = 43 + 28 / 60 + 20 / 3600
+    const lon = -(80 + 32 / 60 + 42 / 3600)
+    at(`43°28'20"N 80°32'42"W`, lat, lon)
+    at(`43° 28' 20" N, 80° 32' 42" W`, lat, lon)
+    at(`43°28'20"N;80°32'42"W`, lat, lon)
+    // As Wikipedia prints it (primes, a no-break space) and as Google Maps does (a fraction on the seconds).
+    at('43°28′20″N 80°32′42″W', lat, lon)
+    at(`43°28'20.0"N 80°32'42.0"W`, lat, lon)
+    // The marks a keyboard or a word processor gives: curly quotes, two apostrophes, an acute accent, the ordinal sign.
+    at('43°28’20”N 80°32’42”W', lat, lon)
+    at(`43°28'20''N 80°32'42''W`, lat, lon)
+    at('43º28´20˝N 80º32´42˝W', lat, lon)
+    at('４３°２８＇２０＂Ｎ　８０°３２＇４２＂Ｗ', lat, lon)
+    at(`٤٣°٢٨'٢٠"N ٨٠°٣٢'٤٢"W`, lat, lon)
+    at(`43°28'20"n 80°32'42"w`, lat, lon)
+    // Signs for letters; a minus on zero degrees still counts.
+    at(`43°28'20" -80°32'42"`, lat, lon)
+    at(`−33°51'54" 151°12'34"`, -(33 + 51 / 60 + 54 / 3600), 151 + 12 / 60 + 34 / 3600)
+    at(`-0°30' 0°15'`, -0.5, 0.25)
+    // Degrees and minutes; a fraction only on the last number.
+    at(`43°28'N 80°32'W`, 43 + 28 / 60, -(80 + 32 / 60))
+    at(`43°28.34'N 80°32.7'W`, 43 + 28.34 / 60, -(80 + 32.7 / 60))
+    at(`43°28' 80°32'`, 43 + 28 / 60, 80 + 32 / 60)
+    // No marks: the hemisphere letters say what the numbers are. A missing last mark is the same.
+    at('43 28 20 N 80 32 42 W', lat, lon)
+    at('43 28 N 80 32 W', 43 + 28 / 60, -(80 + 32 / 60))
+    at(`43°28'20 N 80°32'42 W`, lat, lon)
+    // Decimal commas, where the comma cannot be what parts the two.
+    at(`43°28'20,5"N 80°32'42,1"W`, 43 + 28 / 60 + 20.5 / 3600, -(80 + 32 / 60 + 42.1 / 3600))
+    at(`43°28,34'N, 80°32,7'W`, 43 + 28.34 / 60, -(80 + 32.7 / 60))
+    at(`43°28'20,80°32'42`, lat, -lon)
+    at('90°N 180°W', 90, -180)
+  })
+  it('reads no minutes or seconds that are not ones', () => {
+    // Bare numbers with nothing to say they are angles.
+    expect(parseCoordinates('43 28 20 80 32 42')).toBeNull()
+    expect(parseCoordinates('43 28 20, 80 32 42')).toBeNull()
+    expect(parseCoordinates('43 28 80 32')).toBeNull()
+    // Out of range: minutes and seconds under 60, the whole angle within the globe.
+    expect(parseCoordinates(`43°60'N 80°32'W`)).toBeNull()
+    expect(parseCoordinates(`43°28'60"N 80°32'42"W`)).toBeNull()
+    expect(parseCoordinates(`90°0'1"N 0°0'0"E`)).toBeNull()
+    expect(parseCoordinates(`43°28'N 180°1'W`)).toBeNull()
+    // A fraction anywhere but on the last number, a mark out of its place, a number missing.
+    expect(parseCoordinates(`43.5°28'N 80°32'W`)).toBeNull()
+    expect(parseCoordinates(`43°28.5'20"N 80°32'42"W`)).toBeNull()
+    expect(parseCoordinates(`43'28°N 80°32'W`)).toBeNull()
+    expect(parseCoordinates(`43°28"N 80°32'W`)).toBeNull()
+    expect(parseCoordinates(`28'20"N 80°32'42"W`)).toBeNull()
+    expect(parseCoordinates(`43°28'20"N`)).toBeNull()
+    expect(parseCoordinates(`43°28'20"N 80°32'42"W 5`)).toBeNull()
+    // Nothing between the two, as with the plain forms; longitude first; a letter on the wrong angle.
+    expect(parseCoordinates(`43°28'20"N80°32'42"W`)).toBeNull()
+    expect(parseCoordinates(`80°32'42"W 43°28'20"N`)).toBeNull()
+    expect(parseCoordinates(`43°28'20"E 80°32'42"N`)).toBeNull()
+    expect(parseCoordinates(`43°28'20"N 80°32'42"O`)).toBeNull()
+    // An address is not a position.
+    expect(parseCoordinates('43 N 5th St')).toBeNull()
+    expect(parseCoordinates(`5'10" N`)).toBeNull()
+  })
+  it('reads a hemisphere letter before its number', () => {
+    expect(parseCoordinates('N 43.4723 W 80.5449')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    expect(parseCoordinates('N43.4723, W80.5449')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    expect(parseCoordinates('n 43.4723° w 80.5449°')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    expect(parseCoordinates('S 33.8688; E 151.2093')).toEqual({ lat: -33.8688, lon: 151.2093 })
+    expect(parseCoordinates('S33.8688 E151.2093')).toEqual({ lat: -33.8688, lon: 151.2093 })
+    expect(parseCoordinates('N 41,01 E 28,98')).toEqual({ lat: 41.01, lon: 28.98 })
+    expect(parseCoordinates('N 41,01, E 28,98')).toEqual({ lat: 41.01, lon: 28.98 })
+    expect(parseCoordinates('N 41, E 28')).toEqual({ lat: 41, lon: 28 })
+    // One letter before, one after.
+    expect(parseCoordinates('N 43.4723, 80.5449 W')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    expect(parseCoordinates('43.4723 N, W 80.5449')).toEqual({ lat: 43.4723, lon: -80.5449 })
+    // With minutes and seconds, and as a geocache prints it (degrees and decimal minutes, a padded longitude).
+    const dms = parseCoordinates(`S 33°51'54" E 151°12'34"`)!
+    expect(dms.lat).toBeCloseTo(-(33 + 51 / 60 + 54 / 3600), 6)
+    expect(dms.lon).toBeCloseTo(151 + 12 / 60 + 34 / 3600, 6)
+    const cache = parseCoordinates('N 43° 28.340 W 080° 32.700')!
+    expect(cache.lat).toBeCloseTo(43 + 28.34 / 60, 6)
+    expect(cache.lon).toBeCloseTo(-(80 + 32.7 / 60), 6)
+    const bare = parseCoordinates('N 43 28 20 W 80 32 42')!
+    expect(bare.lat).toBeCloseTo(43 + 28 / 60 + 20 / 3600, 6)
+    expect(bare.lon).toBeCloseTo(-(80 + 32 / 60 + 42 / 3600), 6)
+  })
+  it('reads no leading letter that is not the angle’s own', () => {
+    expect(parseCoordinates('W 80.5449 N 43.4723')).toBeNull() // longitude first
+    expect(parseCoordinates('N 43.4723 N 80.5449')).toBeNull()
+    expect(parseCoordinates('N 43.4723 S W 80.5449')).toBeNull() // a letter on each side of one number
+    expect(parseCoordinates('N 91 E 0')).toBeNull()
+    expect(parseCoordinates('N 43.4723')).toBeNull()
+    expect(parseCoordinates('N43.4723W80.5449')).toBeNull() // nothing between the two
+    expect(parseCoordinates('O 80.54 N 43.47')).toBeNull()
+    expect(parseCoordinates('N Main St')).toBeNull()
   })
 })
 

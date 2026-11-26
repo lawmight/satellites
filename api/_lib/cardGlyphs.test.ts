@@ -1,8 +1,11 @@
 /**
- * Every character a Latin or Cyrillic card prints is in the card's bundled fonts. A character they lack sends satori to
- * Google Fonts for a subset (two requests, up to 4 s each) before the card renders, and the app's canvas draws it in a
- * system face; French's narrow no-break space did both (cardSpec.ts cardSpaces). Chinese, Japanese, Korean and Arabic
- * cards need Noto subsets by design and are not checked here.
+ * Every character a Latin, Cyrillic or Vietnamese card prints is in the card's bundled fonts. A character they lack sends
+ * satori to Google Fonts for a subset (two requests, up to 4 s each) before the card renders, and the app's canvas draws
+ * it in a system face; French's narrow no-break space did both (cardSpec.ts cardSpaces). Every language's card is drawn
+ * here, and every card once more for a Vietnamese and a Russian place (Hà Nội's ộ, Королёв's ё: the brand faces lack
+ * both, the Vietnamese and Cyrillic cuts have them). Chinese, Japanese, Korean, Arabic and Hindi cards need Noto subsets
+ * by design (fallbackFonts.ts) and are not checked here; a Persian link, like an Arabic one, unfurls with the English card (api/og.tsx
+ * cardLocale), which is.
  *
  * satori reports what a card lacks by asking for it: fetch is stubbed, and any request to Google Fonts is a failure,
  * named with the characters it asked for.
@@ -18,7 +21,7 @@ import { cardSvg } from './ogRender.js'
 
 afterEach(() => vi.unstubAllGlobals())
 
-const LOCALES: Locale[] = ['en', 'es', 'fr', 'de', 'pt-BR', 'it', 'nl', 'pl', 'tr', 'id', 'uk']
+const LOCALES: Locale[] = ['en', 'es', 'fr', 'de', 'pt-BR', 'it', 'nl', 'pl', 'tr', 'id', 'uk', 'ru', 'vi']
 const T = Date.UTC(2026, 10, 1, 16, 21)
 const pass = (verdict: CardInput['verdict'], extra: Partial<CardInput> = {}): CardInput => ({
   verdict,
@@ -42,10 +45,14 @@ function specs(l: Locale): CardSpec[] {
     buildSummarySpec({ ...week, satellites: 12, archiveDown: true }, l),
     ...(['imaged', 'likely', 'could', 'overhead'] as const).map((v) => buildCardSpec(pass(v), l)),
     buildCardSpec(pass('could', { satName: undefined }), l),
+    // A place named in Vietnamese and one in Russian, on every language's card
+    buildCardSpec(pass('imaged', { placeLabel: 'Thành phố Hồ Chí Minh' }), l),
+    buildSummarySpec({ ...week, placeLabel: 'Hà Nội', satellites: 31 }, l),
+    buildCardSpec(pass('likely', { placeLabel: 'Королёв' }), l),
   ]
 }
 
-describe('a Latin or Cyrillic card', () => {
+describe('a Latin, Cyrillic or Vietnamese card', () => {
   it('prints only characters its bundled fonts draw', async () => {
     const asked: string[] = []
     vi.stubGlobal(

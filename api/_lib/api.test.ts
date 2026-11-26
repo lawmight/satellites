@@ -449,7 +449,9 @@ describe('og card', () => {
   it('draws a right-to-left link in English: satori has no bidirectional layout', async () => {
     const { cardLocale } = (await import('../og.tsx' as string)) as { cardLocale: (l: string) => string }
     expect(cardLocale('ar')).toBe('en')
-    expect(['ja', 'de', 'uk', 'en'].map(cardLocale)).toEqual(['ja', 'de', 'uk', 'en'])
+    // Persian too, as Arabic (its share page is Persian; the app's PNG lays it out in the browser)
+    expect(cardLocale('fa')).toBe('en')
+    expect(['ja', 'de', 'uk', 'ru', 'vi', 'en'].map(cardLocale)).toEqual(['ja', 'de', 'uk', 'ru', 'vi', 'en'])
   })
   it('renders the default card as a 1200×630 JPEG under 250 KB with no network (R2SH4)', async () => {
     // Pass-through spy: the renderer reads its WebAssembly from node_modules, and the card itself must not
@@ -612,6 +614,86 @@ describe('a shared geostationary image (migration 0014 for the Meteosats)', () =
     expect(ir.url).toContain('LAYERS=Himawari_AHI_Band13_Clean_Infrared')
     expect(cropPlan({ collection: 'eumetsat-meteosat-0deg', itemId: `msg_fes:rgb_dust@${AT}` }, 48.86, 2.35, 630)).toBeNull()
     expect(cropPlan({ collection: 'gibs-goes-east', itemId: 'GOES-East_ABI_GeoColor@2026-11-11' }, 43.47, -80.54, 630)).toBeNull()
+  })
+
+  describe('the card and EUMETSAT’s map service', () => {
+    type Og = (r: Request) => Promise<Response>
+    const og = async () => ((await import('../og.tsx' as string)) as { handleOg: Og }).handleOg
+    const FRAME = { collection: 'eumetsat-meteosat-0deg', itemId: `mtg_fd:rgb_geocolour@${AT}`, provider: 'eumetsat', gsdM: 2000, datetime: Date.parse(AT) }
+    const stored = (capture: Record<string, unknown>) => ({ ...ROW, placeLabel: 'Paris', lat: 48.86, lon: 2.35, satName: 'Meteosat-12', norad: 54743, tClosest: Date.parse(AT), capture })
+    /** A database holding one share, and a map service answering `eumetsat()`; which hosts were asked. */
+    const world = (share: unknown, eumetsat: () => Response) => {
+      const asked: string[] = []
+      vi.stubGlobal('fetch', vi.fn(async (u: string | Request) => {
+        const url = new URL(u instanceof Request ? u.url : String(u))
+        asked.push(url.host)
+        return url.host === 'example-ref.supabase.co' ? new Response(JSON.stringify(share)) : eumetsat()
+      }))
+      return asked
+    }
+    beforeEach(() => {
+      vi.useFakeTimers({ now: Date.parse(AT) + 3_600_000, toFake: ['Date'] })
+      vi.stubEnv('VITE_SUPABASE_URL', 'https://example-ref.supabase.co')
+      vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'sb_publishable_test')
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+    })
+
+    it('never asks it for a card drawn from an address alone, whatever frame the address names', async () => {
+      const asked = world(null, () => new Response('', { status: 500 }))
+      const handleOg = await og()
+      const pass = `place=Paris&lat=48.86&lon=2.35&verdict=imaged&sat=Meteosat-12&norad=54743&collection=eumetsat-meteosat-0deg&item=${encodeURIComponent(FRAME.itemId)}`
+      const summary = `kind=summary&q=48.86,2.35&n=Paris&sv=200&sc=31,220,1544,66&bc=eumetsat-meteosat-iodc&bi=${encodeURIComponent(`msg_iodc:ir108@${AT}`)}&bs=Meteosat-9`
+      for (const q of [pass, `${pass}&x=1`, summary]) {
+        const res = await handleOg(new Request(`https://www.watched.earth/api/og?${q}`))
+        expect(res.status).toBe(200)
+        // Final: there is no picture to come back for.
+        expect(res.headers.get('cache-control')).toContain('s-maxage=31536000')
+      }
+      expect(asked).toEqual([])
+    })
+
+    it('asks it once for a stored share’s frame, and takes an answer that is no picture as final', async () => {
+      const handleOg = await og()
+      const asked = world(stored(FRAME), () => new Response('', { status: 502 }))
+      const res = await handleOg(new Request('https://www.watched.earth/api/og?id=ab3d5f7h&v=5'))
+      expect(res.status).toBe(200)
+      expect(asked).toEqual(['example-ref.supabase.co', 'view.eumetsat.int'])
+      expect(res.headers.get('cache-control')).toContain('s-maxage=31536000')
+    })
+
+    it('asks nothing for a stored frame time no frame can have: off the cadence, or still to come', async () => {
+      const handleOg = await og()
+      for (const at of ['2026-11-11T06:53:00Z', '2026-11-11T09:00:00Z']) {
+        const asked = world(stored({ ...FRAME, itemId: `mtg_fd:rgb_geocolour@${at}` }), () => new Response('', { status: 502 }))
+        const res = await handleOg(new Request('https://www.watched.earth/api/og?id=ab3d5f7h'))
+        expect(res.status).toBe(200)
+        expect(asked).toEqual(['example-ref.supabase.co'])
+      }
+    })
+
+    it('keeps every parameter a card reads in its cache key (a new one left out would share another card’s entry)', async () => {
+      const { cardCacheQuery, CARD_VERSION } = await import('./share.js')
+      const { readFileSync } = await import('node:fs')
+      const read = [...(readFileSync('api/_lib/share.ts', 'utf8') + readFileSync('api/og.tsx', 'utf8')).matchAll(/(?:\bq|searchParams)\.get\('([a-z]+)'\)/g)].map((m) => m[1])
+      expect(new Set(read).size).toBeGreaterThan(30)
+      for (const name of new Set(read)) {
+        // The version and the language are kept in their own form (the current version; a language we speak).
+        const value = name === 'v' ? CARD_VERSION : name === 'l' ? 'ja' : 'x'
+        expect(cardCacheQuery(new URLSearchParams({ [name]: value })), name).toBe(`${name}=${value}`)
+      }
+      // A stored share's card is its id, whatever else its address says.
+      expect(cardCacheQuery(new URLSearchParams('place=Elsewhere&id=ab3d5f7h&x=1&v=4&l=ar'))).toBe('id=ab3d5f7h')
+    })
+
+    it('is read, not posted to', async () => {
+      const asked = world(stored(FRAME), () => new Response('', { status: 502 }))
+      const res = await (await og())(new Request('https://www.watched.earth/api/og?id=ab3d5f7h', { method: 'POST' }))
+      expect(res.status).toBe(405)
+      expect(asked).toEqual([])
+    })
   })
 
   it('says its pixel in km on the card, names the imager and credits EUMETSAT as its policy asks', () => {

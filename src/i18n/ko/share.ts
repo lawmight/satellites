@@ -41,6 +41,7 @@ const share: typeof en = {
   preparingImage: '이미지 준비 중…',
   share: '공유',
   copyLink: '링크 복사',
+  copyLinkDesktop: '링크 복사',
   copied: '복사됨',
   postToX: 'X에 게시',
   copyImage: '이미지 복사',

@@ -7,7 +7,8 @@
  * Stacked layouts (and short landscape phones) would collide the bottom corners with the landing
  * panel and the bottom sheet, so those are hidden and the sun joins the top-right block.
  * When the scene is not showing live time (replay / scrub), the TR block adds the scene time, in the
- * place's own zone like every other time on the pass (the live clock stays UTC).
+ * place's own zone like every other time on the pass (the live clock stays UTC; a phone too narrow for both beside
+ * the top-left readout shows the scene time in the clock's place, useCrowdedLine).
  *
  * Over a scene (results, a pass) functional ink scrims sit behind the readouts so they stay legible
  * over bright cloud (decision 5); the landing keeps the pure view. The HUD publishes the height it
@@ -23,9 +24,10 @@ import { Rich } from '@/i18n/Rich'
 import { currentLocale, useLocale, useMsgs } from '@/i18n/runtime'
 import { timeZoneAt, tzReady } from '@/imagery'
 import { subsolarPoint } from '@/lib/geo'
+import { INSET_CLEAR, PANEL_EXIT_MS, isStacked } from '@/lib/layout'
 import { sceneClock, useSceneFrame } from '@/state/sceneClock'
 import { useApp } from '@/state/store'
-import { Bezel, CornerReadout, Kbd, Reveal, ScrambleOnce, cx, fmtUtcDate, fmtUtcTime, useWallSecondSync, Wordmark } from '@/ui/system'
+import { Bezel, CornerReadout, Glyph, Kbd, Reveal, ScrambleOnce, cx, fmtUtcDate, fmtUtcTime, useWallSecondSync, Wordmark } from '@/ui/system'
 // The pure time module, never the lazy '@/ui/results' index (that would pull the results chunk in).
 import { fmtLocalDay, fmtLocalTime, zoneAbbr } from '@/ui/results/lib/time'
 import { useCatalogStatus } from './catalogStatus'
@@ -43,10 +45,22 @@ const BRAND = 'Watched'
 const TOP_GAP = 8
 
 /**
- * Least clear space between "How this works · language" and the sun line beside it on a phone. Less, and the sun line
- * steps aside (useCrowdedSun): at 320 px they overlapped in English, at 360 px German and Polish left 6 px, Turkish 13.
+ * Least clear space between "How this works · language" and the sun or scene line beside it on a phone. Less, and that
+ * line makes room (useCrowdedLine): at 320 px the sun overlapped them in English, at 360 px German and Polish left 6
+ * px, Turkish 13; the scene time overlapped them by 4 px in English at 390 px, by 17 at 360 (and by 32 at 402 with a
+ * long zone, "UTC+5:45"). It is the house's measure of crowded, so a scene line that would leave 2–13 px moves too
+ * (English at 396–407 px with a short zone: "SCENE 11:54:08 EST" 8 px from "ENGLISH" at 402).
  */
 const MIN_ROW_GAP = 14
+
+/** The project's code on GitHub (the top-left row's last link, wide screens). */
+const SOURCE_URL = 'https://github.com/dev-Armaan/satellites'
+
+/**
+ * Least clear space between the language's name and a panel's edge before the language steps down (useLanguageRoom).
+ * English keeps 5 px at 844 × 390, clear of the panel's hairline; it was under it at 812 × 375 (by 6 px).
+ */
+const PANEL_GAP = 4
 
 /**
  * After boot, the lines start wiping in this long after the loading screen starts to leave (src/app/bootCurtain.ts:
@@ -58,8 +72,9 @@ const AFTER_BOOT = 300
 
 /**
  * The scene clock, when the globe isn't on live time (replay / scrub), at the place: the same clock and
- * date style as the pass header ("Scene Sun 1 Nov 11:21:13 EST"; phones drop the day so it clears the
- * top-left readout: "Scene 11:21:13 EST"). The zone always shows. UTC until the place's zone is known.
+ * date style as the pass header ("Scene Sun 1 Nov 11:21:13 EST"; phones drop the day: "Scene 11:21:13 EST", and
+ * where even that would crowd the top-left readout it takes the live clock's line, useCrowdedLine). The zone
+ * always shows. UTC until the place's zone is known.
  *
  * Written straight into the DOM from the globe's per-frame clock (sceneClock), the one the replay
  * controls read, so its seconds turn on the same frame as theirs; text changes only when a second
@@ -96,7 +111,7 @@ function SceneTime() {
   useLayoutEffect(write)
   useSceneFrame(write)
   return (
-    <span className={cx(s.line, s.dim)}>
+    <span className={cx(s.line, s.dim, s.sceneLine)}>
       {m.scene}
       <span className={s.sceneValue}>
         <span ref={dayRef} className={s.desk} />
@@ -168,7 +183,12 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
   const topLeft = useRef<HTMLDivElement>(null)
   const topRight = useRef<HTMLDivElement>(null)
   useTopInset(topLeft, topRight)
-  useCrowdedSun(topLeft, topRight)
+  // The language's line first: the crowded check measures the row as it is about to be (both run on a window resize,
+  // in this order; turned upright, the stepped-down language came back into the row a frame after the scene time was
+  // measured against it alone, and ran 44–76 px over it for 2 frames).
+  useLanguageRoom(topLeft)
+  useCrowdedLine(topLeft, topRight)
+  useSourceRoom(topLeft, topRight)
   // The stacked sun line gives way to the scene time during a replay and comes back after it: its
   // wipe plays with the HUD's first entrance only, never again on its return (one entrance per element).
   // Set during the render that unmounts it, so its `skip` never changes while it is mounted.
@@ -214,11 +234,20 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
             </button>
           ) : null}
           <LanguageSwitcher />
+          {/* The project's code (owner, 2026-11-23: here rather than under the landing's chips): wide screens only, and
+              it gives way where it would come close to a panel or the top-right readout (useSourceRoom). */}
+          <span className={cx(s.source, s.wideOnly)} data-hud-source>
+            <span className={s.sourceRule} aria-hidden />
+            <a className={s.sourceLink} href={SOURCE_URL} target="_blank" rel="noreferrer" aria-label={m.sourceLinkLabel}>
+              {m.sourceLink}
+              <Glyph name="arrow-up-right" size={10} />
+            </a>
+          </span>
         </Reveal>
       </CornerReadout>
 
       <CornerReadout corner="tr" label={m.regionTime} ref={topRight}>
-        <Reveal key={`${k}-clock`} skip={booting} axis="x" duration={480} delay={at(0)} as="div" className={s.line}>
+        <Reveal key={`${k}-clock`} skip={booting} axis="x" duration={480} delay={at(0)} as="div" className={cx(s.line, s.clockLine)}>
           <UtcClock />
         </Reveal>
         {live ? null : <SceneTime />}
@@ -274,53 +303,301 @@ function HudImpl({ onAbout, onHome }: { onAbout?: () => void; onHome?: () => voi
 }
 
 /**
- * On a phone the sun joins the top right, on the same line as "How this works" and the language on the left. Where the
- * two would come closer than MIN_ROW_GAP (narrow phones, longer languages) the sun line is hidden, never the About
- * link or the language switcher (the sun's readout is the extra one; wide screens show it in its own corner). It is
- * hidden, not removed: it keeps its box, so it is still measured as the screen or the words change, and nothing in
- * the corner moves (the top left's two lines set the top inset either way). Written to the DOM, not React state: the
- * line remounts after a replay and on boot, which the observers below see.
+ * On a phone the top right's second line sits beside "How this works" and the language on the left: the sun, or during
+ * a replay the scene time. Where the two would come closer than MIN_ROW_GAP (narrow phones, longer languages), that
+ * line makes room, never the About link or the language switcher (the left's words are all needed: a language is
+ * named in full, never by a code, owner 2026-11-19):
+ *  - the sun line is hidden: its readout is the extra one (wide screens show it in its own corner);
+ *  - the scene time moves up into the live clock's line, which steps aside until the replay ends. It is the one time
+ *    that cannot go: it says what moment the globe shows (honest labelling), and while a replay runs every other time
+ *    on screen is the scene's too, so the live UTC clock is what a phone can spare. It cannot go down a line either:
+ *    a third line would run under the results sheet at its top snap and past the scrim. The top right then holds one
+ *    line, as it already does on such a phone outside a replay (its sun line is hidden there).
+ * Both keep their boxes: the sun is hidden, not removed, and the scene time is as wide on either line (the lines are
+ * right-aligned in one fixed box), so each is still measured as the screen or the words change, nothing else in the
+ * corner moves and nothing flips back and forth (the top left's two lines set the top inset either way). Written to
+ * the DOM, not React state: the lines remount after a replay and on boot, which the observers below see. The scene
+ * time's move changes the corner's height, so from the observer it waits for the next frame (layoutFlag).
  */
-function useCrowdedSun(topLeft: RefObject<HTMLDivElement | null>, topRight: RefObject<HTMLDivElement | null>) {
+function useCrowdedLine(topLeft: RefObject<HTMLDivElement | null>, topRight: RefObject<HTMLDivElement | null>) {
+  const recheck = useRelayoutOnLocale()
   useLayoutEffect(() => {
     const tl = topLeft.current
     const tr = topRight.current
     if (!tl || !tr || typeof ResizeObserver === 'undefined') return
+    const flag = layoutFlag()
     const watched = new WeakSet<Element>()
     const watch = (el: Element) => {
       if (watched.has(el)) return
       watched.add(el)
       ro.observe(el)
     }
-    const check = () => {
+    const check = (inObserver: boolean) => {
+      flag.drop()
       const about = tl.querySelector<HTMLElement>(`.${s.aboutLine}`)
-      const sun = tr.querySelector<HTMLElement>(`.${s.sunLine}`)
-      if (!about || !sun) return
+      // One or the other: the scene time takes the sun line's place during a replay.
+      const line = tr.querySelector<HTMLElement>(`.${s.sunLine}, .${s.sceneLine}`)
+      if (!about || !line) return
       watch(about)
-      watch(sun)
+      watch(line)
       const a = about.getBoundingClientRect()
-      const b = sun.getBoundingClientRect()
-      if (!a.width || !b.width) return // the sun line is not shown here (wide screens, a replay)
-      // Right to left the corners swap: the language line is at the right, the sun at the left.
+      const b = line.getBoundingClientRect()
+      if (!a.width || !b.width) return // the sun line is not shown here (wide screens)
+      // Right to left the corners swap: the language line is at the right, the sun or scene at the left.
       const rtl = getComputedStyle(tr).direction === 'rtl'
-      const gap = rtl ? a.left - b.right : b.left - a.right
-      sun.toggleAttribute('data-crowded', gap < MIN_ROW_GAP)
+      // The line's extent at the corner's tracking: while it is tightened (below) it is narrower by its tracking, and
+      // both decisions are made on the untightened line, so tightening it never undoes either (the count is of code
+      // points, and innerText adds a line break between the line's parts: it can only overstate the width, by about a
+      // letter's tracking, which keeps the line where it is rather than send it back and forth).
+      const tight = line.hasAttribute('data-tight')
+      const track = tight ? [...line.innerText].length * (parseFloat(getComputedStyle(tr).letterSpacing) || 0) : 0
+      const width = b.width + track
+      const [start, end] = rtl ? [b.left, b.left + width] : [b.right - width, b.right]
+      const crowded = (rtl ? a.left - end : start - a.right) < MIN_ROW_GAP
+      flag.set(line, 'data-crowded', crowded, inObserver)
+      // Moved up, the scene time is beside the wordmark: on the narrowest phones (320 px) and in the longer languages
+      // it ran 4 px into it (Polish, Indonesian: "POWTÓRKA 10:41:54 UTC+5:45"). There it drops its tracking,
+      // which keeps every word of it (the label and the zone say what the time is) and clears the wordmark by 7 px.
+      const scene = line.matches(`.${s.sceneLine}`)
+      const mark = scene ? tl.querySelector('[data-hud-wordmark]')?.getBoundingClientRect() : undefined
+      const nearMark = !!mark && crowded && (rtl ? mark.left - end : start - mark.right) < MIN_ROW_GAP
+      flag.set(line, 'data-tight', nearMark, inObserver)
     }
-    const ro = new ResizeObserver(check)
+    const now = () => check(false)
+    const ro = new ResizeObserver(() => check(true))
     ro.observe(tl)
     ro.observe(tr)
     // A remounted line (the boot entrance, the sun's return after a replay) is a new element.
-    const mo = new MutationObserver(check)
+    const mo = new MutationObserver(now)
     mo.observe(tr, { childList: true })
     mo.observe(tl, { childList: true })
-    window.addEventListener('resize', check)
-    check()
+    window.addEventListener('resize', now)
+    now()
+    recheck.current = now
     return () => {
+      recheck.current = undefined
       ro.disconnect()
       mo.disconnect()
+      flag.drop()
+      window.removeEventListener('resize', now)
+    }
+  }, [topLeft, topRight])
+}
+
+/**
+ * Landscape phones: the results panel (and the search's, while it locates and computes) docks beside the top-left
+ * readout and reaches up to the bezel, and "How this works | language" ran under its edge in the longer languages (at
+ * 844 × 390 Russian by 10 px, Vietnamese by 18, Dutch 1 px short of it; at 812 × 375 and 800 × 360 English too, by 6
+ * and 10). Where the row would come closer than PANEL_GAP to a panel's edge, the language steps down to a line of its
+ * own under "How this works", which stays whole on its line: every word on the left is needed (the language's full
+ * name, never a code, owner 2026-11-19), and a third line costs only some globe there (the top inset grows, so the
+ * camera frames below it). The step is decided from whatever publishes a side inset, so it comes with the search's
+ * panel and goes on a new search: the landing's text inset (its TEXT_CLEAR) leaves the row 166 px or more at 800–844
+ * px wide, and nothing steps there. A stacked layout (a portrait phone) has no room for a third line (the results
+ * sheet's top snap), and nothing beside the row: its panels are bottom sheets.
+ *
+ * The panels publish what they cover (store.uiInsets, each INSET_CLEAR wider than the panel), so this needs no panel's
+ * markup. The row's width is the About link's plus the language's as it sits in the row (its hairline included, read
+ * while it is in the row), so it is the same on either layout and nothing flips back and forth. Right to left the
+ * corners and the dock swap: the row is at the right, a panel's edge is its left inset. Written to the DOM like
+ * useCrowdedLine: the line remounts on boot, which the observers see. The step changes the corner's height, so from an
+ * observer, or from the insets the panels publish from theirs, it waits for the next frame (layoutFlag).
+ */
+function useLanguageRoom(topLeft: RefObject<HTMLDivElement | null>) {
+  const recheck = useRelayoutOnLocale()
+  useLayoutEffect(() => {
+    const tl = topLeft.current
+    if (!tl || typeof ResizeObserver === 'undefined') return
+    const flag = layoutFlag()
+    // The switcher's hairline and its margins: in the row, it is what the trigger has beyond the name.
+    let rule = 0
+    // The page's direction at the last check: a switch across directions moves the dock to the other side.
+    let wasRtl: boolean | undefined
+    // When the results last gave way to the landing (a new search), and the check waiting for their panel's exit.
+    let leftResultsAt = -Infinity
+    let held = 0
+    const watched = new WeakSet<Element>()
+    const watch = (el: Element) => {
+      if (watched.has(el)) return
+      watched.add(el)
+      ro.observe(el)
+    }
+    const check = (inObserver: boolean) => {
+      flag.drop()
+      const row = tl.querySelector<HTMLElement>(`.${s.aboutLine}`)
+      const trigger = row?.querySelector<HTMLElement>('[aria-haspopup="menu"]')
+      const name = trigger?.querySelector<HTMLElement>('[lang]')
+      if (!row || !trigger || !name) return
+      watch(row)
+      watch(name)
+      const about = row.querySelector<HTMLElement>(`.${s.about}`)
+      const below = row.hasAttribute('data-lang-below')
+      const nameW = name.getBoundingClientRect().width
+      if (!below) rule = trigger.getBoundingClientRect().width - nameW
+      const need = (about?.getBoundingClientRect().width ?? 0) + rule + nameW
+      const r = row.getBoundingClientRect()
+      if (!r.width) return
+      let { left, right } = useApp.getState().uiInsets
+      const rtl = getComputedStyle(tl).direction === 'rtl'
+      // Switched between a right-to-left and a left-to-right language, the dock has moved to the other side in the
+      // same commit, but its new inset comes from its observer, after layout: until then the old one is the dock's
+      // mirror image, so it is read on the new side (Arabic to English at 800 × 360 stepped down a frame late).
+      // Only while the inset is still on the old side: one already published from the new side is read as it is.
+      if (wasRtl !== undefined && wasRtl !== rtl && (rtl ? left <= 0 : right <= 0)) [left, right] = [right, left]
+      wasRtl = rtl
+      // A stacked layout has nothing beside the row (its panels are bottom sheets), whatever the insets still say: a
+      // phone turned upright keeps the landscape panel's side inset until its sheet publishes, and the language stood
+      // stepped down in portrait for 12 frames meanwhile (Vietnamese, 844 × 390 to 390 × 844).
+      const fits = isStacked(window.innerWidth, window.innerHeight) || (rtl
+        ? left <= 0 || r.right - need - PANEL_GAP >= left - INSET_CLEAR
+        : right <= 0 || r.left + need + PANEL_GAP <= window.innerWidth - right + INSET_CLEAR)
+      // New search: the results panel leaves as a clone that clips away for PANEL_EXIT_MS (results/shell.ts), while the
+      // landing has already published its own inset. The language stays on its line until that has played, or it ran
+      // under the leaving panel for 19 frames (Russian at 812 × 375).
+      const wait = leftResultsAt + PANEL_EXIT_MS - performance.now()
+      if (fits && below && wait > 0) {
+        clearTimeout(held)
+        held = window.setTimeout(now, wait)
+        return
+      }
+      flag.set(row, 'data-lang-below', !fits, inObserver)
+    }
+    const now = () => check(false)
+    const ro = new ResizeObserver(() => check(true))
+    ro.observe(tl)
+    // A panel that arrives, leaves or moves publishes new insets, mostly from its own ResizeObserver (results/shell.ts
+    // useInsets): taken as from inside one.
+    const unsub = useApp.subscribe((st, prev) => {
+      const showing = (p: string) => p === 'computing' || p === 'results'
+      if (showing(prev.phase) && !showing(st.phase)) leftResultsAt = performance.now()
+      if (st.uiInsets.left !== prev.uiInsets.left || st.uiInsets.right !== prev.uiInsets.right) check(true)
+    })
+    // A remounted line (the boot entrance) is a new element.
+    const mo = new MutationObserver(now)
+    mo.observe(tl, { childList: true })
+    window.addEventListener('resize', now)
+    now()
+    recheck.current = now
+    return () => {
+      recheck.current = undefined
+      ro.disconnect()
+      mo.disconnect()
+      unsub()
+      clearTimeout(held)
+      flag.drop()
+      window.removeEventListener('resize', now)
+    }
+  }, [topLeft])
+}
+
+/**
+ * A language switch changes the words both hooks above measure (the language's name, the scene's label), which their
+ * ResizeObservers would see only after layout, so the new words would be painted for a frame in the old arrangement
+ * (Russian's name under the panel's edge, 26 px of it at 800 × 360) before the step was written. The hook's check
+ * runs again in a layout effect when the language changes instead: the DOM already holds the new words, nothing has
+ * been painted yet, and it is not an observer's delivery, so the decision is written at once.
+ */
+/**
+ * The link to the code ends the top-left row on wide screens, and gives way (data-off: kept in place, unseen) where it
+ * would come closer than PANEL_GAP to a panel's edge (the results beside the row on a narrow laptop or a tablet on its
+ * side; the panels publish what they cover, store.uiInsets, as useLanguageRoom reads them) or closer than MIN_ROW_GAP
+ * to a top-right line beside it (a replay's scene time). Its own box decides, and hiding it changes no box (only its
+ * visibility), so the answer never flips back and forth and no observer sees a resize from it. Where the language has
+ * stepped down to a line of its own, it is not shown at all (the CSS): the row has no room left.
+ */
+function useSourceRoom(topLeft: RefObject<HTMLDivElement | null>, topRight: RefObject<HTMLDivElement | null>) {
+  const recheck = useRelayoutOnLocale()
+  useLayoutEffect(() => {
+    const tl = topLeft.current
+    const tr = topRight.current
+    if (!tl || !tr) return
+    const check = () => {
+      const src = tl.querySelector<HTMLElement>('[data-hud-source]')
+      if (!src) return
+      const r = src.getBoundingClientRect()
+      if (!r.width) return // not laid out: a phone's layout, or the language on its own line
+      const rtl = getComputedStyle(tl).direction === 'rtl'
+      const { left, right } = useApp.getState().uiInsets
+      let fits = rtl ? left <= 0 || r.left - PANEL_GAP >= left - INSET_CLEAR : right <= 0 || r.right + PANEL_GAP <= window.innerWidth - right + INSET_CLEAR
+      for (const line of tr.children) {
+        const b = line.getBoundingClientRect()
+        if (!b.width || b.bottom <= r.top || b.top >= r.bottom) continue
+        if (rtl ? b.right + MIN_ROW_GAP > r.left : r.right + MIN_ROW_GAP > b.left) fits = false
+      }
+      src.toggleAttribute('data-off', !fits)
+    }
+    const ro = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(check)
+    ro?.observe(tl)
+    ro?.observe(tr)
+    const unsub = useApp.subscribe((st, prev) => {
+      if (st.uiInsets.left !== prev.uiInsets.left || st.uiInsets.right !== prev.uiInsets.right) check()
+    })
+    // A remounted line (the boot entrance), a top-right line that comes or goes (a replay's scene time).
+    const mo = new MutationObserver(check)
+    mo.observe(tl, { childList: true, subtree: true })
+    mo.observe(tr, { childList: true, subtree: true })
+    window.addEventListener('resize', check)
+    check()
+    recheck.current = check
+    return () => {
+      recheck.current = undefined
+      ro?.disconnect()
+      mo.disconnect()
+      unsub()
       window.removeEventListener('resize', check)
     }
   }, [topLeft, topRight])
+}
+
+function useRelayoutOnLocale() {
+  const recheck = useRef<(() => void) | undefined>(undefined)
+  const locale = useLocale()
+  useLayoutEffect(() => recheck.current?.(), [locale])
+  return recheck
+}
+
+/**
+ * Sets an attribute the two hooks above decide by measuring, only when the decision changes. Either change resizes a
+ * top corner, which ResizeObservers watch (useTopInset's, those hooks' own). Made inside an observer's delivery (or a
+ * store callback one runs), that resize cannot be delivered in the same frame: the browser ends it on "ResizeObserver
+ * loop completed with undelivered notifications", a window error that telemetry sends (src/app/telemetry.ts; it
+ * came on the landscape panel's arrival in English at 812 × 375, and on a language switch beside the panel or during
+ * a replay). So there the write waits for the next frame, before its layout, which the observers then see like any
+ * other change; the frame already laid out is painted as it was, one frame of the old layout (the same rule as
+ * Sheet.tsx's footer padding, R3-12). Elsewhere it is written at once: at mount (before the first paint), from the
+ * MutationObserver (a line just remounted), on a language switch (useRelayoutOnLocale) and on a window resize (before
+ * the frame's layout). A newer check drops a write still waiting: the latest measurement decides.
+ */
+function layoutFlag() {
+  let frame = 0
+  // The writes waiting for the next frame, one per attribute (the latest decision for each), made in one frame.
+  const pending = new Map<string, () => void>()
+  const drop = () => {
+    cancelAnimationFrame(frame)
+    frame = 0
+    pending.clear()
+  }
+  const set = (el: Element, name: string, on: boolean, inObserver: boolean) => {
+    if (el.hasAttribute(name) === on) {
+      pending.delete(name)
+      return
+    }
+    const write = () => el.toggleAttribute(name, on)
+    if (!inObserver) {
+      pending.delete(name)
+      write()
+      return
+    }
+    pending.set(name, write)
+    if (!frame)
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const writes = [...pending.values()]
+        pending.clear()
+        writes.forEach((w) => w())
+      })
+  }
+  return { set, drop }
 }
 
 /** Publish store.uiInsets.top = the lower of the two top readouts' bottoms + TOP_GAP. */

@@ -243,7 +243,8 @@ const results: typeof en = {
   // ── 04 / LINIMASA ────────────────────────────────────────────────────────────────────────
   timeline: {
     title: 'Linimasa',
-    meta: (days: number, zoneLabel: string, zones: string) => `${f.int(days)} hari · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${f.int(days)} hari · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: 'Siang hari di sini',
     /** *31 diawasi, 12 kemungkinan besar diawasi, …*: the verdicts' own titles, lowercased for running text (§3.7) */
@@ -313,6 +314,10 @@ const results: typeof en = {
   timelapse: {
     title: 'Time-lapse',
     sub: 'Tempat ini, dari tahun ke tahun',
+  },
+  colophon: {
+    ask: 'Bantu Watched tetap gratis :)',
+    via: 'Tip kecil, lewat Buy Me a Coffee',
   },
 }
 export default results

@@ -256,7 +256,8 @@ const results: typeof en = {
   // ── 04 / timeline ────────────────────────────────────────────────────────────────────────
   timeline: {
     title: 'タイムライン',
-    meta: (days: number, zoneLabel: string, zones: string) => `${f.int(days)}日間 · ${zoneLabel} · ${zones}`,
+    meta: (days: number, zoneLabel: string, zones?: string) =>
+      `${f.int(days)}日間 · ${zoneLabel}${zones ? ` · ${zones}` : ''}`,
     zoneChange: (before: string, after: string) => `${before} → ${after}`,
     daylight: 'この場所の日中',
     /**
@@ -324,6 +325,10 @@ const results: typeof en = {
   timelapse: {
     title: 'タイムラプス',
     sub: 'この場所の年ごとの変化',
+  },
+  colophon: {
+    ask: 'Watchedの無料運営を応援する :)',
+    via: 'Buy Me a Coffeeでちょっとしたチップを',
   },
 }
 export default results

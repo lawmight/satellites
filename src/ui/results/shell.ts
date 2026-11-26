@@ -12,6 +12,7 @@
  */
 import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { DUR, EASE } from '@/lib/ease'
+import { INSET_CLEAR, PANEL_EXIT_MS } from '@/lib/layout'
 import { useLocale } from '@/i18n/runtime'
 import { useApp } from '@/state/store'
 import { prefersReducedMotion } from '@/ui/system'
@@ -253,8 +254,8 @@ export function useInsets(sectionRef: RefObject<HTMLElement | null>, timelineRef
       const w = window.innerWidth
       const onLeft = dockedLeft(section)
       const side = onLeft
-        ? { left: Math.max(0, section.offsetLeft + section.offsetWidth + 24), right: 0 }
-        : { right: Math.max(0, w - section.offsetLeft + 24), left: 0 }
+        ? { left: Math.max(0, section.offsetLeft + section.offsetWidth + INSET_CLEAR), right: 0 }
+        : { right: Math.max(0, w - section.offsetLeft + INSET_CLEAR), left: 0 }
       const tl = timelineRef.current?.getBoundingClientRect()
       let bottom: number
       if (tl && tl.height) bottom = Math.max(0, window.innerHeight - tl.top)
@@ -331,7 +332,7 @@ export function useShellExit(sectionRef: RefObject<HTMLElement | null>, timeline
                   { clipPath: 'inset(0 0 0 0)', translate: '0 0' },
                   { clipPath: 'inset(0 0 0 100%)', translate: '16px 0' },
                 ],
-        reduced ? 200 : 320,
+        reduced ? 200 : PANEL_EXIT_MS,
       )
       exitTimeline(timelineRef.current ?? timeline)
     }

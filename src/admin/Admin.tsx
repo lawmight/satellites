@@ -9,10 +9,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Wordmark } from '@/ui/system/Wordmark'
 import { RANGES, currentSession, fetchLive, fetchStats, liveFor, sendMagicLink, signOut, supabase, takeAuthError, verifyCode, type AdminStats, type LiveCounts, type Range } from './api'
-import { ActivityChart, Funnel, RankList, Split, WorldMap } from './charts'
+import { ActivityChart, Funnel, RankList, ReachList, Split } from './charts'
 import { liveSeries } from './live'
-import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, languageName, maintBehind, type FunnelStage } from './format'
-import { LOCALES } from '../../api/_lib/i18n/locales'
+import { WorldMap } from './WorldMap'
+import { ACTION_NAMES, DEVICE_NAMES, SOURCE_NAMES, SUPPORT_FROM_NAMES, TIMELAPSE_ACTION_NAMES, TIMELAPSE_FROM_NAMES, VERDICT_NAMES, browserLangReach, browserLanguageName, countryName, fmtAgo, fmtClock, fmtInt, fmtUpdated, fmtPct, fmtSec, fmtStamp, languageName, maintBehind, type FunnelStage, type Reach } from './format'
+import { LOCALE_INFO, LOCALES } from '../../api/_lib/i18n/locales'
 
 type View =
   | { kind: 'loading' }
@@ -304,6 +305,24 @@ function Section({ n, title, children, className }: { n: number; title: string; 
   )
 }
 
+/** The map and its lists. Its own component, so pointing at a place in the list redraws the map's reticle and not the page. */
+function Places({ top, searches }: { top: AdminStats['top']; searches: number }) {
+  const [pointed, setPointed] = useState<string | null>(null)
+  return (
+    <div className="a-places">
+      <WorldMap cells={top['search.cell']} labels={top['search.label']} total={searches} focus={pointed} />
+      <div className="a-places-lists">
+        <Panel title="TOP PLACES">
+          <RankList rows={top['search.label']} total={searches} max={10} accent onPoint={setPointed} />
+        </Panel>
+        <Panel title="TOP COUNTRIES SEARCHED">
+          <RankList rows={top['search.country']} total={searches} max={8} label={countryName} />
+        </Panel>
+      </div>
+    </div>
+  )
+}
+
 /** `wide`: two columns of a three-column grid (the whole row in two- and one-column layouts). */
 function Panel({ title, children, note, wide }: { title: string; children: ReactNode; note?: string; wide?: boolean }) {
   return (
@@ -376,6 +395,13 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
   const langTabs = s.dimTotals['session.lang'] ?? 0
   const langEnglish = langs?.find(([v]) => v === 'en')?.[1] ?? 0
   const langUsed = (langs ?? []).filter(([v, n]) => v && n > 0).length
+  // Tabs by the browser's first language (0028), any language, and how many of them searched: the languages the app
+  // has no translation for, and whether their visitors search as much as the others (what English costs).
+  const reach = browserLangReach(s.top['session.browser_lang'], s.top['session.browser_lang_searched'])
+  const reachTabs = Math.max(s.dimTotals['session.browser_lang'] ?? 0, reach.all.tabs)
+  const searchedShare = (x: Reach) => (x.tabs ? x.searched / x.tabs : null)
+  const mostAsked = reach.rows.find((r) => r.translation === 'none')
+  const unlisted = LOCALES.filter((l) => !LOCALE_INFO[l].listed).map((l) => LOCALE_INFO[l].english)
   const now = useNow(30e3)
   // A database from 0016 on says where the range starts, and its days are US Eastern; before, they were UTC.
   const etDays = s.from != null
@@ -435,17 +461,7 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
       </div>
 
       <Section n={5} title="PLACES">
-        <div className="a-places">
-          <WorldMap cells={s.top['search.cell']} />
-          <div className="a-places-lists">
-            <Panel title="TOP PLACES">
-              <RankList rows={s.top['search.label']} total={rec.search} max={10} accent />
-            </Panel>
-            <Panel title="TOP COUNTRIES SEARCHED">
-              <RankList rows={s.top['search.country']} total={rec.search} max={8} label={countryName} />
-            </Panel>
-          </div>
-        </div>
+        <Places top={s.top} searches={rec.search} />
       </Section>
 
       <Section n={6} title="SATELLITES">
@@ -466,6 +482,9 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
         <div className="a-grid3">
           <Panel title="SHARE ACTIONS">
             <Split rows={s.top['share_action.action']} total={t.share_action} names={ACTION_NAMES} />
+          </Panel>
+          <Panel title="BUY ME A COFFEE · PRESSES" note="Presses of the support link, by where it was (0029). A press is not a coffee: the page it opens is Buy Me a Coffee's.">
+            <Split rows={s.top['support_click.from']} total={s.dimTotals['support_click.from'] ?? t.support_click ?? 0} names={SUPPORT_FROM_NAMES} />
           </Panel>
           <Panel title="DEVICES">
             <Split rows={s.top['session.device']} total={rec.session} names={DEVICE_NAMES} />
@@ -549,8 +568,47 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
         </div>
       </Section>
 
+      <Section n={10} title="BROWSER LANGUAGES">
+        <div className="a-grid3">
+          <Panel
+            title="TABS BY BROWSER LANGUAGE"
+            wide
+            note="A tab counts once a day, by its browser’s first language without the region (pt, not pt-BR). Searched: the share of those tabs that searched that day; the line under each is that share, the tick the average of all of them."
+          >
+            <ReachList rows={reach.rows} total={reachTabs} avg={searchedShare(reach.all)} empty="No browser languages recorded yet" />
+          </Panel>
+          <Panel
+            title="WITHOUT A TRANSLATION"
+            note={`Of the tabs that recorded a browser language. A browser that also lists a language the app speaks can show that one: section 09 counts what tabs showed.${unlisted.length ? ` Translated but not chosen for a browser until reviewed: ${unlisted.join(', ')}.` : ''}`}
+          >
+            <dl className="a-facts">
+              <dt>TABS WITH A BROWSER LANGUAGE</dt>
+              <dd>
+                {fmtInt(reachTabs)} <small>OF {fmtInt(rec.session)}</small>
+              </dd>
+              <dt>FIRST LANGUAGE NOT TRANSLATED</dt>
+              <dd>{reach.all.tabs ? fmtPct(reach.untranslated.tabs / reach.all.tabs) : '—'}</dd>
+              <dt>SEARCHED · TRANSLATED</dt>
+              <dd>{fmtPct(searchedShare(reach.translated))}</dd>
+              <dt>SEARCHED · NOT TRANSLATED</dt>
+              <dd>{fmtPct(searchedShare(reach.untranslated))}</dd>
+              <dt>MOST ASKED, NOT TRANSLATED</dt>
+              <dd>
+                {mostAsked ? (
+                  <>
+                    <span className="a-facts-name">{browserLanguageName(mostAsked.code)}</span> <small>{fmtInt(mostAsked.tabs)} {mostAsked.tabs === 1 ? 'TAB' : 'TABS'}</small>
+                  </>
+                ) : (
+                  '—'
+                )}
+              </dd>
+            </dl>
+          </Panel>
+        </div>
+      </Section>
+
       <div className="a-cols">
-        <Section n={10} title="RECENT SEARCHES">
+        <Section n={11} title="RECENT SEARCHES">
           {s.recentSearches.length ? (
             <ul className="a-feed">
               {s.recentSearches.map((x, i) => (
@@ -567,7 +625,7 @@ function Dashboard({ s, live, busy, onRefresh }: { s: AdminStats; live: LiveCoun
             <p className="a-empty">No searches in this range.</p>
           )}
         </Section>
-        <Section n={11} title="RECENT ERRORS">
+        <Section n={12} title="RECENT ERRORS">
           {s.recentErrors.length ? (
             <ul className="a-feed">
               {s.recentErrors.map((x, i) => (

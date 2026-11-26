@@ -42,6 +42,7 @@ const share: typeof en = {
   preparingImage: 'Preparazione immagine…',
   share: 'Condividi',
   copyLink: 'Copia link',
+  copyLinkDesktop: 'Copia link',
   copied: 'Copiato',
   postToX: 'Posta su X',
   copyImage: 'Copia immagine',

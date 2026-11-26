@@ -15,6 +15,7 @@ import type { Bundle } from '../runtime'
 import about from './about'
 import app from './app'
 import engine from './engine'
+import exonyms from './exonyms'
 import gallery from './gallery'
 import geo from './geo'
 import globe from './globe'
@@ -55,5 +56,8 @@ export default {
   verdicts,
   pass,
   engine,
+  exonyms,
   card,
 } satisfies Bundle
+/** Before a switch to this language shows it: its place names (./exonyms.ts, a chunk of its own). */
+export const ready = (): Promise<void> => exonyms.load?.() ?? Promise.resolve()
